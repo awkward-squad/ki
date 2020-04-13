@@ -3,16 +3,26 @@ name: trio
 version: 0
 
 library
-  build-depends: base, concurrency, constraints
+  build-depends: base, concurrency, constraints, say
   default-language: Haskell2010
-  exposed-modules: Trio, Trio.Internal
+  exposed-modules:
+    Trio
+    Trio.Internal
   ghc-options: -Wall
   hs-source-dirs: src
-  other-modules: Trio.Internal.Conc, Trio.Internal.Semaphore
+  other-modules:
+    Trio.Internal.Conc
+    Trio.Internal.Debug
+    Trio.Internal.Semaphore
 
 test-suite tests
-  build-depends: base, dejafu, trio
+  build-depends:
+    base,
+    concurrency,
+    dejafu,
+    trio
   default-language: Haskell2010
+  ghc-options: -Wall -threaded -O -with-rtsopts=-N
   hs-source-dirs: test
   main-is: Test.hs
   type: exitcode-stdio-1.0

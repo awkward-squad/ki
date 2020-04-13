@@ -1,11 +1,13 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 
 module Trio
   ( withNursery
   , forkChild
+  , forkMaskedChild
   , Nursery
   , ChildDied(..)
   , Internal.NurseryClosed(..)
@@ -40,4 +42,11 @@ translateChildDied Internal.ChildDied{..} =
 
 forkChild :: Nursery -> IO () -> IO ThreadId
 forkChild nursery action =
-  Internal.forkChild ( unNursery nursery ) action
+  Internal.forkMaskedChild ( unNursery nursery ) \unmask -> unmask action
+
+forkMaskedChild
+  :: Nursery
+  -> ( ( forall x. IO x -> IO x ) -> IO () )
+  -> IO ThreadId
+forkMaskedChild nursery action =
+  Internal.forkMaskedChild ( unNursery nursery ) action
