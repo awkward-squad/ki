@@ -1,13 +1,13 @@
 module Trio.Internal.Semaphore
-  ( new
-  , signal
-  , wait
-  ) where
+  ( new,
+    signal,
+    wait,
+  )
+where
 
 import Control.Monad.Conc.Class
 
-
-new :: MonadConc m => m ( MVar m () )
+new :: MonadConc m => m (MVar m ())
 new = newEmptyMVar
 
 signal :: MonadConc m => MVar m () -> m ()
