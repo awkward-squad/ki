@@ -3,7 +3,12 @@ name: trio
 version: 0
 
 library
-  build-depends: base, concurrency, constraints, say
+  build-depends:
+    base,
+    concurrency,
+    constraints,
+    containers,
+    say,
   default-language: Haskell2010
   exposed-modules:
     Trio
@@ -13,7 +18,7 @@ library
   other-modules:
     Trio.Internal.Conc
     Trio.Internal.Debug
-    Trio.Internal.Semaphore
+    Trio.Internal.Nursery
 
 test-suite tests
   build-depends:
