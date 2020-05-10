@@ -40,18 +40,3 @@ softCloseScope scopeVar = do
     blockUntilTVar (runningVar scope) Set.null
     blockUntilTVar (startingVar scope) (== 0)
     void (takeTMVar scopeVar)
-
--- | Close a scope, preventing any more children from spawning. Those that do
--- attempt to use the scope afterwards will be delivered a 'ScopeClosed'
--- exception. Returns the children that are still running.
-hardCloseScope ::
-  MonadConc m =>
-  Scope m ->
-  STM m (TVar (STM m) (Set (ThreadId m)))
-hardCloseScope scopeVar =
-  tryTakeTMVar scopeVar >>= \case
-    Nothing -> newTVar Set.empty
-    Just scope -> do
-      starting <- readTVar (startingVar scope)
-      unless (starting == 0) retry
-      pure (runningVar scope)

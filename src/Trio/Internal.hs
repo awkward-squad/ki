@@ -13,6 +13,7 @@
 
 module Trio.Internal
   ( withScope,
+    close,
     asyncMasked,
     cancel,
     Scope,
@@ -52,40 +53,35 @@ withScope f = do
         pure result
 
   uninterruptibleMask \unmask ->
-    unmask action `catch` hardTeardown unmask scopeVar
+    unmask action `catch` \exception -> do
+      closeWithUnmask unmask scopeVar
+      throw (translateAsyncChildDied exception)
 
--- | Tear down a scope, because we were hit with an asynchronous exception
--- either from the outside world, or from a spawned child telling us it failed.
---
--- First we close the scope, so no other children can spawn. Then, we kill all
--- children, and wait for them to finish. Finally, we re-throw the exception
--- that brought us down (but if it was an 'AsyncChildDied', then first translate
--- it to a synchronous 'ChildDied').
---
--- Preconditions:
---   * Asynchronous exceptions are uninterruptibly masked
-hardTeardown ::
-  MonadConc m =>
-  Unmask m ->
-  Scope m ->
-  SomeException ->
-  m a
-hardTeardown unmask scopeVar exception = do
-  childrenVar <- atomically (hardCloseScope scopeVar)
+close :: MonadConc m => Scope m -> m ()
+close scopeVar =
+  uninterruptibleMask \unmask ->
+    closeWithUnmask unmask scopeVar
 
-  children <- atomically (readTVar childrenVar)
-  for_ children \child ->
-    -- Kill the child with asynchronous exceptions unmasked, because we
-    -- don't want to deadlock with a child concurrently trying to throw an
-    -- 'AsyncChildDied' back to us. But if any exceptions are thrown to us
-    -- during this time, whether they are 'AsyncChildDied' or not, just
-    -- ignore them. We already have an exception to throw, and we prefer it
-    -- because it was delivered first.
-    retryingUntilSuccess (unmask (killThread child))
+closeWithUnmask :: MonadConc m => Unmask m -> Scope m -> m ()
+closeWithUnmask unmask scopeVar =
+  (join . atomically) do
+    tryTakeTMVar scopeVar >>= \case
+      Nothing -> pure (pure ())
+      Just ScopeState {runningVar, startingVar} -> do
+        starting <- readTVar startingVar
+        unless (starting == 0) retry
+        pure do
+          children <- atomically (readTVar runningVar)
+          for_ children \child ->
+            -- Kill the child with asynchronous exceptions unmasked, because we
+            -- don't want to deadlock with a child concurrently trying to throw
+            -- an 'AsyncChildDied' back to us. But if any exceptions are thrown
+            -- to us during this time, whether they are 'AsyncChildDied' or not,
+            -- just ignore them. We already have an exception to throw, and we
+            -- prefer it because it was delivered first.
+            retryingUntilSuccess (unmask (killThread child))
 
-  atomically (blockUntilTVar childrenVar Set.null)
-
-  throw (translateAsyncChildDied exception)
+          atomically (blockUntilTVar runningVar Set.null)
 
 data Async m a = Async
   { threadId :: ThreadId m,
