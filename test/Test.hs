@@ -210,7 +210,7 @@ prettyThreadId n =
 
 asyncMasked_ ::
   (MonadConc m, MonadIO m, Typeable m) =>
-  Scope m ->
+  TMVar (STM m) (Scope m) ->
   ((forall x. m x -> m x) -> m ()) ->
   m ()
 asyncMasked_ scope action =
@@ -218,7 +218,7 @@ asyncMasked_ scope action =
 
 async ::
   (MonadConc m, MonadIO m, Typeable m) =>
-  Scope m ->
+  TMVar (STM m) (Scope m) ->
   m a ->
   m (Async m a)
 async scope action =
@@ -226,7 +226,7 @@ async scope action =
 
 async_ ::
   (MonadConc m, MonadIO m, Typeable m) =>
-  Scope m ->
+  TMVar (STM m) (Scope m) ->
   m a ->
   m ()
 async_ scope action =
