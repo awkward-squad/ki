@@ -13,12 +13,13 @@
 module Main where
 
 import Control.Concurrent.Classy
-import Control.Exception (AsyncException (ThreadKilled), Exception, SomeException)
+import Control.Exception (Exception (fromException), SomeAsyncException, SomeException)
 import Control.Monad
 import Control.Monad.IO.Class
 import Data.Foldable
 import Data.Function
 import Data.List
+import Data.Maybe (isJust)
 import Data.Typeable (Typeable)
 import GHC.Clock
 import qualified Test.DejaFu as DejaFu
@@ -29,8 +30,12 @@ import Trio.Internal
 main :: IO ()
 main = do
   test "noop" do
-    returns () do
-      withScope \_ -> pure ()
+    returns () (withScope \_ -> pure ())
+
+  test "using a closed scope throws an exception" do
+    throws @ScopeClosed do
+      scope <- withScope pure
+      async_ scope (pure ())
 
   test "scope waits for children on close" do
     returns True do
@@ -38,7 +43,18 @@ main = do
       withScope \scope -> async_ scope (writeIORef ref True)
       readIORef ref
 
-  test "a child can be killed" do
+  test "a child can be awaited" do
+    returns () do
+      withScope \scope -> do
+        child <- async scope (pure ())
+        atomically (await child)
+
+  test "a child can be awaited outside its scope" do
+    returns () do
+      child <- withScope \scope -> async scope (pure ())
+      atomically (await child)
+
+  test "a child can be canceled" do
     returns () do
       withScope \scope -> do
         var <- newEmptyMVar
@@ -46,7 +62,33 @@ main = do
         cancel child
         putMVar var ()
 
-  test "a child can mask exceptions" do
+  test "a child can be canceled after it's finished" do
+    returns () do
+      withScope \scope -> do
+        child <- async scope (pure ())
+        atomically (await child)
+        cancel child
+
+  test "a dying child delivers an async exception first" do
+    returns True do
+      withScope \scope ->
+        mask \unmask -> do
+          child <- async scope (throw A)
+          unmask (False <$ atomically (await child)) `catch` \ex -> do
+            pure (isAsyncException ex)
+
+  test "a failed child delivers a sync exception when awaited" do
+    throws @(ChildDied P) do
+      var <- newEmptyMVar
+      ignoring @(ChildDied P) do
+        withScope \scope ->
+          mask_ do
+            child <- async scope (() <$ throw A)
+            putMVar var child
+      child <- readMVar var
+      atomically (await child)
+
+  test "a child can mask exceptions forever" do
     deadlocks do
       withScope \scope -> do
         var <- newEmptyMVar
@@ -54,7 +96,16 @@ main = do
         cancel child
         putMVar var ()
 
-  test "killing a child doesn't kill its siblings" do
+  test "a child can mask exceptions briefly" do
+    returns True do
+      ref <- newIORef False
+      withScope \scope -> do
+        child <- asyncMasked scope \unmask ->
+          unmask (pure ()) `finally` writeIORef ref True
+        cancel child
+        readIORef ref
+
+  test "cancelling a child doesn't cancel its siblings" do
     returns True do
       ref <- newIORef False
       withScope \scope -> do
@@ -66,49 +117,47 @@ main = do
       readIORef ref
 
   test "scope re-throws exceptions from children" do
-    throws (withScope \scope -> async_ scope (throw A))
+    throws @(ChildDied P) (withScope \scope -> async_ scope (throw A))
 
-  test "scope kills children when it throws an exception" do
+  test "scope cancels children when it dies" do
     returns True do
       ref <- newIORef False
       ignoring @A do
         withScope \scope -> do
-          var <- newEmptyMVar
           asyncMasked_ scope \unmask -> do
-            unmask (takeMVar var) `onThreadKilled` writeIORef ref True
+            unmask (pure ()) `finally` writeIORef ref True
           void (throw A)
-          putMVar var ()
       readIORef ref
 
-  test "scope kills children when it's killed" do
+  test "scope cancels children when it's cancelled" do
     returns True do
       ref <- newIORef False
       withScope \scope1 -> do
-        var1 <- newEmptyMVar
-        var2 <- newEmptyMVar
+        var <- newEmptyMVar
         child <-
           async scope1 do
             withScope \scope2 -> do
               asyncMasked_ scope2 \unmask -> do
-                putMVar var2 ()
-                unmask (takeMVar var1)
-                  `onThreadKilled` writeIORef ref True
-        takeMVar var2
+                putMVar var ()
+                unmask (pure ()) `finally` writeIORef ref True
+        takeMVar var
         cancel child
-        putMVar var1 ()
       readIORef ref
 
-  test "scope kills children when one throws an exception" do
+  test "scope cancels children when one dies" do
     returns True do
       ref <- newIORef False
-      ignoring @(ChildDied (DejaFu.Program DejaFu.Basic IO)) do
+      ignoring @(ChildDied P) do
         var <- newEmptyMVar
         withScope \scope -> do
           asyncMasked_ scope \unmask ->
-            unmask (takeMVar var) `onThreadKilled` writeIORef ref True
+            unmask (takeMVar var) `finally` writeIORef ref True
           async_ scope (throw A)
         putMVar var ()
       readIORef ref
+
+type P =
+  DejaFu.Program DejaFu.Basic IO
 
 test :: Show a => String -> IO (DejaFu.Result a) -> IO ()
 test name action = do
@@ -123,34 +172,39 @@ test name action = do
   for_ (DejaFu._failures result) \(value, trace) ->
     prettyPrintTrace value trace
 
-returns ::
-  (Eq a, Show a) =>
-  a ->
-  DejaFu.Program DejaFu.Basic IO a ->
-  IO (DejaFu.Result a)
+returns :: (Eq a, Show a) => a -> P a -> IO (DejaFu.Result a)
 returns expected =
-  DejaFu.runTest
-    ( DejaFu.representative
-        (DejaFu.alwaysTrue (either (const False) (== expected)))
-    )
+  DejaFu.runTest (DejaFu.representative (DejaFu.alwaysTrue p))
+  where
+    p = either (const False) (== expected)
 
-throws ::
-  Eq a =>
-  DejaFu.Program DejaFu.Basic IO a ->
-  IO (DejaFu.Result a)
+throws :: forall e a. (Eq a, Exception e) => P a -> IO (DejaFu.Result a)
 throws =
-  DejaFu.runTest (DejaFu.representative (DejaFu.exceptionsAlways))
+  DejaFu.runTest (DejaFu.representative (DejaFu.alwaysTrue p))
+  where
+    p =
+      either
+        ( \case
+            DejaFu.UncaughtException ex -> isJust (fromException @e ex)
+            _ -> False
+        )
+        (const False)
 
-deadlocks ::
-  Eq a =>
-  DejaFu.Program DejaFu.Basic IO a ->
-  IO (DejaFu.Result a)
+deadlocks :: Eq a => P a -> IO (DejaFu.Result a)
 deadlocks =
   DejaFu.runTest (DejaFu.representative DejaFu.deadlocksAlways)
 
-ignoring :: forall e. Exception e => DejaFu.Program DejaFu.Basic IO () -> DejaFu.Program DejaFu.Basic IO ()
+ignoring :: forall e. Exception e => P () -> P ()
 ignoring action =
   catch @_ @e action \_ -> pure ()
+
+isAsyncException :: SomeException -> Bool
+isAsyncException =
+  isJust . fromException @SomeAsyncException
+
+isSyncException :: SomeException -> Bool
+isSyncException =
+  not . isAsyncException
 
 prettyPrintTrace :: Show a => Either DejaFu.Condition a -> DejaFu.Trace -> IO ()
 prettyPrintTrace value trace = do
@@ -237,28 +291,6 @@ data A
   deriving stock (Eq, Show)
   deriving anyclass (Exception)
 
-data ExpectedException
-  = ExpectedException
-  deriving stock (Eq, Show)
-  deriving anyclass (Exception)
-
-testIO :: String -> IO Bool -> IO ()
-testIO name action = do
-  time0 <- getMonotonicTime
-  result <- action
-  time1 <- getMonotonicTime
-  printf
-    "[%s] %7.2fus %s\n"
-    (if result then "x" else " ")
-    ((time1 - time0) * 1000000)
-    name
-
-onThreadKilled :: MonadConc m => m a -> m b -> m a
-onThreadKilled action cleanup =
-  catch action \ex -> do
-    when (ex == ThreadKilled) (void cleanup)
-    throw ex
-
 onException :: MonadConc m => m a -> m b -> m a
 onException action cleanup =
   catch @_ @SomeException action \ex -> do
@@ -271,7 +303,3 @@ finally action cleanup =
     result <- unmask action `onException` cleanup
     _ <- cleanup
     pure result
-
-try :: (Exception e, MonadConc m) => m a -> m (Either e a)
-try action =
-  fmap Right action `catch` (pure . Left)
