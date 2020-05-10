@@ -9,7 +9,9 @@ module Trio
     joinScope,
     closeScope,
     async,
+    async_,
     asyncMasked,
+    asyncMasked_,
     await,
     cancel,
     Scope,
@@ -23,6 +25,7 @@ import Control.Concurrent (ThreadId)
 import qualified Control.Concurrent.Classy.STM as Conc (TMVar)
 import Control.Concurrent.STM
 import Control.Exception (Exception, SomeException, catch, throwIO)
+import Control.Monad
 import Data.Coerce (coerce)
 import qualified Trio.Internal as Internal
 
@@ -61,12 +64,17 @@ async :: Scope -> IO a -> IO (Async a)
 async scope action =
   asyncMasked scope \unmask -> unmask action
 
-asyncMasked ::
-  Scope ->
-  ((forall x. IO x -> IO x) -> IO a) ->
-  IO (Async a)
+async_ :: Scope -> IO a -> IO ()
+async_ scope action =
+  void (async scope action)
+
+asyncMasked :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Async a)
 asyncMasked scope action =
   coerce (Internal.asyncMasked (unScope scope) action)
+
+asyncMasked_ :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO ()
+asyncMasked_ scope action =
+  void (asyncMasked scope action)
 
 await :: Async a -> STM a
 await =
