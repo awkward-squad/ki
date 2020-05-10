@@ -116,7 +116,6 @@ asyncMasked nurseryVar action = do
       forkWithUnmask \unmask -> do
         childThreadId <- myThreadId
         result <- try (action unmask)
-        atomically (putTMVar resultVar result)
         case result of
           Left (NotThreadKilled exception) ->
             throwTo
@@ -126,7 +125,9 @@ asyncMasked nurseryVar action = do
         atomically do
           running <- readTVar runningVar
           if Set.member childThreadId running
-            then writeTVar runningVar $! Set.delete childThreadId running
+            then do
+              putTMVar resultVar result
+              writeTVar runningVar $! Set.delete childThreadId running
             else retry
 
     atomically do
