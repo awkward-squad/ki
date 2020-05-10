@@ -66,21 +66,17 @@ withScope f = do
 
   let action = do
         result <- f scopeVar
-        softCloseScope scopeVar
+        scope <- atomically (readTMVar scopeVar)
+        atomically do
+          blockUntilTVar (runningVar scope) Set.null
+          blockUntilTVar (startingVar scope) (== 0)
+          void (takeTMVar scopeVar)
         pure result
 
   uninterruptibleMask \unmask ->
     unmask action `catch` \exception -> do
       closeWithUnmask unmask scopeVar
       throw (translateAsyncChildDied exception)
-
-softCloseScope :: MonadConc m => TMVar (STM m) (Scope m) -> m ()
-softCloseScope scopeVar = do
-  scope <- atomically (readTMVar scopeVar)
-  atomically do
-    blockUntilTVar (runningVar scope) Set.null
-    blockUntilTVar (startingVar scope) (== 0)
-    void (takeTMVar scopeVar)
 
 close :: MonadConc m => TMVar (STM m) (Scope m) -> m ()
 close scopeVar =
