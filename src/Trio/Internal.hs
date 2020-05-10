@@ -14,7 +14,8 @@
 
 module Trio.Internal
   ( withScope,
-    close,
+    joinScope,
+    closeScope,
     asyncMasked,
     await,
     cancel,
@@ -66,11 +67,7 @@ withScope f = do
 
   let action = do
         result <- f scopeVar
-        scope <- atomically (readTMVar scopeVar)
-        atomically do
-          blockUntilTVar (runningVar scope) Set.null
-          blockUntilTVar (startingVar scope) (== 0)
-          void (takeTMVar scopeVar)
+        atomically (joinScope scopeVar)
         pure result
 
   uninterruptibleMask \unmask ->
@@ -78,8 +75,16 @@ withScope f = do
       closeWithUnmask unmask scopeVar
       throw (translateAsyncChildDied exception)
 
-close :: MonadConc m => TMVar (STM m) (Scope m) -> m ()
-close scopeVar =
+joinScope :: MonadConc m => TMVar (STM m) (Scope m) -> STM m ()
+joinScope scopeVar =
+  tryTakeTMVar scopeVar >>= \case
+    Nothing -> pure ()
+    Just Scope { runningVar, startingVar } -> do
+      blockUntilTVar runningVar Set.null
+      blockUntilTVar startingVar (== 0)
+
+closeScope :: MonadConc m => TMVar (STM m) (Scope m) -> m ()
+closeScope scopeVar =
   uninterruptibleMask \unmask ->
     closeWithUnmask unmask scopeVar
 

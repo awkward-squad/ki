@@ -6,7 +6,8 @@
 
 module Trio
   ( withScope,
-    close,
+    joinScope,
+    closeScope,
     async,
     asyncMasked,
     await,
@@ -44,9 +45,13 @@ withScope f =
     (Internal.withScope \scope -> f (Scope scope))
     (throwIO . translateChildDied)
 
-close :: Scope -> IO ()
-close =
-  coerce Internal.close
+joinScope :: Scope -> STM ()
+joinScope =
+  coerce Internal.joinScope
+
+closeScope :: Scope -> IO ()
+closeScope =
+  coerce Internal.closeScope
 
 translateChildDied :: Internal.ChildDied IO -> ChildDied
 translateChildDied Internal.ChildDied {..} =
