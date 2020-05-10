@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
@@ -11,14 +12,13 @@
 
 module Main where
 
--- import Control.Concurrent
 import Control.Concurrent.Classy
 import Control.Exception (AsyncException (ThreadKilled), Exception, SomeException)
 import Control.Monad
 import Control.Monad.IO.Class
--- import Data.IORef
 import Data.Foldable
 import Data.Function
+import Data.List
 import Data.Typeable (Typeable)
 import GHC.Clock
 import qualified Test.DejaFu as DejaFu
@@ -28,78 +28,131 @@ import Trio.Internal
 
 main :: IO ()
 main = do
-  deterministic "empty" do
-    withNursery \_ -> pure ()
+  test "noop" do
+    returns () do
+      withNursery \_ -> pure ()
 
-  deterministic "waits for child" do
-    ref <- newIORef False
-    withNursery \nursery -> do
-      forkChild_ nursery do
-        writeIORef ref True
-    readIORef ref
+  test "nursery waits for children on close" do
+    returns True do
+      ref <- newIORef False
+      withNursery \nursery -> forkChild_ nursery (writeIORef ref True)
+      readIORef ref
 
-  deterministic "re-throws exceptions from children" do
-    ref <- newIORef False
-    catch @_ @(ChildDied (DejaFu.Program DejaFu.Basic IO))
-      ( withNursery \nursery -> do
-          forkChild_ nursery do
-            throw A
-      )
-      (\_ -> writeIORef ref True)
-    readIORef ref
-
-  deterministic "cancels children when exceptions are thrown from parent" do
-    var <- newEmptyMVar
-    ref <- newIORef False
-    _ <-
-      try @A do
-        withNursery \nursery -> do
-          forkMaskedChild_ nursery \unmask -> do
-            unmask (readMVar var) `onThreadKilled` writeIORef ref True
-          _ <- throw A
-          putMVar var ()
-    readIORef ref
-
-  deterministic "waits for children to finalize" do
-    ref <- newIORef False
-    _ <-
-      try @A do
-        withNursery \nursery -> do
-          forkMaskedChild_ nursery \unmask -> do
-            unmask (threadDelay 100) `finally` writeIORef ref True
-          throw A
-    readIORef ref
-
-  deterministic "cancels children when exceptions are thrown from sibling" do
-    var <- newEmptyMVar
-    ref <- newIORef False
-    _ <-
-      try @(ChildDied (DejaFu.Program DejaFu.Basic IO)) do
-        withNursery \nursery -> do
-          forkMaskedChild_ nursery \unmask -> do
-            unmask (readMVar var) `onException` writeIORef ref True
-          forkChild_ nursery do
-            throw A
+  test "a child can be killed" do
+    returns () do
+      withNursery \nursery -> do
+        var <- newEmptyMVar
+        child <- forkChild nursery (takeMVar var)
+        killThread child
         putMVar var ()
-    readIORef ref
 
-deterministic ::
-  (Eq a, Show a) =>
-  String ->
-  DejaFu.Program DejaFu.Basic IO a ->
-  IO ()
-deterministic name action = do
+  test "a child can mask exceptions" do
+    deadlocks do
+      withNursery \nursery -> do
+        var <- newEmptyMVar
+        child <- forkMaskedChild nursery \_ -> takeMVar var
+        killThread child
+        putMVar var ()
+
+  test "killing a child doesn't kill its siblings" do
+    returns True do
+      ref <- newIORef False
+      withNursery \nursery -> do
+        var <- newEmptyMVar
+        child <- forkChild nursery (takeMVar var)
+        forkChild_ nursery (writeIORef ref True)
+        killThread child
+        putMVar var ()
+      readIORef ref
+
+  test "nursery re-throws exceptions from children" do
+    throws (withNursery \nursery -> forkChild_ nursery (throw A))
+
+  test "nursery kills children when it throws an exception" do
+    returns True do
+      ref <- newIORef False
+      ignoring @A do
+        withNursery \nursery -> do
+          var <- newEmptyMVar
+          forkMaskedChild_ nursery \unmask -> do
+            unmask (takeMVar var) `onThreadKilled` writeIORef ref True
+          void (throw A)
+          putMVar var ()
+      readIORef ref
+
+  {-
+  test "nursery kills children when it's killed" do
+    returns True do
+      ref <- newIORef False
+      withNursery \nursery1 -> do
+        var1 <- newEmptyMVar
+        var2 <- newEmptyMVar
+        child <-
+          forkChild nursery1 do
+            withNursery \nursery2 -> do
+              forkMaskedChild_ nursery2 \unmask -> do
+                putMVar var2 ()
+                unmask (takeMVar var1)
+                  `onThreadKilled` writeIORef ref True
+        takeMVar var2
+        killThread child
+        putMVar var1 ()
+      readIORef ref
+  -}
+
+  test "nursery kills children when one throws an exception" do
+    returns True do
+      ref <- newIORef False
+      ignoring @(ChildDied (DejaFu.Program DejaFu.Basic IO)) do
+        var <- newEmptyMVar
+        withNursery \nursery -> do
+          forkMaskedChild_ nursery \unmask ->
+            unmask (takeMVar var) `onThreadKilled` writeIORef ref True
+          forkChild_ nursery (throw A)
+        putMVar var ()
+      readIORef ref
+
+test :: Show a => String -> IO (DejaFu.Result a) -> IO ()
+test name action = do
   time0 <- getMonotonicTime
-  result <- DejaFu.runTest (DejaFu.representative DejaFu.alwaysSame) action
+  result <- action
   time1 <- getMonotonicTime
   printf
     "[%s] %4.0fms %s\n"
     (if DejaFu._pass result then "x" else " ")
     ((time1 - time0) * 1000)
     name
-  unless (DejaFu._pass result) do
-    for_ (DejaFu._failures result) \(value, trace) ->
-      prettyPrintTrace value trace
+  for_ (DejaFu._failures result) \(value, trace) ->
+    prettyPrintTrace value trace
+
+returns ::
+  (Eq a, Show a) =>
+  a ->
+  DejaFu.Program DejaFu.Basic IO a ->
+  IO (DejaFu.Result a)
+returns expected =
+  DejaFu.runTest
+    ( DejaFu.representative
+        (DejaFu.alwaysTrue (either (const False) (== expected)))
+    )
+
+throws ::
+  Eq a =>
+  DejaFu.Program DejaFu.Basic IO a ->
+  IO (DejaFu.Result a)
+throws =
+  DejaFu.runTest (DejaFu.representative (DejaFu.exceptionsAlways))
+
+deadlocks ::
+  Eq a =>
+  DejaFu.Program DejaFu.Basic IO a ->
+  IO (DejaFu.Result a)
+deadlocks =
+  DejaFu.runTest (DejaFu.representative DejaFu.deadlocksAlways)
+
+ignoring :: forall e. Exception e => DejaFu.Program DejaFu.Basic IO () -> DejaFu.Program DejaFu.Basic IO ()
+ignoring action =
+  catch @_ @e action \_ -> pure ()
 
 prettyPrintTrace :: Show a => Either DejaFu.Condition a -> DejaFu.Trace -> IO ()
 prettyPrintTrace value trace = do
@@ -108,11 +161,54 @@ prettyPrintTrace value trace = do
     [] -> pure ()
     (decision, _, action) : xs -> do
       case decision of
-        DejaFu.Start tid -> putStrLn $ "  Start " ++ show tid
-        DejaFu.SwitchTo tid -> putStrLn $ "  Switch to " ++ show tid
+        DejaFu.Start n -> putStrLn ("  [" ++ prettyThreadId n ++ "]")
+        DejaFu.SwitchTo n -> putStrLn ("  [" ++ prettyThreadId n ++ "]")
         DejaFu.Continue -> pure ()
-      putStrLn $ "    " ++ show action
+      case prettyThreadAction action of
+        "" -> pure ()
+        s -> putStrLn ("    " ++ s)
       loop xs
+
+prettyThreadAction :: DejaFu.ThreadAction -> String
+prettyThreadAction = \case
+  DejaFu.BlockedSTM actions -> "atomically " ++ show actions ++ " (blocked)"
+  DejaFu.BlockedTakeMVar n -> "takeMVar " ++ prettyMVarId n ++ " (blocked)"
+  DejaFu.Fork n -> "fork " ++ prettyThreadId n
+  DejaFu.MyThreadId -> "myThreadId"
+  DejaFu.NewIORef n -> prettyIORefId n ++ " <- newIORef"
+  DejaFu.NewMVar n -> prettyMVarId n ++ " <- newMVar"
+  DejaFu.PutMVar n [] -> "putMVar " ++ prettyMVarId n
+  DejaFu.PutMVar n ts ->
+    "putMVar " ++ prettyMVarId n ++ " (waking "
+      ++ intercalate ", " (map prettyThreadId ts)
+      ++ ")"
+  DejaFu.ReadIORef n -> "readIORef " ++ prettyIORefId n
+  DejaFu.ResetMasking _ state -> "setMaskingState " ++ show state
+  DejaFu.Return -> "pure"
+  DejaFu.STM actions _ -> "atomically " ++ show actions
+  DejaFu.SetMasking _ state -> "setMaskingState " ++ show state
+  DejaFu.Stop -> ""
+  DejaFu.TakeMVar n [] -> "takeMVar " ++ prettyMVarId n
+  DejaFu.TakeMVar n ts ->
+    "takeMVar " ++ prettyMVarId n ++ " (waking "
+      ++ intercalate ", " (map prettyThreadId ts)
+      ++ ")"
+  DejaFu.ThrowTo n success ->
+    "throwTo " ++ prettyThreadId n
+      ++ if success then " (killed)" else " (didn't kill)"
+  action -> show action
+
+prettyIORefId :: DejaFu.IORefId -> String
+prettyIORefId n =
+  "ioref#" ++ show n
+
+prettyMVarId :: DejaFu.MVarId -> String
+prettyMVarId n =
+  "mvar#" ++ show n
+
+prettyThreadId :: DejaFu.ThreadId -> String
+prettyThreadId n =
+  "thread#" ++ show n
 
 forkMaskedChild_ ::
   (MonadConc m, MonadIO m, Typeable m) =>
@@ -140,6 +236,11 @@ forkChild_ nursery action =
 
 data A
   = A
+  deriving stock (Eq, Show)
+  deriving anyclass (Exception)
+
+data ExpectedException
+  = ExpectedException
   deriving stock (Eq, Show)
   deriving anyclass (Exception)
 

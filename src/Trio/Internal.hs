@@ -42,11 +42,10 @@ withNursery :: MonadConc m => (Nursery m -> m a) -> m a
 withNursery f = do
   nurseryVar <- newNursery
 
-  let
-    action = do
-      result <- f nurseryVar
-      softCloseNursery nurseryVar
-      pure result
+  let action = do
+        result <- f nurseryVar
+        softCloseNursery nurseryVar
+        pure result
 
   uninterruptibleMask \unmask ->
     unmask action `catch` hardTeardown unmask nurseryVar
