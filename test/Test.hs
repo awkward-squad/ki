@@ -30,66 +30,66 @@ main :: IO ()
 main = do
   test "noop" do
     returns () do
-      withNursery \_ -> pure ()
+      withScope \_ -> pure ()
 
-  test "nursery waits for children on close" do
+  test "scope waits for children on close" do
     returns True do
       ref <- newIORef False
-      withNursery \nursery -> async_ nursery (writeIORef ref True)
+      withScope \scope -> async_ scope (writeIORef ref True)
       readIORef ref
 
   test "a child can be killed" do
     returns () do
-      withNursery \nursery -> do
+      withScope \scope -> do
         var <- newEmptyMVar
-        child <- async nursery (takeMVar var)
+        child <- async scope (takeMVar var)
         cancel child
         putMVar var ()
 
   test "a child can mask exceptions" do
     deadlocks do
-      withNursery \nursery -> do
+      withScope \scope -> do
         var <- newEmptyMVar
-        child <- asyncMasked nursery \_ -> takeMVar var
+        child <- asyncMasked scope \_ -> takeMVar var
         cancel child
         putMVar var ()
 
   test "killing a child doesn't kill its siblings" do
     returns True do
       ref <- newIORef False
-      withNursery \nursery -> do
+      withScope \scope -> do
         var <- newEmptyMVar
-        child <- async nursery (takeMVar var)
-        async_ nursery (writeIORef ref True)
+        child <- async scope (takeMVar var)
+        async_ scope (writeIORef ref True)
         cancel child
         putMVar var ()
       readIORef ref
 
-  test "nursery re-throws exceptions from children" do
-    throws (withNursery \nursery -> async_ nursery (throw A))
+  test "scope re-throws exceptions from children" do
+    throws (withScope \scope -> async_ scope (throw A))
 
-  test "nursery kills children when it throws an exception" do
+  test "scope kills children when it throws an exception" do
     returns True do
       ref <- newIORef False
       ignoring @A do
-        withNursery \nursery -> do
+        withScope \scope -> do
           var <- newEmptyMVar
-          asyncMasked_ nursery \unmask -> do
+          asyncMasked_ scope \unmask -> do
             unmask (takeMVar var) `onThreadKilled` writeIORef ref True
           void (throw A)
           putMVar var ()
       readIORef ref
 
-  test "nursery kills children when it's killed" do
+  test "scope kills children when it's killed" do
     returns True do
       ref <- newIORef False
-      withNursery \nursery1 -> do
+      withScope \scope1 -> do
         var1 <- newEmptyMVar
         var2 <- newEmptyMVar
         child <-
-          async nursery1 do
-            withNursery \nursery2 -> do
-              asyncMasked_ nursery2 \unmask -> do
+          async scope1 do
+            withScope \scope2 -> do
+              asyncMasked_ scope2 \unmask -> do
                 putMVar var2 ()
                 unmask (takeMVar var1)
                   `onThreadKilled` writeIORef ref True
@@ -98,15 +98,15 @@ main = do
         putMVar var1 ()
       readIORef ref
 
-  test "nursery kills children when one throws an exception" do
+  test "scope kills children when one throws an exception" do
     returns True do
       ref <- newIORef False
       ignoring @(ChildDied (DejaFu.Program DejaFu.Basic IO)) do
         var <- newEmptyMVar
-        withNursery \nursery -> do
-          asyncMasked_ nursery \unmask ->
+        withScope \scope -> do
+          asyncMasked_ scope \unmask ->
             unmask (takeMVar var) `onThreadKilled` writeIORef ref True
-          async_ nursery (throw A)
+          async_ scope (throw A)
         putMVar var ()
       readIORef ref
 
@@ -210,27 +210,27 @@ prettyThreadId n =
 
 asyncMasked_ ::
   (MonadConc m, MonadIO m, Typeable m) =>
-  Nursery m ->
+  Scope m ->
   ((forall x. m x -> m x) -> m ()) ->
   m ()
-asyncMasked_ nursery action =
-  void (asyncMasked nursery action)
+asyncMasked_ scope action =
+  void (asyncMasked scope action)
 
 async ::
   (MonadConc m, MonadIO m, Typeable m) =>
-  Nursery m ->
+  Scope m ->
   m a ->
   m (Async m a)
-async nursery action =
-  asyncMasked nursery \unmask -> unmask action
+async scope action =
+  asyncMasked scope \unmask -> unmask action
 
 async_ ::
   (MonadConc m, MonadIO m, Typeable m) =>
-  Nursery m ->
+  Scope m ->
   m a ->
   m ()
-async_ nursery action =
-  void (async nursery action)
+async_ scope action =
+  void (async scope action)
 
 data A
   = A

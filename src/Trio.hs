@@ -6,12 +6,12 @@
 {-# LANGUAGE RecordWildCards #-}
 
 module Trio
-  ( withNursery,
+  ( withScope,
     async,
     asyncMasked,
-    Nursery,
+    Scope,
     ChildDied (..),
-    Internal.NurseryClosed (..),
+    Internal.ScopeClosed (..),
   )
 where
 
@@ -20,8 +20,8 @@ import Control.Concurrent.STM
 import Control.Exception (Exception, SomeException, catch, throwIO)
 import qualified Trio.Internal as Internal
 
-newtype Nursery = Nursery
-  {unNursery :: Internal.Nursery IO}
+newtype Scope = Scope
+  {unScope :: Internal.Scope IO}
 
 data Async a = Async
   { threadId :: ThreadId,
@@ -35,26 +35,26 @@ data ChildDied = ChildDied
   deriving stock (Show)
   deriving anyclass (Exception)
 
-withNursery :: (Nursery -> IO a) -> IO a
-withNursery f =
+withScope :: (Scope -> IO a) -> IO a
+withScope f =
   catch
-    (Internal.withNursery \nursery -> f (Nursery nursery))
+    (Internal.withScope \scope -> f (Scope scope))
     (throwIO . translateChildDied)
 
 translateChildDied :: Internal.ChildDied IO -> ChildDied
 translateChildDied Internal.ChildDied {..} =
   ChildDied {..}
 
-async :: Nursery -> IO a -> IO (Async a)
-async nursery action =
-  asyncMasked nursery \unmask -> unmask action
+async :: Scope -> IO a -> IO (Async a)
+async scope action =
+  asyncMasked scope \unmask -> unmask action
 
 asyncMasked ::
-  Nursery ->
+  Scope ->
   ((forall x. IO x -> IO x) -> IO a) ->
   IO (Async a)
-asyncMasked nursery action =
-  translateAsync <$> Internal.asyncMasked (unNursery nursery) action
+asyncMasked scope action =
+  translateAsync <$> Internal.asyncMasked (unScope scope) action
 
 translateAsync :: Internal.Async IO a -> Async a
 translateAsync Internal.Async {..} =

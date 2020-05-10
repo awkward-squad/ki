@@ -19,7 +19,7 @@ library
   other-modules:
     Trio.Internal.Conc
     Trio.Internal.Debug
-    Trio.Internal.Nursery
+    Trio.Internal.Scope
 
 test-suite tests
   build-depends:

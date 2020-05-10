@@ -12,13 +12,13 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 module Trio.Internal
-  ( withNursery,
+  ( withScope,
     asyncMasked,
     cancel,
-    Nursery,
+    Scope,
     Async (..),
     ChildDied (..),
-    NurseryClosed (..),
+    ScopeClosed (..),
   )
 where
 
@@ -32,32 +32,32 @@ import qualified Data.Set as Set
 import Data.Typeable
 import Trio.Internal.Conc
 -- import Trio.Internal.Debug
-import Trio.Internal.Nursery
+import Trio.Internal.Scope
 
-data NurseryClosed
-  = NurseryClosed
+data ScopeClosed
+  = ScopeClosed
   deriving stock (Show)
   deriving anyclass (Exception)
 
 type Unmask m =
   forall x. m x -> m x
 
-withNursery :: MonadConc m => (Nursery m -> m a) -> m a
-withNursery f = do
-  nurseryVar <- newNursery
+withScope :: MonadConc m => (Scope m -> m a) -> m a
+withScope f = do
+  scopeVar <- newScope
 
   let action = do
-        result <- f nurseryVar
-        softCloseNursery nurseryVar
+        result <- f scopeVar
+        softCloseScope scopeVar
         pure result
 
   uninterruptibleMask \unmask ->
-    unmask action `catch` hardTeardown unmask nurseryVar
+    unmask action `catch` hardTeardown unmask scopeVar
 
--- | Tear down a nursery, because we were hit with an asynchronous exception
+-- | Tear down a scope, because we were hit with an asynchronous exception
 -- either from the outside world, or from a spawned child telling us it failed.
 --
--- First we close the nursery, so no other children can spawn. Then, we kill all
+-- First we close the scope, so no other children can spawn. Then, we kill all
 -- children, and wait for them to finish. Finally, we re-throw the exception
 -- that brought us down (but if it was an 'AsyncChildDied', then first translate
 -- it to a synchronous 'ChildDied').
@@ -67,11 +67,11 @@ withNursery f = do
 hardTeardown ::
   MonadConc m =>
   Unmask m ->
-  Nursery m ->
+  Scope m ->
   SomeException ->
   m a
-hardTeardown unmask nurseryVar exception = do
-  childrenVar <- atomically (hardCloseNursery nurseryVar)
+hardTeardown unmask scopeVar exception = do
+  childrenVar <- atomically (hardCloseScope scopeVar)
 
   children <- atomically (readTVar childrenVar)
   for_ children \child ->
@@ -95,20 +95,20 @@ data Async m a = Async
 asyncMasked ::
   forall a m.
   (MonadConc m, Typeable m) =>
-  Nursery m ->
+  Scope m ->
   (Unmask m -> m a) ->
   m (Async m a)
-asyncMasked nurseryVar action = do
+asyncMasked scopeVar action = do
   resultVar <- atomically newEmptyTMVar
 
   uninterruptibleMask_ do
-    NurseryState {runningVar, startingVar} <-
+    ScopeState {runningVar, startingVar} <-
       atomically do
-        tryReadTMVar nurseryVar >>= \case
-          Nothing -> throwSTM NurseryClosed
-          Just nursery -> do
-            modifyTVar' (startingVar nursery) (+ 1)
-            pure nursery
+        tryReadTMVar scopeVar >>= \case
+          Nothing -> throwSTM ScopeClosed
+          Just scope -> do
+            modifyTVar' (startingVar scope) (+ 1)
+            pure scope
 
     parentThreadId <- myThreadId
 

@@ -2,7 +2,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 
-module Trio.Internal.Nursery where
+module Trio.Internal.Scope where
 
 import Control.Concurrent.Classy.STM
 import Control.Monad
@@ -12,46 +12,46 @@ import qualified Data.Set as Set
 import Trio.Internal.Conc (blockUntilTVar)
 -- import Trio.Internal.Debug
 
-type Nursery m =
-  TMVar (STM m) (NurseryState m)
+type Scope m =
+  TMVar (STM m) (ScopeState m)
 
-data NurseryState m = NurseryState
+data ScopeState m = ScopeState
   { -- | Running children.
     runningVar :: TVar (STM m) (Set (ThreadId m)),
     -- | Number of children that are just about to start.
     startingVar :: TVar (STM m) Int
   }
 
-newNursery :: MonadConc m => m (Nursery m)
-newNursery =
+newScope :: MonadConc m => m (Scope m)
+newScope =
   atomically do
     runningVar <- newTVar Set.empty
     startingVar <- newTVar 0
     newTMVar
-      NurseryState
+      ScopeState
         { runningVar,
           startingVar
         }
 
-softCloseNursery :: MonadConc m => Nursery m -> m ()
-softCloseNursery nurseryVar = do
-  nursery <- atomically (readTMVar nurseryVar)
+softCloseScope :: MonadConc m => Scope m -> m ()
+softCloseScope scopeVar = do
+  scope <- atomically (readTMVar scopeVar)
   atomically do
-    blockUntilTVar (runningVar nursery) Set.null
-    blockUntilTVar (startingVar nursery) (== 0)
-    void (takeTMVar nurseryVar)
+    blockUntilTVar (runningVar scope) Set.null
+    blockUntilTVar (startingVar scope) (== 0)
+    void (takeTMVar scopeVar)
 
--- | Close a nursery, preventing any more children from spawning. Those that
--- do attempt to use the nursery afterwards will be delivered a 'NurseryClosed'
+-- | Close a scope, preventing any more children from spawning. Those that do
+-- attempt to use the scope afterwards will be delivered a 'ScopeClosed'
 -- exception. Returns the children that are still running.
-hardCloseNursery ::
+hardCloseScope ::
   MonadConc m =>
-  Nursery m ->
+  Scope m ->
   STM m (TVar (STM m) (Set (ThreadId m)))
-hardCloseNursery nurseryVar =
-  tryTakeTMVar nurseryVar >>= \case
+hardCloseScope scopeVar =
+  tryTakeTMVar scopeVar >>= \case
     Nothing -> newTVar Set.empty
-    Just nursery -> do
-      starting <- readTVar (startingVar nursery)
+    Just scope -> do
+      starting <- readTVar (startingVar scope)
       unless (starting == 0) retry
-      pure (runningVar nursery)
+      pure (runningVar scope)
