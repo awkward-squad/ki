@@ -5,6 +5,7 @@
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -15,6 +16,7 @@ module Trio.Internal
   ( withScope,
     close,
     asyncMasked,
+    await,
     cancel,
     Scope,
     Async (..),
@@ -29,11 +31,19 @@ import Control.Monad
 import Control.Monad.Conc.Class
 import Data.Constraint
 import Data.Foldable
+import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Typeable
-import Trio.Internal.Conc
+import Trio.Internal.Conc (blockUntilTVar, retryingUntilSuccess, try, pattern NotThreadKilled)
+
 -- import Trio.Internal.Debug
-import Trio.Internal.Scope
+
+data Scope m = Scope
+  { -- | Running children.
+    runningVar :: TVar (STM m) (Set (ThreadId m)),
+    -- | Number of children that are just about to start.
+    startingVar :: TVar (STM m) Int
+  }
 
 data ScopeClosed
   = ScopeClosed
@@ -43,7 +53,14 @@ data ScopeClosed
 type Unmask m =
   forall x. m x -> m x
 
-withScope :: MonadConc m => (Scope m -> m a) -> m a
+newScope :: MonadConc m => m (TMVar (STM m) (Scope m))
+newScope =
+  atomically do
+    runningVar <- newTVar Set.empty
+    startingVar <- newTVar 0
+    newTMVar Scope {runningVar, startingVar}
+
+withScope :: MonadConc m => (TMVar (STM m) (Scope m) -> m a) -> m a
 withScope f = do
   scopeVar <- newScope
 
@@ -57,17 +74,25 @@ withScope f = do
       closeWithUnmask unmask scopeVar
       throw (translateAsyncChildDied exception)
 
-close :: MonadConc m => Scope m -> m ()
+softCloseScope :: MonadConc m => TMVar (STM m) (Scope m) -> m ()
+softCloseScope scopeVar = do
+  scope <- atomically (readTMVar scopeVar)
+  atomically do
+    blockUntilTVar (runningVar scope) Set.null
+    blockUntilTVar (startingVar scope) (== 0)
+    void (takeTMVar scopeVar)
+
+close :: MonadConc m => TMVar (STM m) (Scope m) -> m ()
 close scopeVar =
   uninterruptibleMask \unmask ->
     closeWithUnmask unmask scopeVar
 
-closeWithUnmask :: MonadConc m => Unmask m -> Scope m -> m ()
+closeWithUnmask :: MonadConc m => Unmask m -> TMVar (STM m) (Scope m) -> m ()
 closeWithUnmask unmask scopeVar =
   (join . atomically) do
     tryTakeTMVar scopeVar >>= \case
       Nothing -> pure (pure ())
-      Just ScopeState {runningVar, startingVar} -> do
+      Just Scope {runningVar, startingVar} -> do
         starting <- readTVar startingVar
         unless (starting == 0) retry
         pure do
@@ -91,14 +116,14 @@ data Async m a = Async
 asyncMasked ::
   forall a m.
   (MonadConc m, Typeable m) =>
-  Scope m ->
+  TMVar (STM m) (Scope m) ->
   (Unmask m -> m a) ->
   m (Async m a)
 asyncMasked scopeVar action = do
   resultVar <- atomically newEmptyTMVar
 
   uninterruptibleMask_ do
-    ScopeState {runningVar, startingVar} <-
+    Scope {runningVar, startingVar} <-
       atomically do
         tryReadTMVar scopeVar >>= \case
           Nothing -> throwSTM ScopeClosed
@@ -135,6 +160,12 @@ asyncMasked scopeVar action = do
         { threadId = childThreadId,
           action = readTMVar resultVar
         }
+
+await :: forall a m. (MonadConc m, Typeable m) => Async m a -> STM m a
+await Async {threadId, action} =
+  action >>= \case
+    Left exception -> throwSTM (ChildDied @m threadId exception)
+    Right result -> pure result
 
 cancel :: MonadConc m => Async m a -> m ()
 cancel Async {threadId, action} = do

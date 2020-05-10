@@ -3,6 +3,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
 
+-- | Random concurrency utils.
 module Trio.Internal.Conc
   ( blockUntilTVar,
     retryingUntilSuccess,

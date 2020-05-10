@@ -1,7 +1,6 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 
@@ -10,6 +9,7 @@ module Trio
     close,
     async,
     asyncMasked,
+    await,
     cancel,
     Scope,
     Async,
@@ -19,12 +19,14 @@ module Trio
 where
 
 import Control.Concurrent (ThreadId)
+import qualified Control.Concurrent.Classy.STM as Conc (TMVar)
+import Control.Concurrent.STM
 import Control.Exception (Exception, SomeException, catch, throwIO)
 import Data.Coerce (coerce)
 import qualified Trio.Internal as Internal
 
 newtype Scope = Scope
-  {unScope :: Internal.Scope IO}
+  {unScope :: Conc.TMVar STM (Internal.Scope IO)}
 
 newtype Async a
   = Async (Internal.Async IO a)
@@ -60,6 +62,10 @@ asyncMasked ::
   IO (Async a)
 asyncMasked scope action =
   coerce (Internal.asyncMasked (unScope scope) action)
+
+await :: Async a -> STM a
+await =
+  coerce Internal.await
 
 cancel :: Async a -> IO ()
 cancel =

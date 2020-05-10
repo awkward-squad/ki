@@ -19,7 +19,6 @@ library
   other-modules:
     Trio.Internal.Conc
     Trio.Internal.Debug
-    Trio.Internal.Scope
 
 test-suite tests
   build-depends:
