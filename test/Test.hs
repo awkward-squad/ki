@@ -35,23 +35,23 @@ main = do
   test "nursery waits for children on close" do
     returns True do
       ref <- newIORef False
-      withNursery \nursery -> forkChild_ nursery (writeIORef ref True)
+      withNursery \nursery -> async_ nursery (writeIORef ref True)
       readIORef ref
 
   test "a child can be killed" do
     returns () do
       withNursery \nursery -> do
         var <- newEmptyMVar
-        child <- forkChild nursery (takeMVar var)
-        killThread child
+        child <- async nursery (takeMVar var)
+        cancel child
         putMVar var ()
 
   test "a child can mask exceptions" do
     deadlocks do
       withNursery \nursery -> do
         var <- newEmptyMVar
-        child <- forkMaskedChild nursery \_ -> takeMVar var
-        killThread child
+        child <- asyncMasked nursery \_ -> takeMVar var
+        cancel child
         putMVar var ()
 
   test "killing a child doesn't kill its siblings" do
@@ -59,14 +59,14 @@ main = do
       ref <- newIORef False
       withNursery \nursery -> do
         var <- newEmptyMVar
-        child <- forkChild nursery (takeMVar var)
-        forkChild_ nursery (writeIORef ref True)
-        killThread child
+        child <- async nursery (takeMVar var)
+        async_ nursery (writeIORef ref True)
+        cancel child
         putMVar var ()
       readIORef ref
 
   test "nursery re-throws exceptions from children" do
-    throws (withNursery \nursery -> forkChild_ nursery (throw A))
+    throws (withNursery \nursery -> async_ nursery (throw A))
 
   test "nursery kills children when it throws an exception" do
     returns True do
@@ -74,13 +74,12 @@ main = do
       ignoring @A do
         withNursery \nursery -> do
           var <- newEmptyMVar
-          forkMaskedChild_ nursery \unmask -> do
+          asyncMasked_ nursery \unmask -> do
             unmask (takeMVar var) `onThreadKilled` writeIORef ref True
           void (throw A)
           putMVar var ()
       readIORef ref
 
-  {-
   test "nursery kills children when it's killed" do
     returns True do
       ref <- newIORef False
@@ -88,17 +87,16 @@ main = do
         var1 <- newEmptyMVar
         var2 <- newEmptyMVar
         child <-
-          forkChild nursery1 do
+          async nursery1 do
             withNursery \nursery2 -> do
-              forkMaskedChild_ nursery2 \unmask -> do
+              asyncMasked_ nursery2 \unmask -> do
                 putMVar var2 ()
                 unmask (takeMVar var1)
                   `onThreadKilled` writeIORef ref True
         takeMVar var2
-        killThread child
+        cancel child
         putMVar var1 ()
       readIORef ref
-  -}
 
   test "nursery kills children when one throws an exception" do
     returns True do
@@ -106,9 +104,9 @@ main = do
       ignoring @(ChildDied (DejaFu.Program DejaFu.Basic IO)) do
         var <- newEmptyMVar
         withNursery \nursery -> do
-          forkMaskedChild_ nursery \unmask ->
+          asyncMasked_ nursery \unmask ->
             unmask (takeMVar var) `onThreadKilled` writeIORef ref True
-          forkChild_ nursery (throw A)
+          async_ nursery (throw A)
         putMVar var ()
       readIORef ref
 
@@ -210,29 +208,29 @@ prettyThreadId :: DejaFu.ThreadId -> String
 prettyThreadId n =
   "thread#" ++ show n
 
-forkMaskedChild_ ::
+asyncMasked_ ::
   (MonadConc m, MonadIO m, Typeable m) =>
   Nursery m ->
   ((forall x. m x -> m x) -> m ()) ->
   m ()
-forkMaskedChild_ nursery action =
-  void (forkMaskedChild nursery action)
+asyncMasked_ nursery action =
+  void (asyncMasked nursery action)
 
-forkChild ::
+async ::
   (MonadConc m, MonadIO m, Typeable m) =>
   Nursery m ->
-  m () ->
-  m (ThreadId m)
-forkChild nursery action =
-  forkMaskedChild nursery \unmask -> unmask action
+  m a ->
+  m (Async m a)
+async nursery action =
+  asyncMasked nursery \unmask -> unmask action
 
-forkChild_ ::
+async_ ::
   (MonadConc m, MonadIO m, Typeable m) =>
   Nursery m ->
-  m () ->
+  m a ->
   m ()
-forkChild_ nursery action =
-  void (forkChild nursery action)
+async_ nursery action =
+  void (async nursery action)
 
 data A
   = A

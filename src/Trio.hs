@@ -1,13 +1,14 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RecordWildCards #-}
 
 module Trio
   ( withNursery,
-    forkChild,
-    forkMaskedChild,
+    async,
+    asyncMasked,
     Nursery,
     ChildDied (..),
     Internal.NurseryClosed (..),
@@ -15,11 +16,17 @@ module Trio
 where
 
 import Control.Concurrent (ThreadId)
+import Control.Concurrent.STM
 import Control.Exception (Exception, SomeException, catch, throwIO)
 import qualified Trio.Internal as Internal
 
 newtype Nursery = Nursery
   {unNursery :: Internal.Nursery IO}
+
+data Async a = Async
+  { threadId :: ThreadId,
+    action :: STM (Either SomeException a)
+  }
 
 data ChildDied = ChildDied
   { threadId :: ThreadId,
@@ -38,13 +45,17 @@ translateChildDied :: Internal.ChildDied IO -> ChildDied
 translateChildDied Internal.ChildDied {..} =
   ChildDied {..}
 
-forkChild :: Nursery -> IO () -> IO ThreadId
-forkChild nursery action =
-  Internal.forkMaskedChild (unNursery nursery) \unmask -> unmask action
+async :: Nursery -> IO a -> IO (Async a)
+async nursery action =
+  asyncMasked nursery \unmask -> unmask action
 
-forkMaskedChild ::
+asyncMasked ::
   Nursery ->
-  ((forall x. IO x -> IO x) -> IO ()) ->
-  IO ThreadId
-forkMaskedChild nursery action =
-  Internal.forkMaskedChild (unNursery nursery) action
+  ((forall x. IO x -> IO x) -> IO a) ->
+  IO (Async a)
+asyncMasked nursery action =
+  translateAsync <$> Internal.asyncMasked (unNursery nursery) action
+
+translateAsync :: Internal.Async IO a -> Async a
+translateAsync Internal.Async {..} =
+  Async {..}

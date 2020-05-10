@@ -1,6 +1,7 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
@@ -12,8 +13,10 @@
 
 module Trio.Internal
   ( withNursery,
-    forkMaskedChild,
+    asyncMasked,
+    cancel,
     Nursery,
+    Async (..),
     ChildDied (..),
     NurseryClosed (..),
   )
@@ -21,6 +24,7 @@ where
 
 import Control.Concurrent.Classy.STM
 import Control.Exception (Exception (..), SomeException, asyncExceptionFromException, asyncExceptionToException)
+import Control.Monad
 import Control.Monad.Conc.Class
 import Data.Constraint
 import Data.Foldable
@@ -83,13 +87,20 @@ hardTeardown unmask nurseryVar exception = do
 
   throw (translateAsyncChildDied exception)
 
-forkMaskedChild ::
-  forall m.
+data Async m a = Async
+  { threadId :: ThreadId m,
+    action :: STM m (Either SomeException a)
+  }
+
+asyncMasked ::
+  forall a m.
   (MonadConc m, Typeable m) =>
   Nursery m ->
-  (Unmask m -> m ()) ->
-  m (ThreadId m)
-forkMaskedChild nurseryVar action =
+  (Unmask m -> m a) ->
+  m (Async m a)
+asyncMasked nurseryVar action = do
+  resultVar <- atomically newEmptyTMVar
+
   uninterruptibleMask_ do
     NurseryState {runningVar, startingVar} <-
       atomically do
@@ -104,8 +115,10 @@ forkMaskedChild nurseryVar action =
     childThreadId <-
       forkWithUnmask \unmask -> do
         childThreadId <- myThreadId
-        try (action unmask) >>= \case
-          Left (NotThreadKilled exception) -> do
+        result <- try (action unmask)
+        atomically (putTMVar resultVar result)
+        case result of
+          Left (NotThreadKilled exception) ->
             throwTo
               parentThreadId
               (AsyncChildDied @m Dict childThreadId exception)
@@ -120,7 +133,16 @@ forkMaskedChild nurseryVar action =
       modifyTVar' startingVar (subtract 1)
       modifyTVar' runningVar (Set.insert childThreadId)
 
-    pure childThreadId
+    pure
+      Async
+        { threadId = childThreadId,
+          action = readTMVar resultVar
+        }
+
+cancel :: MonadConc m => Async m a -> m ()
+cancel Async {threadId, action} = do
+  killThread threadId
+  void (atomically action)
 
 --------------------------------------------------------------------------------
 -- ChildDied

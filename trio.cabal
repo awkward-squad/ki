@@ -9,6 +9,7 @@ library
     constraints,
     containers,
     say,
+    stm,
   default-language: Haskell2010
   exposed-modules:
     Trio
