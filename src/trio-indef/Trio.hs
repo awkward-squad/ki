@@ -47,9 +47,6 @@ data ScopeClosed
   deriving stock (Show)
   deriving anyclass (Exception)
 
-type Restore =
-  forall x. IO x -> IO x
-
 newScope :: IO (TMVar Scope)
 newScope = do
   runningVar <- newTVarIO Set.empty
@@ -115,7 +112,10 @@ async_ :: TMVar Scope -> IO a -> IO ()
 async_ scope action =
   void (async scope action)
 
-asyncMasked :: TMVar Scope -> (Restore -> IO a) -> IO (Async a)
+asyncMasked ::
+  TMVar Scope ->
+  ((forall x. IO x -> IO x) -> IO a) ->
+  IO (Async a)
 asyncMasked scopeVar action = do
   resultVar <- atomically newEmptyTMVar
 
