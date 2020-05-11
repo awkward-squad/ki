@@ -14,25 +14,21 @@ where
 
 import Control.Exception (AsyncException (ThreadKilled), Exception (fromException), SomeException)
 import Control.Monad
-import Control.Monad.Conc.Class
-import Control.Monad.STM.Class
 import Data.Function
+import Trio.Sig
+import Prelude hiding (IO)
 
-blockUntilTVar :: MonadSTM stm => TVar stm a -> (a -> Bool) -> stm ()
+blockUntilTVar :: TVar a -> (a -> Bool) -> STM ()
 blockUntilTVar var f = do
   value <- readTVar var
   unless (f value) retry
 
 -- | Execute an IO action until it successfully completes, ignoring all
 -- synchronous and asynchronous exceptions.
-retryingUntilSuccess :: MonadConc m => m a -> m a
+retryingUntilSuccess :: IO a -> IO a
 retryingUntilSuccess action =
   fix \again ->
-    catch @_ @SomeException action \_ -> again
-
-try :: (Exception e, MonadConc m) => m a -> m (Either e a)
-try action =
-  catch (Right <$> action) (pure . Left)
+    catch @SomeException action \_ -> again
 
 pattern NotThreadKilled :: SomeException -> SomeException
 pattern NotThreadKilled ex <- (asNotThreadKilled -> Just ex)

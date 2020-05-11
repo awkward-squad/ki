@@ -3,29 +3,23 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE NumericUnderscores #-}
-{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE ViewPatterns #-}
 
 module Main where
 
 import Control.Concurrent.Classy
 import Control.Exception (Exception (fromException), SomeAsyncException, SomeException)
 import Control.Monad
-import Control.Monad.IO.Class
 import Data.Foldable
 import Data.Function
 import Data.List
 import Data.Maybe (isJust)
-import Data.Typeable (Typeable)
 import GHC.Clock
 import qualified Test.DejaFu as DejaFu
 import qualified Test.DejaFu.Types as DejaFu
 import Text.Printf (printf)
-import Trio.Internal
+import Trio
 
 main :: IO ()
 main = do
@@ -78,9 +72,9 @@ main = do
             pure (isAsyncException ex)
 
   test "a failed child delivers a sync exception when awaited" do
-    throws @(ChildDied P) do
+    throws @ChildDied do
       var <- newEmptyMVar
-      ignoring @(ChildDied P) do
+      ignoring @ChildDied do
         withScope \scope ->
           mask_ do
             child <- async scope (() <$ throw A)
@@ -117,7 +111,7 @@ main = do
       readIORef ref
 
   test "scope re-throws exceptions from children" do
-    throws @(ChildDied P) (withScope \scope -> async_ scope (throw A))
+    throws @ChildDied (withScope \scope -> async_ scope (throw A))
 
   test "scope cancels children when it dies" do
     returns True do
@@ -147,7 +141,7 @@ main = do
   test "scope cancels children when one dies" do
     returns True do
       ref <- newIORef False
-      ignoring @(ChildDied P) do
+      ignoring @ChildDied do
         var <- newEmptyMVar
         withScope \scope -> do
           asyncMasked_ scope \unmask ->
@@ -262,44 +256,20 @@ prettyThreadId :: DejaFu.ThreadId -> String
 prettyThreadId n =
   "thread#" ++ show n
 
-asyncMasked_ ::
-  (MonadConc m, MonadIO m, Typeable m) =>
-  TMVar (STM m) (Scope m) ->
-  ((forall x. m x -> m x) -> m ()) ->
-  m ()
-asyncMasked_ scope action =
-  void (asyncMasked scope action)
-
-async ::
-  (MonadConc m, MonadIO m, Typeable m) =>
-  TMVar (STM m) (Scope m) ->
-  m a ->
-  m (Async m a)
-async scope action =
-  asyncMasked scope \unmask -> unmask action
-
-async_ ::
-  (MonadConc m, MonadIO m, Typeable m) =>
-  TMVar (STM m) (Scope m) ->
-  m a ->
-  m ()
-async_ scope action =
-  void (async scope action)
-
 data A
   = A
   deriving stock (Eq, Show)
   deriving anyclass (Exception)
 
-onException :: MonadConc m => m a -> m b -> m a
+finally :: P a -> P b -> P a
+finally action after =
+  mask \restore -> do
+    result <- restore action `onException` after
+    _ <- after
+    pure result
+
+onException :: P a -> P b -> P a
 onException action cleanup =
   catch @_ @SomeException action \ex -> do
     _ <- cleanup
     throw ex
-
-finally :: MonadConc m => m a -> m b -> m a
-finally action cleanup =
-  mask \unmask -> do
-    result <- unmask action `onException` cleanup
-    _ <- cleanup
-    pure result

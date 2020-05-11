@@ -1,0 +1,47 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE RankNTypes #-}
+
+signature Trio.Sig where
+
+import Control.Exception (Exception)
+import Prelude hiding (IO)
+
+data IO a
+instance Functor IO
+instance Applicative IO
+instance Monad IO
+
+data STM a
+instance Applicative STM
+instance Monad STM
+
+data ThreadId
+instance Ord ThreadId
+instance Show ThreadId
+
+data TMVar a
+
+data TVar a
+
+atomically :: STM a -> IO a
+catch :: forall e a. Exception e => IO a -> (e -> IO a) -> IO a
+forkIOWithUnmask :: ((forall x. IO x -> IO x) -> IO ()) -> IO ThreadId
+modifyTVar' :: TVar a -> (a -> a) -> STM ()
+myThreadId :: IO ThreadId
+newEmptyTMVar :: STM (TMVar a)
+newTMVarIO :: a -> IO (TMVar a)
+newTVarIO :: a -> IO (TVar a)
+putTMVar :: TMVar a -> a -> STM ()
+readTMVar :: TMVar a -> STM a
+readTVar :: TVar a -> STM a
+retry :: STM a
+throwIO :: Exception e => e -> IO a
+throwSTM :: Exception e => e -> STM a
+throwTo :: Exception e => ThreadId -> e -> IO ()
+try :: forall e a. Exception e => IO a -> IO (Either e a)
+tryReadTMVar :: TMVar a -> STM (Maybe a)
+tryTakeTMVar :: TMVar a -> STM (Maybe a)
+uninterruptibleMask :: ((forall x. IO x -> IO x) -> IO a) -> IO a
+uninterruptibleMask_ :: IO a -> IO a
+unsafeUnmask :: IO a -> IO a
+writeTVar :: TVar a -> a -> STM ()
