@@ -51,8 +51,8 @@ data ScopeClosed
   deriving stock (Show)
   deriving anyclass (Exception)
 
-type Unmask m =
-  forall x. m x -> m x
+type Restore m
+  = forall x. m x -> m x
 
 newScope :: MonadConc m => m (TMVar (STM m) (Scope m))
 newScope =
@@ -70,9 +70,9 @@ withScope f = do
         atomically (joinScope scopeVar)
         pure result
 
-  uninterruptibleMask \unmask ->
-    unmask action `catch` \exception -> do
-      closeWithUnmask unmask scopeVar
+  uninterruptibleMask \restore ->
+    restore action `catch` \exception -> do
+      closeWhileUninterruptiblyMasked scopeVar
       throw (translateAsyncChildDied exception)
 
 joinScope :: MonadConc m => TMVar (STM m) (Scope m) -> STM m ()
@@ -85,17 +85,15 @@ joinScope scopeVar =
 
 closeScope :: MonadConc m => TMVar (STM m) (Scope m) -> m ()
 closeScope scopeVar =
-  uninterruptibleMask \unmask ->
-    closeWithUnmask unmask scopeVar
+  uninterruptibleMask_ (closeWhileUninterruptiblyMasked scopeVar)
 
-closeWithUnmask :: MonadConc m => Unmask m -> TMVar (STM m) (Scope m) -> m ()
-closeWithUnmask unmask scopeVar =
+closeWhileUninterruptiblyMasked :: MonadConc m => TMVar (STM m) (Scope m) -> m ()
+closeWhileUninterruptiblyMasked scopeVar =
   (join . atomically) do
     tryTakeTMVar scopeVar >>= \case
       Nothing -> pure (pure ())
       Just Scope {runningVar, startingVar} -> do
-        starting <- readTVar startingVar
-        unless (starting == 0) retry
+        blockUntilTVar startingVar (== 0)
         pure do
           children <- atomically (readTVar runningVar)
           for_ children \child ->
@@ -105,7 +103,11 @@ closeWithUnmask unmask scopeVar =
             -- to us during this time, whether they are 'AsyncChildDied' or not,
             -- just ignore them. We already have an exception to throw, and we
             -- prefer it because it was delivered first.
-            retryingUntilSuccess (unmask (killThread child))
+            retryingUntilSuccess
+              -- Not Good: fork a thread (needlessly) to get an unmask function,
+              -- because 'unsafeUnmask' is missing from concurrency.
+              -- https://github.com/barrucadu/dejafu/issues/316
+              (forkWithUnmask \unmask -> unmask (killThread child))
 
           atomically (blockUntilTVar runningVar Set.null)
 
@@ -118,7 +120,7 @@ asyncMasked ::
   forall a m.
   (MonadConc m, Typeable m) =>
   TMVar (STM m) (Scope m) ->
-  (Unmask m -> m a) ->
+  (Restore m -> m a) ->
   m (Async m a)
 asyncMasked scopeVar action = do
   resultVar <- atomically newEmptyTMVar
