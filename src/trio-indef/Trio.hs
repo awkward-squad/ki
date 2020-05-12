@@ -37,10 +37,7 @@ newtype Scope
 
 data S = S
   { -- | Whether this scope is "closed" (disallowing new children).
-    -- Invariant: if closed, then starting == 0, and running is either about to
-    -- be 0 (because we are killing all children), about to be 1 (because a
-    -- child is cancelling the scope, which kills all other children), or
-    -- already 0 or 1 due of one of those circumstances.
+    -- Invariant: if closed, then starting == 0.
     closedVar :: TVar Bool,
     -- | Running children.
     runningVar :: TVar (Set ThreadId),
