@@ -17,6 +17,7 @@ module Trio
     asyncMasked_,
     Scope,
     Async (..),
+    RestoreMaskingState,
     ChildDied (..),
     ScopeClosed (..),
   )
@@ -53,6 +54,9 @@ data ScopeClosed
   = ScopeClosed
   deriving stock (Show)
   deriving anyclass (Exception)
+
+type RestoreMaskingState =
+  forall x. IO x -> IO x
 
 newScope :: IO (TVar S)
 newScope = do
@@ -126,7 +130,7 @@ async_ :: Scope -> IO a -> IO ()
 async_ scope action =
   void (async scope action)
 
-asyncMasked :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Async a)
+asyncMasked :: Scope -> (RestoreMaskingState -> IO a) -> IO (Async a)
 asyncMasked (Scope scopeVar) action = do
   resultVar <- atomically (newEmptyTMVar "result")
 
@@ -172,7 +176,7 @@ asyncMasked (Scope scopeVar) action = do
             void (atomically (readTMVar resultVar))
         }
 
-asyncMasked_ :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO ()
+asyncMasked_ :: Scope -> (RestoreMaskingState -> IO a) -> IO ()
 asyncMasked_ scope action =
   void (asyncMasked scope action)
 
