@@ -26,92 +26,75 @@ main = do
   test "noop" do
     returns () (withScope \_ -> pure ())
 
-  test "using a closed scope throws an exception" do
-    throws @ScopeClosed do
-      scope <- withScope pure
-      async_ scope (pure ())
+  test "using a closed scope throws an exception" . throws @ScopeClosed $ do
+    scope <- withScope pure
+    async_ scope (pure ())
 
-  test "scope waits for children on close" do
-    returns True do
-      ref <- newIORef False
-      withScope \scope -> async_ scope (writeIORef ref True)
-      readIORef ref
+  test "scope waits for children on close" . returns True $ do
+    ref <- newIORef False
+    withScope \scope -> async_ scope (writeIORef ref True)
+    readIORef ref
 
-  test "a child can be awaited" do
-    returns () do
-      withScope \scope -> do
-        child <- async scope (pure ())
-        atomically (await child)
-
-  test "a child can be awaited outside its scope" do
-    returns () do
-      child <- withScope \scope -> async scope (pure ())
+  test "child can be awaited" . returns () $ do
+    withScope \scope -> do
+      child <- async scope (pure ())
       atomically (await child)
 
-  test "a child can be canceled" do
-    returns () do
-      withScope \scope -> do
-        var <- newEmptyMVar
-        child <- async scope (takeMVar var)
-        cancel child
-        putMVar var ()
+  test "child can be awaited outside its scope" . returns () $ do
+    child <- withScope \scope -> async scope (pure ())
+    atomically (await child)
 
-  test "a child can be canceled after it's finished" do
-    returns () do
-      withScope \scope -> do
-        child <- async scope (pure ())
-        atomically (await child)
-        cancel child
+  test "child can be canceled" . returns () $ do
+    withScope \scope -> do
+      child <- async scope (newEmptyMVar >>= takeMVar)
+      cancel child
 
-  test "a dying child delivers an async exception first" do
-    returns True do
+  test "child can be canceled after it's finished" . returns () $ do
+    withScope \scope -> do
+      child <- async scope (pure ())
+      atomically (await child)
+      cancel child
+
+  test "dying child throws async exception first" . returns True $ do
+    withScope \scope ->
+      mask \unmask -> do
+        child <- async scope (throw A)
+        unmask (False <$ atomically (await child)) `catch` \ex -> do
+          pure (isAsyncException ex)
+
+  test "failed child throws exception when awaited" . throws @ChildDied $ do
+    var <- newEmptyMVar
+    ignoring @ChildDied do
       withScope \scope ->
-        mask \unmask -> do
-          child <- async scope (throw A)
-          unmask (False <$ atomically (await child)) `catch` \ex -> do
-            pure (isAsyncException ex)
+        mask_ do
+          child <- async scope (() <$ throw A)
+          putMVar var child
+    child <- takeMVar var
+    atomically (await child)
 
-  test "a failed child delivers a sync exception when awaited" do
-    throws @ChildDied do
-      var <- newEmptyMVar
-      ignoring @ChildDied do
-        withScope \scope ->
-          mask_ do
-            child <- async scope (() <$ throw A)
-            putMVar var child
-      child <- readMVar var
-      atomically (await child)
+  test "child can mask exceptions forever" . deadlocks $ do
+    withScope \scope -> do
+      child <- asyncMasked scope \_ -> (newEmptyMVar >>= takeMVar)
+      cancel child
 
-  test "a child can mask exceptions forever" do
-    deadlocks do
-      withScope \scope -> do
-        var <- newEmptyMVar
-        child <- asyncMasked scope \_ -> takeMVar var
-        cancel child
-        putMVar var ()
-
-  test "a child can mask exceptions briefly" do
-    returns True do
-      ref <- newIORef False
-      withScope \scope -> do
-        child <- asyncMasked scope \unmask ->
-          unmask (pure ()) `finally` writeIORef ref True
-        cancel child
-        readIORef ref
-
-  test "cancelling a child doesn't cancel its siblings" do
-    returns True do
-      ref <- newIORef False
-      withScope \scope -> do
-        var <- newEmptyMVar
-        child <- async scope (takeMVar var)
-        async_ scope (writeIORef ref True)
-        cancel child
-        putMVar var ()
+  test "child can mask exceptions briefly" . returns True $ do
+    ref <- newIORef False
+    withScope \scope -> do
+      child <- asyncMasked scope \unmask ->
+        unmask (pure ()) `finally` writeIORef ref True
+      cancel child
       readIORef ref
 
-  test "scope re-throws exceptions from children" do
-    throws @ChildDied (withScope \scope -> async_ scope (throw A))
+  test "cancelling a child doesn't cancel its siblings" . returns True $ do
+    ref <- newIORef False
+    withScope \scope -> do
+      child <- async scope (newEmptyMVar >>= takeMVar)
+      async_ scope (writeIORef ref True)
+      cancel child
+    readIORef ref
+
+  test "scope re-throws exceptions from children" . throws @ChildDied $ do
+    withScope \scope -> async_ scope (throw A)
 
   test "scope cancels children when it dies" do
     returns True do
@@ -123,32 +106,52 @@ main = do
           void (throw A)
       readIORef ref
 
-  test "scope cancels children when it's cancelled" do
-    returns True do
-      ref <- newIORef False
-      withScope \scope1 -> do
-        var <- newEmptyMVar
-        child <-
-          async scope1 do
-            withScope \scope2 -> do
-              asyncMasked_ scope2 \unmask -> do
-                putMVar var ()
-                unmask (pure ()) `finally` writeIORef ref True
-        takeMVar var
-        cancel child
-      readIORef ref
+  test "scope cancels children when it's cancelled" . returns True $ do
+    ref <- newIORef False
+    withScope \scope1 -> do
+      var <- newEmptyMVar
+      child <-
+        async scope1 do
+          withScope \scope2 -> do
+            asyncMasked_ scope2 \unmask -> do
+              putMVar var ()
+              unmask (pure ()) `finally` writeIORef ref True
+      takeMVar var
+      cancel child
+    readIORef ref
 
-  test "scope cancels children when one dies" do
-    returns True do
-      ref <- newIORef False
-      ignoring @ChildDied do
+  test "scope cancels children when one dies" . returns True $ do
+    ref <- newIORef False
+    ignoring @ChildDied do
+      withScope \scope -> do
+        asyncMasked_ scope \unmask -> do
+          var <- newEmptyMVar
+          unmask (takeMVar var) `finally` writeIORef ref True
+        async_ scope (throw A)
+    readIORef ref
+
+  test "child joining its own scope deadlocks" . deadlocks $
+    withScope \scope -> async_ scope (atomically (joinScope scope))
+
+  test "scope can be cancelled" . returns () $
+    withScope cancelScope
+
+  test "child cancelling its own scope is not cancelled" . returns True $ do
+    ref <- newIORef False
+    withScope \scope ->
+      async_ scope do
+        cancelScope scope
+        writeIORef ref True
+    readIORef ref
+
+  test "child cancelling its own scope cancels siblings" . returns True $ do
+    ref <- newIORef False
+    withScope \scope -> do
+      asyncMasked_ scope \unmask -> do
         var <- newEmptyMVar
-        withScope \scope -> do
-          asyncMasked_ scope \unmask ->
-            unmask (takeMVar var) `finally` writeIORef ref True
-          async_ scope (throw A)
-        putMVar var ()
-      readIORef ref
+        unmask (takeMVar var) `finally` writeIORef ref True
+      async_ scope (cancelScope scope)
+    readIORef ref
 
 type P =
   DejaFu.Program DejaFu.Basic IO
@@ -210,9 +213,7 @@ prettyPrintTrace value trace = do
         DejaFu.Start n -> putStrLn ("  [" ++ prettyThreadId n ++ "]")
         DejaFu.SwitchTo n -> putStrLn ("  [" ++ prettyThreadId n ++ "]")
         DejaFu.Continue -> pure ()
-      case prettyThreadAction action of
-        "" -> pure ()
-        s -> putStrLn ("    " ++ s)
+      putStrLn ("    " ++ prettyThreadAction action)
       loop xs
 
 prettyThreadAction :: DejaFu.ThreadAction -> String
@@ -233,7 +234,7 @@ prettyThreadAction = \case
   DejaFu.Return -> "pure"
   DejaFu.STM actions _ -> "atomically " ++ show actions
   DejaFu.SetMasking _ state -> "setMaskingState " ++ show state
-  DejaFu.Stop -> ""
+  DejaFu.Stop -> "stop"
   DejaFu.TakeMVar n [] -> "takeMVar " ++ prettyMVarId n
   DejaFu.TakeMVar n ts ->
     "takeMVar " ++ prettyMVarId n ++ " (waking "

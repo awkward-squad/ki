@@ -10,7 +10,7 @@
 module Trio
   ( withScope,
     joinScope,
-    closeScope,
+    cancelScope,
     async,
     async_,
     asyncMasked,
@@ -36,10 +36,16 @@ import Prelude hiding (IO)
 -- import Trio.Internal.Debug
 
 newtype Scope
-  = Scope (TMVar S)
+  = Scope (TVar S)
 
 data S = S
-  { -- | Running children.
+  { -- | Whether this scope is "closed" (disallowing new children).
+    -- Invariant: if closed, then starting == 0, and running is either about to
+    -- be 0 (because we are killing all children), about to be 1 (because a
+    -- child is cancelling the scope, which kills all other children), or
+    -- already 0 or 1 due of one of those circumstances.
+    closed :: Bool,
+    -- | Running children.
     runningVar :: TVar (Set ThreadId),
     -- | Number of children that are just about to start.
     startingVar :: TVar Int
@@ -50,11 +56,11 @@ data ScopeClosed
   deriving stock (Show)
   deriving anyclass (Exception)
 
-newScope :: IO (TMVar S)
+newScope :: IO (TVar S)
 newScope = do
-  runningVar <- newTVarIO Set.empty
-  startingVar <- newTVarIO 0
-  newTMVarIO S {runningVar, startingVar}
+  runningVar <- newTVarIO "running" Set.empty
+  startingVar <- newTVarIO "starting" 0
+  newTVarIO "scope" S {closed = False, runningVar, startingVar}
 
 withScope :: (Scope -> IO a) -> IO a
 withScope f = do
@@ -70,28 +76,31 @@ withScope f = do
       closeWhileUninterruptiblyMasked scopeVar
       throwIO (translateAsyncChildDied exception)
 
+-- | Wait for all children to finish, and close the scope.
 joinScope :: Scope -> STM ()
-joinScope (Scope scopeVar) =
-  tryTakeTMVar scopeVar >>= \case
-    Nothing -> pure ()
-    Just S {runningVar, startingVar} -> do
-      blockUntilTVar runningVar Set.null
-      blockUntilTVar startingVar (== 0)
+joinScope (Scope scopeVar) = do
+  S {closed, runningVar, startingVar} <- readTVar scopeVar
+  unless closed (blockUntilTVar startingVar (== 0))
+  blockUntilTVar runningVar Set.null
+  writeTVar scopeVar S {closed = True, runningVar, startingVar}
 
-closeScope :: Scope -> IO ()
-closeScope (Scope scopeVar) =
+cancelScope :: Scope -> IO ()
+cancelScope (Scope scopeVar) =
   uninterruptibleMask_ (closeWhileUninterruptiblyMasked scopeVar)
 
-closeWhileUninterruptiblyMasked :: TMVar S -> IO ()
-closeWhileUninterruptiblyMasked scopeVar =
+closeWhileUninterruptiblyMasked :: TVar S -> IO ()
+closeWhileUninterruptiblyMasked scopeVar = do
+  cancellingThreadId <- myThreadId
   (join . atomically) do
-    tryTakeTMVar scopeVar >>= \case
-      Nothing -> pure (pure ())
-      Just S {runningVar, startingVar} -> do
+    S {closed, runningVar, startingVar} <- readTVar scopeVar
+    if closed
+      then pure (pure ())
+      else do
         blockUntilTVar startingVar (== 0)
+        writeTVar scopeVar S {closed = True, runningVar, startingVar}
         pure do
           children <- atomically (readTVar runningVar)
-          for_ children \child ->
+          for_ (Set.delete cancellingThreadId children) \child ->
             -- Kill the child with asynchronous exceptions unmasked, because we
             -- don't want to deadlock with a child concurrently trying to throw
             -- an 'AsyncChildDied' back to us. But if any exceptions are thrown
@@ -100,7 +109,12 @@ closeWhileUninterruptiblyMasked scopeVar =
             -- prefer it because it was delivered first.
             retryingUntilSuccess (unsafeUnmask (throwTo child ThreadKilled))
 
-          atomically (blockUntilTVar runningVar Set.null)
+          let childrenAreDead :: Set ThreadId -> Bool
+              childrenAreDead =
+                if Set.member cancellingThreadId children
+                  then (== 1) . Set.size
+                  else Set.null
+          atomically (blockUntilTVar runningVar childrenAreDead)
 
 data Async a = Async
   { threadId :: ThreadId,
@@ -117,15 +131,16 @@ async_ scope action =
 
 asyncMasked :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Async a)
 asyncMasked (Scope scopeVar) action = do
-  resultVar <- atomically newEmptyTMVar
+  resultVar <- atomically (newEmptyTMVar "result")
 
   uninterruptibleMask_ do
     S {runningVar, startingVar} <-
       atomically do
-        tryReadTMVar scopeVar >>= \case
-          Nothing -> throwSTM ScopeClosed
-          Just scope -> do
-            modifyTVar' (startingVar scope) (+ 1)
+        scope@(S {closed, startingVar}) <- readTVar scopeVar
+        if closed
+          then throwSTM ScopeClosed
+          else do
+            modifyTVar' startingVar (+ 1)
             pure scope
 
     parentThreadId <- myThreadId

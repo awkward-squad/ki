@@ -9,9 +9,8 @@ module Trio.Sig.Base
     forkIOWithUnmask,
     modifyTVar',
     myThreadId,
-    newEmptyTMVar,
-    newTMVarIO,
-    newTVarIO,
+    Trio.Sig.Base.newEmptyTMVar,
+    Trio.Sig.Base.newTVarIO,
     putTMVar,
     readTMVar,
     readTVar,
@@ -20,8 +19,6 @@ module Trio.Sig.Base
     throwSTM,
     throwTo,
     try,
-    tryReadTMVar,
-    tryTakeTMVar,
     uninterruptibleMask,
     uninterruptibleMask_,
     unsafeUnmask,
@@ -33,3 +30,11 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
 import GHC.IO
+
+newEmptyTMVar :: String -> STM (TMVar a)
+newEmptyTMVar _ =
+  Control.Concurrent.STM.newEmptyTMVar
+
+newTVarIO :: String -> a -> IO (TVar a)
+newTVarIO _ =
+  Control.Concurrent.STM.newTVarIO

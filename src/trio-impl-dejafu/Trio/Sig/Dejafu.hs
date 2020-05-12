@@ -43,17 +43,13 @@ myThreadId :: IO ThreadId
 myThreadId =
   Conc.myThreadId
 
-newEmptyTMVar :: STM (TMVar a)
+newEmptyTMVar :: String -> STM (TMVar a)
 newEmptyTMVar =
-  Conc.newEmptyTMVar
+  Conc.newEmptyTMVarN
 
-newTMVarIO :: a -> IO (TMVar a)
-newTMVarIO =
-  Conc.atomically . Conc.newTMVar
-
-newTVarIO :: a -> IO (TVar a)
-newTVarIO =
-  Conc.atomically . Conc.newTVar
+newTVarIO :: String -> a -> IO (TVar a)
+newTVarIO name =
+  Conc.atomically . Conc.newTVarN name
 
 putTMVar :: TMVar a -> a -> STM ()
 putTMVar =
@@ -86,14 +82,6 @@ throwTo =
 try :: forall e a. Exception e => IO a -> IO (Either e a)
 try action =
   Conc.catch (Right <$> action) (pure . Left)
-
-tryReadTMVar :: TMVar a -> STM (Maybe a)
-tryReadTMVar =
-  Conc.tryReadTMVar
-
-tryTakeTMVar :: TMVar a -> STM (Maybe a)
-tryTakeTMVar =
-  Conc.tryTakeTMVar
 
 uninterruptibleMask :: ((forall x. IO x -> IO x) -> IO a) -> IO a
 uninterruptibleMask =
