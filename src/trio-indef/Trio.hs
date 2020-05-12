@@ -41,7 +41,7 @@ data S = S
     -- be 0 (because we are killing all children), about to be 1 (because a
     -- child is cancelling the scope, which kills all other children), or
     -- already 0 or 1 due of one of those circumstances.
-    closed :: Bool,
+    closedVar :: TVar Bool,
     -- | Running children.
     runningVar :: TVar (Set ThreadId),
     -- | Number of children that are just about to start.
@@ -60,7 +60,8 @@ newScope :: IO (TVar S)
 newScope = do
   runningVar <- newTVarIO "running" Set.empty
   startingVar <- newTVarIO "starting" 0
-  newTVarIO "scope" S {closed = False, runningVar, startingVar}
+  closedVar <- newTVarIO "closed" False
+  newTVarIO "scope" S {closedVar, runningVar, startingVar}
 
 withScope :: (Scope -> IO a) -> IO a
 withScope f = do
@@ -79,10 +80,11 @@ withScope f = do
 -- | Wait for all children to finish, and close the scope.
 joinScope :: Scope -> STM ()
 joinScope (Scope scopeVar) = do
-  S {closed, runningVar, startingVar} <- readTVar scopeVar
+  S {closedVar, runningVar, startingVar} <- readTVar scopeVar
+  closed <- readTVar closedVar
   unless closed (blockUntilTVar startingVar (== 0))
   blockUntilTVar runningVar Set.null
-  writeTVar scopeVar S {closed = True, runningVar, startingVar}
+  writeTVar closedVar True
 
 cancelScope :: Scope -> IO ()
 cancelScope (Scope scopeVar) =
@@ -91,12 +93,13 @@ cancelScope (Scope scopeVar) =
 cancelScopeWhileUninterruptiblyMasked :: TVar S -> IO ()
 cancelScopeWhileUninterruptiblyMasked scopeVar =
   (join . atomically) do
-    S {closed, runningVar, startingVar} <- readTVar scopeVar
+    S {closedVar, runningVar, startingVar} <- readTVar scopeVar
+    closed <- readTVar closedVar
     if closed
       then pure (pure ())
       else do
         blockUntilTVar startingVar (== 0)
-        writeTVar scopeVar S {closed = True, runningVar, startingVar}
+        writeTVar closedVar True
         pure do
           cancellingThreadId <- myThreadId
           children <- atomically (readTVar runningVar)
@@ -130,7 +133,8 @@ asyncMasked (Scope scopeVar) action = do
   uninterruptibleMask_ do
     S {runningVar, startingVar} <-
       atomically do
-        scope@(S {closed, startingVar}) <- readTVar scopeVar
+        scope@(S {closedVar, startingVar}) <- readTVar scopeVar
+        closed <- readTVar closedVar
         if closed
           then throwSTM ScopeClosed
           else do
