@@ -6,22 +6,18 @@ module Trio.Internal.Debug
 where
 
 import Control.Concurrent
-import Control.Monad
-import Data.Maybe
-import Say
-import System.Environment
 import System.IO.Unsafe
 
 debug :: Monad m => String -> m ()
 debug message =
-  when shouldDebug (unsafePerformIO output `seq` pure ())
+  unsafePerformIO output `seq` pure ()
   where
     output :: IO ()
     output = do
       threadId <- myThreadId
-      sayString ("[" ++ show threadId ++ "] " ++ message)
+      withMVar lock \_ -> putStrLn ("[" ++ show threadId ++ "] " ++ message)
 
-shouldDebug :: Bool
-shouldDebug =
-  unsafePerformIO (isJust <$> lookupEnv "TRIO_DEBUG")
-{-# NOINLINE shouldDebug #-}
+lock :: MVar ()
+lock =
+  unsafePerformIO (newMVar ())
+{-# NOINLINE lock #-}

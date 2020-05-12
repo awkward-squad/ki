@@ -24,7 +24,6 @@ library trio-indef
   build-depends:
     base,
     containers,
-    say,
   default-language: Haskell2010
   exposed-modules: Trio
   ghc-options: -Wall
