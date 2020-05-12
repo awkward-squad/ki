@@ -15,10 +15,8 @@ module Trio
     async_,
     asyncMasked,
     asyncMasked_,
-    await,
-    cancel,
     Scope,
-    Async,
+    Async (..),
     ChildDied (..),
     ScopeClosed (..),
   )
@@ -89,7 +87,7 @@ cancelScope (Scope scopeVar) =
   uninterruptibleMask_ (cancelScopeWhileUninterruptiblyMasked scopeVar)
 
 cancelScopeWhileUninterruptiblyMasked :: TVar S -> IO ()
-cancelScopeWhileUninterruptiblyMasked scopeVar = do
+cancelScopeWhileUninterruptiblyMasked scopeVar =
   (join . atomically) do
     S {closed, runningVar, startingVar} <- readTVar scopeVar
     if closed
@@ -116,8 +114,8 @@ cancelScopeWhileUninterruptiblyMasked scopeVar = do
             else atomically (blockUntilTVar runningVar Set.null)
 
 data Async a = Async
-  { threadId :: ThreadId,
-    action :: STM (Either SomeException a)
+  { await :: STM a,
+    cancel :: IO ()
   }
 
 async :: Scope -> IO a -> IO (Async a)
@@ -166,24 +164,17 @@ asyncMasked (Scope scopeVar) action = do
 
     pure
       Async
-        { threadId = childThreadId,
-          action = readTMVar resultVar
+        { await = readTMVar resultVar >>= \case
+            Left exception -> throwSTM (ChildDied childThreadId exception)
+            Right result -> pure result,
+          cancel = do
+            throwTo childThreadId ThreadKilled
+            void (atomically (readTMVar resultVar))
         }
 
 asyncMasked_ :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO ()
 asyncMasked_ scope action =
   void (asyncMasked scope action)
-
-await :: Async a -> STM a
-await Async {threadId, action} =
-  action >>= \case
-    Left exception -> throwSTM (ChildDied threadId exception)
-    Right result -> pure result
-
-cancel :: Async a -> IO ()
-cancel Async {threadId, action} = do
-  throwTo threadId ThreadKilled
-  void (atomically action)
 
 --------------------------------------------------------------------------------
 -- ChildDied

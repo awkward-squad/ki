@@ -167,27 +167,46 @@ test name action = do
   for_ (DejaFu._failures result) \(value, trace) ->
     prettyPrintTrace value trace
 
-returns :: (Eq a, Show a) => a -> P a -> IO (DejaFu.Result a)
+runTest ::
+  Eq a =>
+  (DejaFu.Condition -> Bool) ->
+  (a -> Bool) ->
+  P a ->
+  IO (DejaFu.Result a)
+runTest p q =
+  DejaFu.runTestWithSettings
+    ( DejaFu.fromWayAndMemType
+        ( DejaFu.systematically
+            DejaFu.Bounds
+              { DejaFu.boundPreemp = Just 20,
+                DejaFu.boundFair = Just 10
+              }
+        )
+        DejaFu.defaultMemType
+    )
+    (DejaFu.representative (DejaFu.alwaysTrue (either p q)))
+
+returns :: Eq a => a -> P a -> IO (DejaFu.Result a)
 returns expected =
-  DejaFu.runTest (DejaFu.representative (DejaFu.alwaysTrue p))
-  where
-    p = either (const False) (== expected)
+  runTest (const False) (== expected)
 
 throws :: forall e a. (Eq a, Exception e) => P a -> IO (DejaFu.Result a)
 throws =
-  DejaFu.runTest (DejaFu.representative (DejaFu.alwaysTrue p))
-  where
-    p =
-      either
-        ( \case
-            DejaFu.UncaughtException ex -> isJust (fromException @e ex)
-            _ -> False
-        )
-        (const False)
+  runTest
+    ( \case
+        DejaFu.UncaughtException ex -> isJust (fromException @e ex)
+        _ -> False
+    )
+    (const False)
 
 deadlocks :: Eq a => P a -> IO (DejaFu.Result a)
 deadlocks =
-  DejaFu.runTest (DejaFu.representative DejaFu.deadlocksAlways)
+  runTest
+    ( \case
+        DejaFu.Deadlock -> True
+        _ -> False
+    )
+    (const False)
 
 ignoring :: forall e. Exception e => P () -> P ()
 ignoring action =
@@ -218,6 +237,7 @@ prettyThreadAction :: DejaFu.ThreadAction -> String
 prettyThreadAction = \case
   DejaFu.BlockedSTM actions -> "atomically " ++ show actions ++ " (blocked)"
   DejaFu.BlockedTakeMVar n -> "takeMVar " ++ prettyMVarId n ++ " (blocked)"
+  DejaFu.BlockedThrowTo n -> "throwTo " ++ prettyThreadId n ++ " (blocked)"
   DejaFu.Fork n -> "fork " ++ prettyThreadId n
   DejaFu.MyThreadId -> "myThreadId"
   DejaFu.NewIORef n -> prettyIORefId n ++ " <- newIORef"
