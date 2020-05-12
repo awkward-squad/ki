@@ -73,7 +73,7 @@ withScope f = do
 
   uninterruptibleMask \restore ->
     restore action `catch` \exception -> do
-      closeWhileUninterruptiblyMasked scopeVar
+      cancelScopeWhileUninterruptiblyMasked scopeVar
       throwIO (translateAsyncChildDied exception)
 
 -- | Wait for all children to finish, and close the scope.
@@ -86,11 +86,10 @@ joinScope (Scope scopeVar) = do
 
 cancelScope :: Scope -> IO ()
 cancelScope (Scope scopeVar) =
-  uninterruptibleMask_ (closeWhileUninterruptiblyMasked scopeVar)
+  uninterruptibleMask_ (cancelScopeWhileUninterruptiblyMasked scopeVar)
 
-closeWhileUninterruptiblyMasked :: TVar S -> IO ()
-closeWhileUninterruptiblyMasked scopeVar = do
-  cancellingThreadId <- myThreadId
+cancelScopeWhileUninterruptiblyMasked :: TVar S -> IO ()
+cancelScopeWhileUninterruptiblyMasked scopeVar = do
   (join . atomically) do
     S {closed, runningVar, startingVar} <- readTVar scopeVar
     if closed
@@ -99,6 +98,7 @@ closeWhileUninterruptiblyMasked scopeVar = do
         blockUntilTVar startingVar (== 0)
         writeTVar scopeVar S {closed = True, runningVar, startingVar}
         pure do
+          cancellingThreadId <- myThreadId
           children <- atomically (readTVar runningVar)
           for_ (Set.delete cancellingThreadId children) \child ->
             -- Kill the child with asynchronous exceptions unmasked, because we
@@ -109,12 +109,11 @@ closeWhileUninterruptiblyMasked scopeVar = do
             -- prefer it because it was delivered first.
             retryingUntilSuccess (unsafeUnmask (throwTo child ThreadKilled))
 
-          let childrenAreDead :: Set ThreadId -> Bool
-              childrenAreDead =
-                if Set.member cancellingThreadId children
-                  then (== 1) . Set.size
-                  else Set.null
-          atomically (blockUntilTVar runningVar childrenAreDead)
+          if Set.member cancellingThreadId children
+            then do
+              atomically (blockUntilTVar runningVar ((== 1) . Set.size))
+              throwTo cancellingThreadId ThreadKilled -- kill self
+            else atomically (blockUntilTVar runningVar Set.null)
 
 data Async a = Async
   { threadId :: ThreadId,

@@ -136,12 +136,10 @@ main = do
   test "scope can be cancelled" . returns () $
     withScope cancelScope
 
-  test "child cancelling its own scope is not cancelled" . returns True $ do
+  test "child cancelling its own scope cancels self" . returns True $ do
     ref <- newIORef False
     withScope \scope ->
-      async_ scope do
-        cancelScope scope
-        writeIORef ref True
+      async_ scope (cancelScope scope `onException` writeIORef ref True)
     readIORef ref
 
   test "child cancelling its own scope cancels siblings" . returns True $ do
