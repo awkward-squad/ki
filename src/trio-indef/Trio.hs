@@ -22,13 +22,13 @@ module Trio
   )
 where
 
-import Control.Exception (AsyncException (ThreadKilled), Exception (..), SomeException, asyncExceptionFromException, asyncExceptionToException)
-import Control.Monad
-import Data.Foldable
+import Control.Exception (AsyncException (ThreadKilled), Exception (fromException, toException), SomeException, asyncExceptionFromException, asyncExceptionToException)
+import Control.Monad (join, unless, void)
+import Data.Foldable (for_)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Trio.Internal.Conc (blockUntilTVar, retryingUntilSuccess, pattern NotThreadKilled)
-import Trio.Sig
+import Trio.Sig (IO, STM, TVar, ThreadId, atomically, catch, forkIOWithUnmask, modifyTVar', myThreadId, newEmptyTMVar, newTVarIO, putTMVar, readTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, uninterruptibleMask_, unsafeUnmask, writeTVar)
 import Prelude hiding (IO)
 
 -- import Trio.Internal.Debug

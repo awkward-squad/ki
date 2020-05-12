@@ -13,9 +13,9 @@ module Trio.Internal.Conc
 where
 
 import Control.Exception (AsyncException (ThreadKilled), Exception (fromException), SomeException)
-import Control.Monad
-import Data.Function
-import Trio.Sig
+import Control.Monad (unless)
+import Data.Function (fix)
+import Trio.Sig (IO, STM, TVar, catch, readTVar, retry, try)
 import Prelude hiding (IO)
 
 blockUntilTVar :: TVar a -> (a -> Bool) -> STM ()

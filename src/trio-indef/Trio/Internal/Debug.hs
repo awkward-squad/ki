@@ -5,8 +5,8 @@ module Trio.Internal.Debug
   )
 where
 
-import Control.Concurrent
-import System.IO.Unsafe
+import Control.Concurrent (MVar, myThreadId, newMVar, withMVar)
+import System.IO.Unsafe (unsafePerformIO)
 
 debug :: Monad m => String -> m ()
 debug message =

@@ -1,10 +1,10 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes #-}
 
-signature Trio.Sig where
+signature Trio.Sig (module Trio.Sig) where
 
 import Control.Exception (Exception)
-import Prelude hiding (IO)
+import Prelude (Applicative, Either, Eq, Functor, Monad, Ord, Show, String)
 
 data IO a
 instance Functor IO

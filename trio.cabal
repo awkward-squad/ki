@@ -2,31 +2,35 @@ cabal-version: 2.4
 name: trio
 version: 0
 
-library
-  build-depends: trio-impl-base, trio-indef
+common component
   default-language: Haskell2010
+  ghc-options:
+    -Weverything
+    -fno-warn-implicit-prelude
+    -fno-warn-missing-import-lists
+
+library
+  import: component
+  build-depends: trio-impl-base, trio-indef
   mixins: trio-indef (Trio) requires (Trio.Sig as Trio.Sig.Base)
   reexported-modules: Trio
 
 library trio-impl-base
+  import: component
   build-depends: base, stm
-  default-language: Haskell2010
   exposed-modules: Trio.Sig.Base
   hs-source-dirs: src/trio-impl-base
 
 library trio-impl-dejafu
+  import: component
   build-depends: base, concurrency, dejafu, stm
-  default-language: Haskell2010
   exposed-modules: Trio.Sig.Dejafu
   hs-source-dirs: src/trio-impl-dejafu
 
 library trio-indef
-  build-depends:
-    base,
-    containers,
-  default-language: Haskell2010
+  import: component
+  build-depends: base, containers
   exposed-modules: Trio
-  ghc-options: -Wall
   hs-source-dirs: src/trio-indef
   other-modules:
     Trio.Internal.Conc
@@ -35,14 +39,14 @@ library trio-indef
     Trio.Sig
 
 test-suite tests
+  import: component
   build-depends:
     base,
     concurrency,
     dejafu,
     trio-impl-dejafu,
     trio-indef,
-  default-language: Haskell2010
-  ghc-options: -Wall -threaded -O -with-rtsopts=-N
+  ghc-options: -threaded -O -with-rtsopts=-N
   hs-source-dirs: test
   main-is: Test.hs
   mixins: trio-indef (Trio) requires (Trio.Sig as Trio.Sig.Dejafu)
