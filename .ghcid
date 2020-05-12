@@ -1,1 +1,1 @@
--c "cabal repl" --restart trio.cabal
+-c "cabal repl trio:lib:trio-indef" --restart trio.cabal

@@ -35,7 +35,10 @@ import Prelude hiding (IO)
 
 -- import Trio.Internal.Debug
 
-data Scope = Scope
+newtype Scope
+  = Scope (TMVar S)
+
+data S = S
   { -- | Running children.
     runningVar :: TVar (Set ThreadId),
     -- | Number of children that are just about to start.
@@ -47,19 +50,19 @@ data ScopeClosed
   deriving stock (Show)
   deriving anyclass (Exception)
 
-newScope :: IO (TMVar Scope)
+newScope :: IO (TMVar S)
 newScope = do
   runningVar <- newTVarIO Set.empty
   startingVar <- newTVarIO 0
-  newTMVarIO Scope {runningVar, startingVar}
+  newTMVarIO S {runningVar, startingVar}
 
-withScope :: (TMVar Scope -> IO a) -> IO a
+withScope :: (Scope -> IO a) -> IO a
 withScope f = do
   scopeVar <- newScope
 
   let action = do
-        result <- f scopeVar
-        atomically (joinScope scopeVar)
+        result <- f (Scope scopeVar)
+        atomically (joinScope (Scope scopeVar))
         pure result
 
   uninterruptibleMask \restore ->
@@ -67,24 +70,24 @@ withScope f = do
       closeWhileUninterruptiblyMasked scopeVar
       throwIO (translateAsyncChildDied exception)
 
-joinScope :: TMVar Scope -> STM ()
-joinScope scopeVar =
+joinScope :: Scope -> STM ()
+joinScope (Scope scopeVar) =
   tryTakeTMVar scopeVar >>= \case
     Nothing -> pure ()
-    Just Scope {runningVar, startingVar} -> do
+    Just S {runningVar, startingVar} -> do
       blockUntilTVar runningVar Set.null
       blockUntilTVar startingVar (== 0)
 
-closeScope :: TMVar Scope -> IO ()
-closeScope scopeVar =
+closeScope :: Scope -> IO ()
+closeScope (Scope scopeVar) =
   uninterruptibleMask_ (closeWhileUninterruptiblyMasked scopeVar)
 
-closeWhileUninterruptiblyMasked :: TMVar Scope -> IO ()
+closeWhileUninterruptiblyMasked :: TMVar S -> IO ()
 closeWhileUninterruptiblyMasked scopeVar =
   (join . atomically) do
     tryTakeTMVar scopeVar >>= \case
       Nothing -> pure (pure ())
-      Just Scope {runningVar, startingVar} -> do
+      Just S {runningVar, startingVar} -> do
         blockUntilTVar startingVar (== 0)
         pure do
           children <- atomically (readTVar runningVar)
@@ -104,23 +107,20 @@ data Async a = Async
     action :: STM (Either SomeException a)
   }
 
-async :: TMVar Scope -> IO a -> IO (Async a)
+async :: Scope -> IO a -> IO (Async a)
 async scope action =
   asyncMasked scope \unmask -> unmask action
 
-async_ :: TMVar Scope -> IO a -> IO ()
+async_ :: Scope -> IO a -> IO ()
 async_ scope action =
   void (async scope action)
 
-asyncMasked ::
-  TMVar Scope ->
-  ((forall x. IO x -> IO x) -> IO a) ->
-  IO (Async a)
-asyncMasked scopeVar action = do
+asyncMasked :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Async a)
+asyncMasked (Scope scopeVar) action = do
   resultVar <- atomically newEmptyTMVar
 
   uninterruptibleMask_ do
-    Scope {runningVar, startingVar} <-
+    S {runningVar, startingVar} <-
       atomically do
         tryReadTMVar scopeVar >>= \case
           Nothing -> throwSTM ScopeClosed
@@ -156,7 +156,7 @@ asyncMasked scopeVar action = do
           action = readTMVar resultVar
         }
 
-asyncMasked_ :: TMVar Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO ()
+asyncMasked_ :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO ()
 asyncMasked_ scope action =
   void (asyncMasked scope action)
 
@@ -181,6 +181,7 @@ data ChildDied = ChildDied
   deriving stock (Show)
   deriving anyclass (Exception)
 
+-- | Unexported async variant of 'ChildDied'.
 data AsyncChildDied = AsyncChildDied
   { threadId :: ThreadId,
     exception :: SomeException
