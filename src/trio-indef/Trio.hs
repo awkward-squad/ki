@@ -12,11 +12,9 @@ module Trio
     joinScope,
     cancelScope,
     async,
-    async_,
     asyncMasked,
-    asyncMasked_,
     Scope,
-    Async (..),
+    Promise (..),
     RestoreMaskingState,
     ChildDied (..),
     ScopeClosed (..),
@@ -105,10 +103,9 @@ cancelScopeWhileUninterruptiblyMasked scopeVar =
           for_ (Set.delete cancellingThreadId children) \child ->
             -- Kill the child with asynchronous exceptions unmasked, because we
             -- don't want to deadlock with a child concurrently trying to throw
-            -- an 'AsyncChildDied' back to us. But if any exceptions are thrown
-            -- to us during this time, whether they are 'AsyncChildDied' or not,
-            -- just ignore them. We already have an exception to throw, and we
-            -- prefer it because it was delivered first.
+            -- a exception back to us. But if any exceptions are thrown to us
+            -- during this time, just ignore them. We already have an exception
+            -- to throw, and we prefer it because it was delivered first.
             retryingUntilSuccess (unsafeUnmask (throwTo child ThreadKilled))
 
           if Set.member cancellingThreadId children
@@ -117,20 +114,16 @@ cancelScopeWhileUninterruptiblyMasked scopeVar =
               throwTo cancellingThreadId ThreadKilled -- kill self
             else atomically (blockUntilTVar runningVar Set.null)
 
-data Async a = Async
+data Promise a = Promise
   { await :: STM a,
     cancel :: IO ()
   }
 
-async :: Scope -> IO a -> IO (Async a)
+async :: Scope -> IO a -> IO (Promise a)
 async scope action =
   asyncMasked scope \unmask -> unmask action
 
-async_ :: Scope -> IO a -> IO ()
-async_ scope action =
-  void (async scope action)
-
-asyncMasked :: Scope -> (RestoreMaskingState -> IO a) -> IO (Async a)
+asyncMasked :: Scope -> (RestoreMaskingState -> IO a) -> IO (Promise a)
 asyncMasked (Scope scopeVar) action = do
   resultVar <- atomically (newEmptyTMVar "result")
 
@@ -167,7 +160,7 @@ asyncMasked (Scope scopeVar) action = do
       modifyTVar' runningVar (Set.insert childThreadId)
 
     pure
-      Async
+      Promise
         { await = readTMVar resultVar >>= \case
             Left exception -> throwSTM (ChildDied childThreadId exception)
             Right result -> pure result,
@@ -175,10 +168,6 @@ asyncMasked (Scope scopeVar) action = do
             throwTo childThreadId ThreadKilled
             void (atomically (readTMVar resultVar))
         }
-
-asyncMasked_ :: Scope -> (RestoreMaskingState -> IO a) -> IO ()
-asyncMasked_ scope action =
-  void (asyncMasked scope action)
 
 --------------------------------------------------------------------------------
 -- ChildDied

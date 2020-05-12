@@ -8,6 +8,8 @@ common component
     -Weverything
     -fno-warn-implicit-prelude
     -fno-warn-missing-import-lists
+    -fno-warn-safe
+    -fno-warn-unsafe
 
 library
   import: component
