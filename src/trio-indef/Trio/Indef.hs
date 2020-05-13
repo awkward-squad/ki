@@ -249,10 +249,14 @@ asyncMasked (Scope scopeVar) action = do
             action
               unmask
               ( do
-                  readTVar stateVar >>= \case
-                    Open _ -> retry
-                    Cancelled _ -> throwSTM ThreadGaveUp
-                    Closed -> throwSTM ThreadGaveUp
+                  cancelled <-
+                    readTVar stateVar >>= \case
+                      Open _ -> readTVar cancelledVar
+                      Cancelled _ -> pure True
+                      Closed -> pure True
+                  if cancelled
+                    then throwSTM ThreadGaveUp
+                    else retry
               )
         case result of
           Left (NotThreadGaveUpOrKilled exception) ->
