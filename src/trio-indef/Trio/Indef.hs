@@ -16,7 +16,6 @@ module Trio.Indef
     async,
     asyncMasked,
     await,
-    softCancel,
     hardCancel,
     Scope,
     Promise,
@@ -58,7 +57,6 @@ data State
 
 data Promise a = Promise
   { threadId :: ThreadId,
-    cancelledVar :: TVar Bool,
     resultVar :: TMVar (Either SomeException a)
   }
 
@@ -113,11 +111,11 @@ newScope = do
 --
 -- * If any thread spawned within the scope throws an exception other than
 -- 'ThreadKilled' or 'ThreadGaveUp', it is propagated to this thread, which then
--- hard-cancels the scope (exactly as if 'hardCancelScope was called') and
+-- hard-cancels the scope (exactly as if 'hardCancelScope' was called) and
 -- re-throws the exception wrapped in a 'ThreadFailed'.
 --
--- * If the action completes, blocks until all threads spawned within the scope
--- finish, then closes the scope (exactly as if 'joinScope' was called).
+-- * If the action completes, it blocks until all threads spawned within the
+-- scope finish, then closes the scope (exactly as if 'joinScope' was called).
 withScope :: (Scope -> IO a) -> IO a
 withScope f = do
   scopeVar <- newScope
@@ -150,7 +148,7 @@ joinScope (Scope scopeVar) = do
     Closed ->
       blockUntilTVar runningVar Set.null
 
--- | Designate a scope as soft cancelled, which is a suggestion to threads
+-- | Designate a scope as soft-cancelled, which is a suggestion to threads
 -- spawned within it to finish.
 softCancelScope :: Scope -> STM ()
 softCancelScope (Scope scopeVar) = do
@@ -239,7 +237,6 @@ asyncMasked (Scope scopeVar) action = do
 
     parentThreadId <- myThreadId
     resultVar <- atomically (newEmptyTMVar "result")
-    cancelledVar <- newTVarIO "cancelled" False
 
     childThreadId <-
       forkIOWithUnmask \unmask -> do
@@ -248,15 +245,10 @@ asyncMasked (Scope scopeVar) action = do
           try do
             action
               unmask
-              ( do
-                  cancelled <-
-                    readTVar stateVar >>= \case
-                      Open _ -> readTVar cancelledVar
-                      Cancelled _ -> pure True
-                      Closed -> pure True
-                  if cancelled
-                    then throwSTM ThreadGaveUp
-                    else retry
+              ( readTVar stateVar >>= \case
+                  Open _ -> retry
+                  Cancelled _ -> throwSTM ThreadGaveUp
+                  Closed -> throwSTM ThreadGaveUp
               )
         case result of
           Left (NotThreadGaveUpOrKilled exception) ->
@@ -279,7 +271,6 @@ asyncMasked (Scope scopeVar) action = do
     pure
       Promise
         { threadId = childThreadId,
-          cancelledVar,
           resultVar
         }
 
@@ -290,12 +281,6 @@ await Promise {resultVar, threadId} =
   readTMVar resultVar >>= \case
     Left exception -> throwSTM ThreadFailed {threadId, exception}
     Right result -> pure result
-
--- | Designate a thread as soft-cancelled, which is a suggestion for it to
--- finish.
-softCancel :: Promise a -> STM ()
-softCancel Promise {cancelledVar} =
-  writeTVar cancelledVar True
 
 -- | Throw a 'ThreadKilled' to a thread, and wait for it to finish.
 hardCancel :: Promise a -> IO ()
