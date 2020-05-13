@@ -11,7 +11,7 @@
 module Trio.Indef
   ( withScope,
     joinScope,
-    cancelScope,
+    scopeIsClosing,
     async,
     asyncMasked,
     await,
@@ -27,8 +27,9 @@ where
 
 import Control.Applicative ((<|>))
 import Control.Exception (AsyncException (ThreadKilled), Exception (fromException, toException), SomeException, asyncExceptionFromException, asyncExceptionToException)
-import Control.Monad (void, when)
+import Control.Monad (join, void, when)
 import Data.Foldable (for_)
+import Data.Functor (($>))
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Trio.Internal.Conc (blockUntilTVar, registerBlock, retryingUntilSuccess)
@@ -49,9 +50,9 @@ data S = S
 data State
   = -- | The scope is open.
     Open Int -- Number of threads starting
-  | -- | The scope has been marked as soft-cancelled, which is a suggestion to
+  | -- | The scope has been marked as soft-closed, which is a suggestion to
     -- threads spawned within to finish. No more threads may be spawned within.
-    Cancelled Int -- Number of threads starting
+    SoftClosed Int -- Number of threads starting
   | -- | The scope is closed. No more threads may be spawned within.
     Closed
 
@@ -104,36 +105,41 @@ newScope = do
   runningVar <- newTVarIO "running" Set.empty
   newTVarIO "scope" S {stateVar, runningVar}
 
--- | Perform an action with a new thread scope.
---
--- * If the action throws an exception, it first hard-cancels the scope (exactly
--- as if 'hardCancelScope' was called).
---
--- * If any thread spawned within the scope throws an exception other than
--- 'ThreadKilled' or 'ThreadGaveUp', it is propagated to this thread, which then
--- hard-cancels the scope (exactly as if 'hardCancelScope' was called) and
--- re-throws the exception wrapped in a 'ThreadFailed'.
---
--- * If the action completes, it blocks until all threads spawned within the
--- scope finish, then closes the scope (exactly as if 'joinScope' was called).
 withScope :: (Scope -> IO a) -> IO a
 withScope f = do
   scopeVar <- newScope
 
   let action = do
         result <- f (Scope scopeVar)
-        atomically (joinScope (Scope scopeVar))
+        atomically (softJoinScope (Scope scopeVar))
         pure result
 
   uninterruptibleMask \restore ->
     restore action `catch` \exception -> do
-      actuallyHardCancelScope (Scope scopeVar)
+      hardCloseScope (Scope scopeVar)
       throwIO (translateAsyncThreadFailed exception)
+
+joinScope :: Scope -> Int -> IO ()
+joinScope scope micros
+  | micros < 0 = atomically (softJoinScope scope)
+  | micros == 0 = uninterruptibleMask_ (hardCloseScope scope)
+  | otherwise = do
+    softClosed <- atomically (softCloseScope scope)
+    when softClosed do
+      blockUntilTimeout <- registerBlock micros
+      let happyTeardown :: STM (IO ())
+          happyTeardown =
+            softJoinScope scope $> pure ()
+      let sadTeardown :: STM (IO ())
+          sadTeardown =
+            blockUntilTimeout
+              $> uninterruptibleMask_ (hardCloseScope scope)
+      (join . atomically) (happyTeardown <|> sadTeardown)
 
 -- | Block until all threads spawned within the scope finish, then close the
 -- scope.
-joinScope :: Scope -> STM ()
-joinScope (Scope scopeVar) = do
+softJoinScope :: Scope -> STM ()
+softJoinScope (Scope scopeVar) = do
   S {stateVar, runningVar} <- readTVar scopeVar
   let wait :: Int -> STM ()
       wait starting =
@@ -144,63 +150,49 @@ joinScope (Scope scopeVar) = do
           else retry
   readTVar stateVar >>= \case
     Open starting -> wait starting
-    Cancelled starting -> wait starting
+    SoftClosed starting -> wait starting
     Closed -> blockUntilTVar runningVar Set.null
 
-cancelScope :: Scope -> Int -> IO ()
-cancelScope scope micros =
-  if micros <= 0
-    then uninterruptibleMask_ (actuallyHardCancelScope scope)
-    else do
-      softCancelled <- atomically (softCancelScope scope)
-      when softCancelled do
-        block <- registerBlock micros
-        timedOut <- atomically (True <$ block <|> False <$ joinScope scope)
-        when timedOut (uninterruptibleMask_ (actuallyHardCancelScope scope))
-
--- | Soft-cancel a scope, and return whether it was left in the soft-cancelled
+-- | Soft-cancel a scope, and return whether it was left in the soft-closed
 -- state (i.e. it wasn't already closed).
-softCancelScope :: Scope -> STM Bool
-softCancelScope (Scope scopeVar) = do
+softCloseScope :: Scope -> STM Bool
+softCloseScope (Scope scopeVar) = do
   S {stateVar} <- readTVar scopeVar
   readTVar stateVar >>= \case
     Open starting -> do
-      writeTVar stateVar (Cancelled starting)
+      writeTVar stateVar (SoftClosed starting)
       pure True
-    Cancelled _ -> pure True
+    SoftClosed _ -> pure True
     Closed -> pure False
 
 -- Precondition: uninterruptibly masked
-actuallyHardCancelScope :: Scope -> IO ()
-actuallyHardCancelScope scope =
-  atomically (closeScope scope) >>= \case
+hardCloseScope :: Scope -> IO ()
+hardCloseScope scope =
+  atomically (setScopeToClosed scope) >>= \case
     Nothing -> pure ()
-    Just childrenVar -> killChildren childrenVar
+    Just childrenVar -> do
+      cancellingThreadId <- myThreadId
+      children <- atomically (readTVar childrenVar)
+      for_ (Set.delete cancellingThreadId children) \child ->
+        -- Kill the child with asynchronous exceptions unmasked, because
+        -- we don't want to deadlock with a child concurrently trying to
+        -- throw a exception back to us. But if any exceptions are thrown
+        -- to us during this time, just ignore them. We already have an
+        -- exception to throw, and we prefer it because it was delivered
+        -- first.
+        retryingUntilSuccess (unsafeUnmask (throwTo child ThreadKilled))
 
-killChildren :: TVar (Set ThreadId) -> IO ()
-killChildren childrenVar = do
-  cancellingThreadId <- myThreadId
-  children <- atomically (readTVar childrenVar)
-  for_ (Set.delete cancellingThreadId children) \child ->
-    -- Kill the child with asynchronous exceptions unmasked, because
-    -- we don't want to deadlock with a child concurrently trying to
-    -- throw a exception back to us. But if any exceptions are thrown
-    -- to us during this time, just ignore them. We already have an
-    -- exception to throw, and we prefer it because it was delivered
-    -- first.
-    retryingUntilSuccess (unsafeUnmask (throwTo child ThreadKilled))
-
-  if Set.member cancellingThreadId children
-    then do
-      atomically (blockUntilTVar childrenVar ((== 1) . Set.size))
-      throwIO ThreadKilled
-    else atomically (blockUntilTVar childrenVar Set.null)
+      if Set.member cancellingThreadId children
+        then do
+          atomically (blockUntilTVar childrenVar ((== 1) . Set.size))
+          throwIO ThreadKilled
+        else atomically (blockUntilTVar childrenVar Set.null)
 
 -- | Wait for all threads to finish starting, then close a scope. Returns the
 -- threads that are still running, if a state transition occurred (i.e. the
 -- scope was not already closed).
-closeScope :: Scope -> STM (Maybe (TVar (Set ThreadId)))
-closeScope (Scope scopeVar) = do
+setScopeToClosed :: Scope -> STM (Maybe (TVar (Set ThreadId)))
+setScopeToClosed (Scope scopeVar) = do
   S {stateVar, runningVar} <- readTVar scopeVar
   let close :: Int -> STM (Maybe (TVar (Set ThreadId)))
       close starting = do
@@ -209,37 +201,26 @@ closeScope (Scope scopeVar) = do
         pure (Just runningVar)
   readTVar stateVar >>= \case
     Open starting -> close starting
-    Cancelled starting -> close starting
+    SoftClosed starting -> close starting
     Closed -> pure Nothing
 
+scopeIsClosing :: Scope -> STM Bool
+scopeIsClosing (Scope scopeVar) = do
+  S {stateVar} <- readTVar scopeVar
+  readTVar stateVar >>= \case
+    Open _ -> pure False
+    SoftClosed _ -> pure True
+    Closed -> throwSTM ThreadKilled
+
 -- | Spawn a thread within a scope.
---
--- The action is provided an @STM void@ action, which never returns, but throws
--- a 'ThreadGaveUp' exception if this thread or the enclosing scope were
--- soft-cancelled.
---
--- @
--- async scope \\giveUp -> do
---   work
---   atomically (giveUp <|> pure ())
---   work
---   atomically (giveUp <|> pure ())
---   work
--- @
-async :: Scope -> (STM void -> IO a) -> IO (Promise a)
+async :: Scope -> IO a -> IO (Promise a)
 async scope action =
-  asyncMasked scope \unmask run -> unmask (action run)
+  asyncMasked scope \unmask -> unmask action
 
 -- | Like 'async', but spawns a thread with asynchronous exceptions
 -- uninterruptibly masked, and provides the action with a function to unmask
 -- asynchronous exceptions.
-asyncMasked ::
-  Scope ->
-  ( RestoreMaskingState ->
-    STM void ->
-    IO a
-  ) ->
-  IO (Promise a)
+asyncMasked :: Scope -> (RestoreMaskingState -> IO a) -> IO (Promise a)
 asyncMasked (Scope scopeVar) action = do
   uninterruptibleMask_ do
     S {stateVar, runningVar} <-
@@ -249,7 +230,9 @@ asyncMasked (Scope scopeVar) action = do
           Open starting -> do
             writeTVar stateVar $! (Open (starting + 1))
             pure scope
-          Cancelled _ -> throwSTM ScopeClosed
+          SoftClosed starting -> do
+            writeTVar stateVar $! (SoftClosed (starting + 1))
+            pure scope
           Closed -> throwSTM ScopeClosed
 
     parentThreadId <- myThreadId
@@ -258,15 +241,7 @@ asyncMasked (Scope scopeVar) action = do
     childThreadId <-
       forkIOWithUnmask \unmask -> do
         childThreadId <- myThreadId
-        result <-
-          try do
-            action
-              unmask
-              ( readTVar stateVar >>= \case
-                  Open _ -> retry
-                  Cancelled _ -> throwSTM ThreadGaveUp
-                  Closed -> throwSTM ThreadGaveUp
-              )
+        result <- try (action unmask)
         case result of
           Left (NotThreadGaveUpOrKilled exception) ->
             throwTo parentThreadId (AsyncThreadFailed childThreadId exception)
