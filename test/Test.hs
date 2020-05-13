@@ -16,6 +16,7 @@ import Data.Function
 import Data.List
 import Data.Maybe (isJust)
 import GHC.Clock
+import System.Exit
 import qualified Test.DejaFu as DejaFu
 import qualified Test.DejaFu.Types as DejaFu
 import Text.Printf (printf)
@@ -30,9 +31,11 @@ main = do
     scope <- withScope pure
     void (async scope (pure ()))
 
-  test "scope waits for children on close" . returns True $ do
+  test "join (-1) waits indefinitely for children" . returns True $ do
     ref <- newIORef False
-    withScope \scope -> void (async scope (writeIORef ref True))
+    withScope \scope -> do
+      void (async scope (writeIORef ref True))
+      joinScope scope (-1)
     readIORef ref
 
   test "child can be awaited" . returns () $ do
@@ -41,7 +44,10 @@ main = do
       atomically (await child)
 
   test "child can be awaited outside its scope" . returns () $ do
-    child <- withScope \scope -> async scope (pure ())
+    child <- withScope \scope -> do
+      child <- async scope (pure ())
+      joinScope scope (-1)
+      pure child
     atomically (await child)
 
   test "child can be cancelled" . returns () $ do
@@ -69,6 +75,7 @@ main = do
         mask_ do
           child <- async scope (() <$ throw A)
           putMVar var child
+          joinScope scope (-1)
     child <- takeMVar var
     atomically (await child)
 
@@ -91,10 +98,13 @@ main = do
       child <- async scope (newEmptyMVar >>= takeMVar)
       void (async scope (writeIORef ref True))
       cancel child
+      joinScope scope (-1)
     readIORef ref
 
   test "scope re-throws exceptions from children" . throws @ThreadFailed $ do
-    withScope \scope -> void (async scope (() <$ throw A))
+    withScope \scope -> do
+      void (async scope (() <$ throw A))
+      joinScope scope (-1)
 
   test "scope cancels children when it dies" do
     returns True do
@@ -116,8 +126,10 @@ main = do
             void $ asyncMasked scope2 \unmask -> do
               putMVar var ()
               unmask (pure ()) `finally` writeIORef ref True
+            joinScope scope2 (-1)
       takeMVar var
       cancel child
+      joinScope scope1 (-1)
     readIORef ref
 
   test "scope cancels children when one dies" . returns True $ do
@@ -128,6 +140,7 @@ main = do
           var <- newEmptyMVar
           unmask (takeMVar var) `finally` writeIORef ref True
         void (async scope (() <$ throw A))
+        joinScope scope (-1)
     readIORef ref
 
   test "scope can be joined immediately" . returns () $
@@ -135,8 +148,9 @@ main = do
 
   test "child joining its own scope cancels self" . returns True $ do
     ref <- newIORef False
-    withScope \scope ->
+    withScope \scope -> do
       void (async scope (joinScope scope 0 `onException` writeIORef ref True))
+      joinScope scope (-1)
     readIORef ref
 
   test "child joining its own scope cancels siblings" . returns True $ do
@@ -146,6 +160,7 @@ main = do
         var <- newEmptyMVar
         unmask (takeMVar var) `finally` writeIORef ref True
       void (async scope (joinScope scope 0))
+      joinScope scope (-1)
     readIORef ref
 
 type P =
@@ -163,6 +178,7 @@ test name action = do
     name
   for_ (DejaFu._failures result) \(value, trace) ->
     prettyPrintTrace value trace
+  unless (DejaFu._pass result) exitFailure
 
 runTest ::
   Eq a =>

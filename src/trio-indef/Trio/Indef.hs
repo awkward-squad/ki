@@ -26,34 +26,25 @@ where
 
 import Control.Applicative ((<|>))
 import Control.Exception (AsyncException (ThreadKilled), Exception (fromException, toException), SomeException, asyncExceptionFromException, asyncExceptionToException)
-import Control.Monad (join, void, when)
+import Control.Monad (join, void)
 import Data.Foldable (for_)
 import Data.Functor (($>))
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Trio.Internal.Conc (blockUntilTVar, registerBlock, retryingUntilSuccess)
-import Trio.Sig (IO, STM, TMVar, TVar, ThreadId, atomically, catch, forkIOWithUnmask, modifyTVar', myThreadId, newEmptyTMVar, newTVarIO, putTMVar, readTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, uninterruptibleMask_, unsafeUnmask, writeTVar)
+import Trio.Sig (IO, STM, TMVar, TVar, ThreadId, atomically, forkIOWithUnmask, modifyTVar', myThreadId, newEmptyTMVar, newTVarIO, putTMVar, readTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, uninterruptibleMask_, unsafeUnmask, writeTVar)
 import Prelude hiding (IO)
 
 -- import Trio.Internal.Debug
 
 -- | A thread scope, which scopes the lifetime of threads spawned within it.
-newtype Scope
-  = Scope (TVar S)
-
-data S = S
-  { stateVar :: TVar State,
-    runningVar :: TVar (Set ThreadId)
+data Scope = Scope
+  { -- Invariant: if closed, no threads are starting
+    closedVar :: TVar Bool,
+    cancelledVar :: TVar Bool,
+    runningVar :: TVar (Set ThreadId),
+    startingVar :: TVar Int
   }
-
-data State
-  = -- | The scope is open.
-    Open Int -- Number of threads starting
-  | -- | The scope has been marked as soft-closed, which is a suggestion to
-    -- threads spawned within to finish. No more threads may be spawned within.
-    SoftClosed Int -- Number of threads starting
-  | -- | The scope is closed. No more threads may be spawned within.
-    Closed
 
 data Promise a = Promise
   { threadId :: ThreadId,
@@ -93,71 +84,44 @@ translateAsyncThreadFailed ex =
 type RestoreMaskingState =
   forall x. IO x -> IO x
 
-newScope :: IO (TVar S)
+newScope :: IO Scope
 newScope = do
-  stateVar <- newTVarIO "state" (Open 0)
+  cancelledVar <- newTVarIO "cancelled" False
+  closedVar <- newTVarIO "closed" False
   runningVar <- newTVarIO "running" Set.empty
-  newTVarIO "scope" S {stateVar, runningVar}
+  startingVar <- newTVarIO "starting" 0
+  pure Scope {cancelledVar, closedVar, runningVar, startingVar}
 
 withScope :: (Scope -> IO a) -> IO a
 withScope f = do
-  scopeVar <- newScope
-
-  let action = do
-        result <- f (Scope scopeVar)
-        atomically (softJoinScope (Scope scopeVar))
-        pure result
-
-  uninterruptibleMask \restore ->
-    restore action `catch` \exception -> do
-      hardCloseScope (Scope scopeVar)
-      throwIO (translateAsyncThreadFailed exception)
+  scope <- newScope
+  uninterruptibleMask \restore -> do
+    result <- restore (try (f scope))
+    hardCloseScope scope
+    either (throwIO . translateAsyncThreadFailed) pure result
 
 joinScope :: Scope -> Int -> IO ()
-joinScope scope micros
+joinScope scope@Scope {cancelledVar} micros
   | micros < 0 = atomically (softJoinScope scope)
   | micros == 0 = uninterruptibleMask_ (hardCloseScope scope)
   | otherwise = do
-    softClosed <- atomically (softCloseScope scope)
-    when softClosed do
-      blockUntilTimeout <- registerBlock micros
-      let happyTeardown :: STM (IO ())
-          happyTeardown =
-            softJoinScope scope $> pure ()
-      let sadTeardown :: STM (IO ())
-          sadTeardown =
-            blockUntilTimeout
-              $> uninterruptibleMask_ (hardCloseScope scope)
-      (join . atomically) (happyTeardown <|> sadTeardown)
+    atomically (writeTVar cancelledVar True)
+    blockUntilTimeout <- registerBlock micros
+    let happyTeardown :: STM (IO ())
+        happyTeardown =
+          softJoinScope scope $> pure ()
+    let sadTeardown :: STM (IO ())
+        sadTeardown =
+          blockUntilTimeout $> uninterruptibleMask_ (hardCloseScope scope)
+    (join . atomically) (happyTeardown <|> sadTeardown)
 
 -- | Block until all threads spawned within the scope finish, then close the
 -- scope.
 softJoinScope :: Scope -> STM ()
-softJoinScope (Scope scopeVar) = do
-  S {stateVar, runningVar} <- readTVar scopeVar
-  let wait :: Int -> STM ()
-      wait starting =
-        if starting == 0
-          then do
-            blockUntilTVar runningVar Set.null
-            writeTVar stateVar Closed
-          else retry
-  readTVar stateVar >>= \case
-    Open starting -> wait starting
-    SoftClosed starting -> wait starting
-    Closed -> blockUntilTVar runningVar Set.null
-
--- | Soft-cancel a scope, and return whether it was left in the soft-closed
--- state (i.e. it wasn't already closed).
-softCloseScope :: Scope -> STM Bool
-softCloseScope (Scope scopeVar) = do
-  S {stateVar} <- readTVar scopeVar
-  readTVar stateVar >>= \case
-    Open starting -> do
-      writeTVar stateVar (SoftClosed starting)
-      pure True
-    SoftClosed _ -> pure True
-    Closed -> pure False
+softJoinScope Scope {closedVar, runningVar, startingVar} = do
+  blockUntilTVar startingVar (== 0)
+  blockUntilTVar runningVar Set.null
+  writeTVar closedVar True
 
 -- Precondition: uninterruptibly masked
 hardCloseScope :: Scope -> IO ()
@@ -186,25 +150,17 @@ hardCloseScope scope =
 -- threads that are still running, if a state transition occurred (i.e. the
 -- scope was not already closed).
 setScopeToClosed :: Scope -> STM (Maybe (TVar (Set ThreadId)))
-setScopeToClosed (Scope scopeVar) = do
-  S {stateVar, runningVar} <- readTVar scopeVar
-  let close :: Int -> STM (Maybe (TVar (Set ThreadId)))
-      close starting = do
-        when (starting /= 0) retry
-        writeTVar stateVar Closed
-        pure (Just runningVar)
-  readTVar stateVar >>= \case
-    Open starting -> close starting
-    SoftClosed starting -> close starting
-    Closed -> pure Nothing
+setScopeToClosed Scope {closedVar, runningVar, startingVar} = do
+  readTVar closedVar >>= \case
+    False -> do
+      blockUntilTVar startingVar (== 0)
+      writeTVar closedVar True
+      pure (Just runningVar)
+    True -> pure Nothing
 
 scopeIsClosing :: Scope -> STM Bool
-scopeIsClosing (Scope scopeVar) = do
-  S {stateVar} <- readTVar scopeVar
-  readTVar stateVar >>= \case
-    Open _ -> pure False
-    SoftClosed _ -> pure True
-    Closed -> throwSTM ThreadKilled
+scopeIsClosing Scope {cancelledVar} =
+  readTVar cancelledVar
 
 -- | Spawn a thread within a scope.
 async :: Scope -> IO a -> IO (Promise a)
@@ -215,19 +171,12 @@ async scope action =
 -- uninterruptibly masked, and provides the action with a function to unmask
 -- asynchronous exceptions.
 asyncMasked :: Scope -> (RestoreMaskingState -> IO a) -> IO (Promise a)
-asyncMasked (Scope scopeVar) action = do
+asyncMasked Scope {closedVar, runningVar, startingVar} action = do
   uninterruptibleMask_ do
-    S {stateVar, runningVar} <-
-      atomically do
-        scope@S {stateVar} <- readTVar scopeVar
-        readTVar stateVar >>= \case
-          Open starting -> do
-            writeTVar stateVar $! (Open (starting + 1))
-            pure scope
-          SoftClosed starting -> do
-            writeTVar stateVar $! (SoftClosed (starting + 1))
-            pure scope
-          Closed -> throwSTM ScopeClosed
+    atomically do
+      readTVar closedVar >>= \case
+        False -> modifyTVar' startingVar (+ 1)
+        True -> throwSTM ScopeClosed
 
     parentThreadId <- myThreadId
     resultVar <- atomically (newEmptyTMVar "result")
@@ -249,9 +198,7 @@ asyncMasked (Scope scopeVar) action = do
             else retry
 
     atomically do
-      modifyTVar' stateVar \case
-        Open starting -> Open (starting - 1)
-        _ -> error "scope not open"
+      modifyTVar' startingVar (subtract 1)
       modifyTVar' runningVar (Set.insert childThreadId)
 
     pure
