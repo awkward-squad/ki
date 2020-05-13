@@ -63,6 +63,10 @@ readTVar :: TVar a -> STM a
 readTVar =
   Conc.readTVar
 
+registerDelay :: Int -> IO (TVar Bool)
+registerDelay =
+  Conc.registerDelay
+
 retry :: STM a
 retry =
   Conc.retry

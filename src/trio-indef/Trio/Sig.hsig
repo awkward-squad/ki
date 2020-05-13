@@ -3,16 +3,19 @@
 
 signature Trio.Sig (module Trio.Sig) where
 
+import Control.Applicative (Alternative)
 import Control.Exception (Exception)
-import Prelude (Applicative, Either, Eq, Functor, Monad, Ord, Show, String)
+import Prelude hiding (IO)
 
 data IO a
-instance Functor IO
 instance Applicative IO
+instance Functor IO
 instance Monad IO
 
 data STM a
+instance Alternative STM
 instance Applicative STM
+instance Functor STM
 instance Monad STM
 
 data ThreadId
@@ -34,6 +37,7 @@ newTVarIO :: String -> a -> IO (TVar a)
 putTMVar :: TMVar a -> a -> STM ()
 readTMVar :: TMVar a -> STM a
 readTVar :: TVar a -> STM a
+registerDelay :: Int -> IO (TVar Bool)
 retry :: STM a
 throwIO :: Exception e => e -> IO a
 throwSTM :: Exception e => e -> STM a
