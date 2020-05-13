@@ -47,13 +47,13 @@ main = do
   test "child can be cancelled" . returns () $ do
     withScope \scope -> do
       child <- async scope \_ -> newEmptyMVar >>= takeMVar
-      cancel child
+      hardCancel child
 
   test "child can be cancelled after it's finished" . returns () $ do
     withScope \scope -> do
       child <- async scope \_ -> pure ()
       atomically (await child)
-      cancel child
+      hardCancel child
 
   test "dying child throws async exception first" . returns True $ do
     withScope \scope ->
@@ -75,14 +75,14 @@ main = do
   test "child can mask exceptions forever" . deadlocks $ do
     withScope \scope -> do
       child <- asyncMasked scope \_ _ -> (newEmptyMVar >>= takeMVar)
-      cancel child
+      hardCancel child
 
   test "child can mask exceptions briefly" . returns True $ do
     ref <- newIORef False
     withScope \scope -> do
       child <- asyncMasked scope \unmask _ ->
         unmask (pure ()) `finally` writeIORef ref True
-      cancel child
+      hardCancel child
       readIORef ref
 
   test "cancelling a child doesn't cancel its siblings" . returns True $ do
@@ -90,7 +90,7 @@ main = do
     withScope \scope -> do
       child <- async scope \_ -> newEmptyMVar >>= takeMVar
       void (async scope \_ -> writeIORef ref True)
-      cancel child
+      hardCancel child
     readIORef ref
 
   test "scope re-throws exceptions from children" . throws @ChildDied $ do
@@ -117,7 +117,7 @@ main = do
               putMVar var ()
               unmask (pure ()) `finally` writeIORef ref True
       takeMVar var
-      cancel child
+      hardCancel child
     readIORef ref
 
   test "scope cancels children when one dies" . returns True $ do
@@ -134,13 +134,14 @@ main = do
     withScope \scope -> void (async scope \_ -> atomically (joinScope scope))
 
   test "scope can be cancelled" . returns () $
-    withScope cancelScope
+    withScope hardCancelScope
 
   test "child cancelling its own scope cancels self" . returns True $ do
     ref <- newIORef False
     withScope \scope ->
-      void
-        (async scope \_ -> cancelScope scope `onException` writeIORef ref True)
+      void do
+        async scope \_ ->
+          hardCancelScope scope `onException` writeIORef ref True
     readIORef ref
 
   test "child cancelling its own scope cancels siblings" . returns True $ do
@@ -149,7 +150,7 @@ main = do
       void $ asyncMasked scope \unmask _ -> do
         var <- newEmptyMVar
         unmask (takeMVar var) `finally` writeIORef ref True
-      void (async scope \_ -> cancelScope scope)
+      void (async scope \_ -> hardCancelScope scope)
     readIORef ref
 
 type P =

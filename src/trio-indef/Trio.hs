@@ -12,12 +12,12 @@ module Trio
   ( withScope,
     joinScope,
     softCancelScope,
-    cancelScope,
+    hardCancelScope,
     async,
     asyncMasked,
     await,
     softCancel,
-    cancel,
+    hardCancel,
     Scope,
     Promise,
     Run,
@@ -122,7 +122,7 @@ withScope f = do
 
   uninterruptibleMask \restore ->
     restore action `catch` \exception -> do
-      cancelScopeWhileUninterruptiblyMasked scopeVar
+      hardCancelScopeWhileUninterruptiblyMasked scopeVar
       throwIO (translateAsyncChildDied exception)
 
 -- | Wait for all children to finish, and close the scope.
@@ -143,12 +143,12 @@ softCancelScope (Scope scopeVar) = do
   closed <- readTVar closedVar
   unless closed (writeTVar cancelledVar True)
 
-cancelScope :: Scope -> IO ()
-cancelScope (Scope scopeVar) =
-  uninterruptibleMask_ (cancelScopeWhileUninterruptiblyMasked scopeVar)
+hardCancelScope :: Scope -> IO ()
+hardCancelScope (Scope scopeVar) =
+  uninterruptibleMask_ (hardCancelScopeWhileUninterruptiblyMasked scopeVar)
 
-cancelScopeWhileUninterruptiblyMasked :: TVar S -> IO ()
-cancelScopeWhileUninterruptiblyMasked scopeVar =
+hardCancelScopeWhileUninterruptiblyMasked :: TVar S -> IO ()
+hardCancelScopeWhileUninterruptiblyMasked scopeVar =
   (join . atomically) do
     S {closedVar, runningVar, startingVar} <- readTVar scopeVar
     closed <- readTVar closedVar
@@ -241,8 +241,8 @@ softCancel :: Promise a -> STM ()
 softCancel Promise{cancelledVar} =
   writeTVar cancelledVar True
 
-cancel :: Promise a -> IO ()
-cancel Promise {resultVar, threadId} = do
+hardCancel :: Promise a -> IO ()
+hardCancel Promise {resultVar, threadId} = do
   throwTo threadId ThreadKilled
   void (atomically (readTMVar resultVar))
 
