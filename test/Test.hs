@@ -62,9 +62,9 @@ main = do
         unmask (False <$ atomically (await child)) `catch` \ex -> do
           pure (isAsyncException ex)
 
-  test "failed child throws exception when awaited" . throws @ChildDied $ do
+  test "failed child throws exception when awaited" . throws @ThreadFailed $ do
     var <- newEmptyMVar
-    ignoring @ChildDied do
+    ignoring @ThreadFailed do
       withScope \scope ->
         mask_ do
           child <- async scope \_ -> () <$ throw A
@@ -93,7 +93,7 @@ main = do
       hardCancel child
     readIORef ref
 
-  test "scope re-throws exceptions from children" . throws @ChildDied $ do
+  test "scope re-throws exceptions from children" . throws @ThreadFailed $ do
     withScope \scope -> void (async scope \_ -> () <$ throw A)
 
   test "scope cancels children when it dies" do
@@ -122,7 +122,7 @@ main = do
 
   test "scope cancels children when one dies" . returns True $ do
     ref <- newIORef False
-    ignoring @ChildDied do
+    ignoring @ThreadFailed do
       withScope \scope -> do
         void $ asyncMasked scope \unmask _ -> do
           var <- newEmptyMVar
