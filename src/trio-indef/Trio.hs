@@ -20,7 +20,6 @@ module Trio
     hardCancel,
     Scope,
     Promise,
-    Run,
     RestoreMaskingState,
     ChildDied (..),
     ScopeClosed (..),
@@ -97,9 +96,6 @@ translateAsyncChildDied ex =
       toException ChildDied {threadId, exception}
     _ -> ex
 
-type Run =
-  forall x. IO x -> IO x
-
 type RestoreMaskingState =
   forall x. IO x -> IO x
 
@@ -125,7 +121,6 @@ withScope f = do
       hardCancelScopeWhileUninterruptiblyMasked scopeVar
       throwIO (translateAsyncChildDied exception)
 
--- | Wait for all children to finish, and close the scope.
 joinScope :: Scope -> STM ()
 joinScope (Scope scopeVar) = do
   S {closedVar, runningVar, startingVar} <- readTVar scopeVar
@@ -174,11 +169,17 @@ hardCancelScopeWhileUninterruptiblyMasked scopeVar =
               throwIO ThreadKilled
             else atomically (blockUntilTVar runningVar Set.null)
 
-async :: Scope -> (Run -> IO a) -> IO (Promise a)
+async :: Scope -> (STM void -> IO a) -> IO (Promise a)
 async scope action =
   asyncMasked scope \unmask run -> unmask (action run)
 
-asyncMasked :: Scope -> (RestoreMaskingState -> Run -> IO a) -> IO (Promise a)
+asyncMasked ::
+  Scope ->
+  ( RestoreMaskingState ->
+    STM void ->
+    IO a
+  ) ->
+  IO (Promise a)
 asyncMasked scope action = do
   uninterruptibleMask_ do
     S {cancelledVar = scopeCancelledVar, runningVar, startingVar} <-
@@ -198,15 +199,14 @@ asyncMasked scope action = do
           try do
             action
               unmask
-              ( \act -> do
+              ( do
                   cancelled <-
-                    atomically do
-                      readTVar scopeCancelledVar >>= \case
-                        False -> readTVar cancelledVar
-                        True -> pure True
+                    readTVar scopeCancelledVar >>= \case
+                      False -> readTVar cancelledVar
+                      True -> pure True
                   if cancelled
-                    then throwIO ThreadGaveUp
-                    else act
+                    then throwSTM ThreadGaveUp
+                    else retry
               )
         case result of
           Left (NotThreadGaveUpOrKilled exception) ->
@@ -238,7 +238,7 @@ await Promise {resultVar, threadId} =
     Right result -> pure result
 
 softCancel :: Promise a -> STM ()
-softCancel Promise{cancelledVar} =
+softCancel Promise {cancelledVar} =
   writeTVar cancelledVar True
 
 hardCancel :: Promise a -> IO ()
