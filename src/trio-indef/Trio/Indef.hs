@@ -21,9 +21,9 @@ module Trio.Indef
     Scope,
     Promise,
     RestoreMaskingState,
-    ChildDied (..),
     ScopeClosed (..),
     ThreadGaveUp (..),
+    ThreadFailed (..),
   )
 where
 
@@ -38,6 +38,7 @@ import Prelude hiding (IO)
 
 -- import Trio.Internal.Debug
 
+-- | A thread scope, which scopes the lifetime of threads spawned within it.
 newtype Scope
   = Scope (TVar S)
 
@@ -71,29 +72,29 @@ data ThreadGaveUp
   deriving stock (Show)
   deriving anyclass (Exception)
 
-data ChildDied = ChildDied
+data ThreadFailed = ThreadFailed
   { threadId :: ThreadId,
     exception :: SomeException
   }
   deriving stock (Show)
   deriving anyclass (Exception)
 
--- | Unexported async variant of 'ChildDied'.
-data AsyncChildDied = AsyncChildDied
+-- | Unexported async variant of 'ThreadFailed'.
+data AsyncThreadFailed = AsyncThreadFailed
   { threadId :: ThreadId,
     exception :: SomeException
   }
   deriving stock (Show)
 
-instance Exception AsyncChildDied where
+instance Exception AsyncThreadFailed where
   fromException = asyncExceptionFromException
   toException = asyncExceptionToException
 
-translateAsyncChildDied :: SomeException -> SomeException
-translateAsyncChildDied ex =
+translateAsyncThreadFailed :: SomeException -> SomeException
+translateAsyncThreadFailed ex =
   case fromException ex of
-    Just AsyncChildDied {threadId, exception} ->
-      toException ChildDied {threadId, exception}
+    Just AsyncThreadFailed {threadId, exception} ->
+      toException ThreadFailed {threadId, exception}
     _ -> ex
 
 type RestoreMaskingState =
@@ -119,7 +120,7 @@ withScope f = do
   uninterruptibleMask \restore ->
     restore action `catch` \exception -> do
       hardCancelScopeWhileUninterruptiblyMasked scopeVar
-      throwIO (translateAsyncChildDied exception)
+      throwIO (translateAsyncThreadFailed exception)
 
 joinScope :: Scope -> STM ()
 joinScope (Scope scopeVar) = do
@@ -210,7 +211,7 @@ asyncMasked scope action = do
               )
         case result of
           Left (NotThreadGaveUpOrKilled exception) ->
-            throwTo parentThreadId (AsyncChildDied childThreadId exception)
+            throwTo parentThreadId (AsyncThreadFailed childThreadId exception)
           _ -> pure ()
         atomically do
           running <- readTVar runningVar
@@ -234,7 +235,7 @@ asyncMasked scope action = do
 await :: Promise a -> STM a
 await Promise {resultVar, threadId} =
   readTMVar resultVar >>= \case
-    Left exception -> throwSTM ChildDied {threadId, exception}
+    Left exception -> throwSTM ThreadFailed {threadId, exception}
     Right result -> pure result
 
 softCancel :: Promise a -> STM ()
