@@ -8,7 +8,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Trio
+module Trio.Indef
   ( withScope,
     joinScope,
     softCancelScope,

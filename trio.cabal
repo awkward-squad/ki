@@ -14,7 +14,7 @@ common component
 library
   import: component
   build-depends: trio-impl-base, trio-indef
-  mixins: trio-indef (Trio) requires (Trio.Sig as Trio.Sig.Base)
+  mixins: trio-indef (Trio.Indef as Trio) requires (Trio.Sig as Trio.Sig.Base)
   reexported-modules: Trio
 
 library trio-impl-base
@@ -32,7 +32,7 @@ library trio-impl-dejafu
 library trio-indef
   import: component
   build-depends: base, containers
-  exposed-modules: Trio
+  exposed-modules: Trio.Indef
   hs-source-dirs: src/trio-indef
   other-modules:
     Trio.Internal.Conc
@@ -51,5 +51,5 @@ test-suite tests
   ghc-options: -threaded -O -with-rtsopts=-N
   hs-source-dirs: test
   main-is: Test.hs
-  mixins: trio-indef (Trio) requires (Trio.Sig as Trio.Sig.Dejafu)
+  mixins: trio-indef (Trio.Indef as Trio) requires (Trio.Sig as Trio.Sig.Dejafu)
   type: exitcode-stdio-1.0
