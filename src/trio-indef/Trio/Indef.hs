@@ -108,6 +108,18 @@ newScope = do
   startingVar <- newTVarIO "starting" 0
   newTVarIO "scope" S {cancelledVar, closedVar, runningVar, startingVar}
 
+-- | Perform an action with a new thread scope.
+--
+-- * If the action throws an exception, it first hard-cancels the scope (exactly
+-- as if 'hardCancelScope' was called).
+--
+-- * If any thread spawned within the scope throws an exception other than
+-- 'ThreadKilled' or 'ThreadGaveUp', it is propagated to this thread, which then
+-- hard-cancels the scope (exactly as if 'hardCancelScope was called') and
+-- re-throws the exception wrapped in a 'ThreadFailed'.
+--
+-- * If the action completes, blocks until all threads spawned within the scope
+-- finish, then closes the scope (exactly as if 'joinScope' was called).
 withScope :: (Scope -> IO a) -> IO a
 withScope f = do
   scopeVar <- newScope
@@ -122,6 +134,8 @@ withScope f = do
       hardCancelScopeWhileUninterruptiblyMasked scopeVar
       throwIO (translateAsyncThreadFailed exception)
 
+-- | Block until all threads spawned within the scope finish, then close the
+-- scope.
 joinScope :: Scope -> STM ()
 joinScope (Scope scopeVar) = do
   S {closedVar, runningVar, startingVar} <- readTVar scopeVar
@@ -133,12 +147,16 @@ joinScope (Scope scopeVar) = do
       blockUntilTVar runningVar Set.null
       writeTVar closedVar True
 
+-- | Designate a scope as soft cancelled, which is a suggestion to threads
+-- spawned within it to finish.
 softCancelScope :: Scope -> STM ()
 softCancelScope (Scope scopeVar) = do
   S {closedVar, cancelledVar} <- readTVar scopeVar
   closed <- readTVar closedVar
   unless closed (writeTVar cancelledVar True)
 
+-- | Close a scope, throw a 'ThreadKilled' to each thread spawned within it, and
+-- wait for them to finish.
 hardCancelScope :: Scope -> IO ()
 hardCancelScope (Scope scopeVar) =
   uninterruptibleMask_ (hardCancelScopeWhileUninterruptiblyMasked scopeVar)
@@ -170,10 +188,27 @@ hardCancelScopeWhileUninterruptiblyMasked scopeVar =
               throwIO ThreadKilled
             else atomically (blockUntilTVar runningVar Set.null)
 
+-- | Spawn a thread within a scope.
+--
+-- The action is provided an @STM void@ action, which never returns, but throws
+-- a 'ThreadGaveUp' exception if this thread or the enclosing scope were
+-- soft-cancelled.
+--
+-- @
+-- async scope \\giveUp -> do
+--   work
+--   atomically (giveUp <|> pure ())
+--   work
+--   atomically (giveUp <|> pure ())
+--   work
+-- @
 async :: Scope -> (STM void -> IO a) -> IO (Promise a)
 async scope action =
   asyncMasked scope \unmask run -> unmask (action run)
 
+-- | Like 'async', but spawns a thread with asynchronous exceptions
+-- uninterruptibly masked, and provides the action with a function to unmask
+-- asynchronous exceptions.
 asyncMasked ::
   Scope ->
   ( RestoreMaskingState ->
@@ -181,13 +216,18 @@ asyncMasked ::
     IO a
   ) ->
   IO (Promise a)
-asyncMasked scope action = do
+asyncMasked (Scope scopeVar) action = do
   uninterruptibleMask_ do
     S {cancelledVar = scopeCancelledVar, runningVar, startingVar} <-
       atomically do
-        s@S {startingVar} <- assertScopeIsOpen scope
-        modifyTVar' startingVar (+ 1)
-        pure s
+        scope@S {cancelledVar, closedVar, startingVar} <- readTVar scopeVar
+        readTVar closedVar >>= \case
+          False -> readTVar cancelledVar >>= \case
+            False -> do
+              modifyTVar' startingVar (+ 1)
+              pure scope
+            True -> throwSTM ScopeClosed
+          True -> throwSTM ScopeClosed
 
     parentThreadId <- myThreadId
     resultVar <- atomically (newEmptyTMVar "result")
@@ -232,28 +272,25 @@ asyncMasked scope action = do
           resultVar
         }
 
+-- | Wait for a promise to be fulfilled. If the thread failed, re-throws the
+-- exception wrapped in a 'ThreadFailed'
 await :: Promise a -> STM a
 await Promise {resultVar, threadId} =
   readTMVar resultVar >>= \case
     Left exception -> throwSTM ThreadFailed {threadId, exception}
     Right result -> pure result
 
+-- | Designate a thread as soft-cancelled, which is a suggestion for it to
+-- finish.
 softCancel :: Promise a -> STM ()
 softCancel Promise {cancelledVar} =
   writeTVar cancelledVar True
 
+-- | Throw a 'ThreadKilled' to a thread, and wait for it to finish.
 hardCancel :: Promise a -> IO ()
 hardCancel Promise {resultVar, threadId} = do
   throwTo threadId ThreadKilled
   void (atomically (readTMVar resultVar))
-
-assertScopeIsOpen :: Scope -> STM S
-assertScopeIsOpen (Scope scopeVar) = do
-  scope@S {closedVar} <- readTVar scopeVar
-  closed <- readTVar closedVar
-  if closed
-    then throwSTM ScopeClosed
-    else pure scope
 
 pattern NotThreadGaveUpOrKilled :: SomeException -> SomeException
 pattern NotThreadGaveUpOrKilled ex <-
