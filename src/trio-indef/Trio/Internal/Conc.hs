@@ -1,18 +1,15 @@
 {-# LANGUAGE BlockArguments #-}
-{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE ViewPatterns #-}
 
 -- | Random concurrency utils.
 module Trio.Internal.Conc
   ( blockUntilTVar,
     retryingUntilSuccess,
     try,
-    pattern NotThreadKilled,
   )
 where
 
-import Control.Exception (AsyncException (ThreadKilled), Exception (fromException), SomeException)
+import Control.Exception (SomeException)
 import Control.Monad (unless)
 import Data.Function (fix)
 import Trio.Sig (IO, STM, TVar, catch, readTVar, retry, try)
@@ -29,12 +26,3 @@ retryingUntilSuccess :: IO a -> IO a
 retryingUntilSuccess action =
   fix \again ->
     catch @SomeException action \_ -> again
-
-pattern NotThreadKilled :: SomeException -> SomeException
-pattern NotThreadKilled ex <- (asNotThreadKilled -> Just ex)
-
-asNotThreadKilled :: SomeException -> Maybe SomeException
-asNotThreadKilled ex =
-  case fromException ex of
-    Just ThreadKilled -> Nothing
-    _ -> Just ex

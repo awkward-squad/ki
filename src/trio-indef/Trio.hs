@@ -6,18 +6,25 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Trio
   ( withScope,
     joinScope,
+    softCancelScope,
     cancelScope,
     async,
     asyncMasked,
+    await,
+    softCancel,
+    cancel,
     Scope,
-    Promise (..),
+    Promise,
+    Run,
     RestoreMaskingState,
     ChildDied (..),
     ScopeClosed (..),
+    ThreadGaveUp (..),
   )
 where
 
@@ -26,8 +33,8 @@ import Control.Monad (join, unless, void)
 import Data.Foldable (for_)
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Trio.Internal.Conc (blockUntilTVar, retryingUntilSuccess, pattern NotThreadKilled)
-import Trio.Sig (IO, STM, TVar, ThreadId, atomically, catch, forkIOWithUnmask, modifyTVar', myThreadId, newEmptyTMVar, newTVarIO, putTMVar, readTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, uninterruptibleMask_, unsafeUnmask, writeTVar)
+import Trio.Internal.Conc (blockUntilTVar, retryingUntilSuccess)
+import Trio.Sig (IO, STM, TMVar, TVar, ThreadId, atomically, catch, forkIOWithUnmask, modifyTVar', myThreadId, newEmptyTMVar, newTVarIO, putTMVar, readTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, uninterruptibleMask_, unsafeUnmask, writeTVar)
 import Prelude hiding (IO)
 
 -- import Trio.Internal.Debug
@@ -36,8 +43,12 @@ newtype Scope
   = Scope (TVar S)
 
 data S = S
-  { -- | Whether this scope is "closed" (disallowing new children).
-    -- Invariant: if closed, then starting == 0.
+  { -- | Whether this scope is "cancelled", meaning children (who notice) should
+    -- abort computation.
+    cancelledVar :: TVar Bool,
+    -- | Whether this scope is "closed" (disallowing new children).
+    -- Invariant: if closed, then starting == 0, and running is either null or
+    -- about to be (because we're currently killing all running threads).
     closedVar :: TVar Bool,
     -- | Running children.
     runningVar :: TVar (Set ThreadId),
@@ -45,20 +56,60 @@ data S = S
     startingVar :: TVar Int
   }
 
+data Promise a = Promise
+  { threadId :: ThreadId,
+    cancelledVar :: TVar Bool,
+    resultVar :: TMVar (Either SomeException a)
+  }
+
 data ScopeClosed
   = ScopeClosed
   deriving stock (Show)
   deriving anyclass (Exception)
+
+data ThreadGaveUp
+  = ThreadGaveUp
+  deriving stock (Show)
+  deriving anyclass (Exception)
+
+data ChildDied = ChildDied
+  { threadId :: ThreadId,
+    exception :: SomeException
+  }
+  deriving stock (Show)
+  deriving anyclass (Exception)
+
+-- | Unexported async variant of 'ChildDied'.
+data AsyncChildDied = AsyncChildDied
+  { threadId :: ThreadId,
+    exception :: SomeException
+  }
+  deriving stock (Show)
+
+instance Exception AsyncChildDied where
+  fromException = asyncExceptionFromException
+  toException = asyncExceptionToException
+
+translateAsyncChildDied :: SomeException -> SomeException
+translateAsyncChildDied ex =
+  case fromException ex of
+    Just AsyncChildDied {threadId, exception} ->
+      toException ChildDied {threadId, exception}
+    _ -> ex
+
+type Run =
+  forall x. IO x -> IO x
 
 type RestoreMaskingState =
   forall x. IO x -> IO x
 
 newScope :: IO (TVar S)
 newScope = do
+  cancelledVar <- newTVarIO "cancelled" False
+  closedVar <- newTVarIO "closed" False
   runningVar <- newTVarIO "running" Set.empty
   startingVar <- newTVarIO "starting" 0
-  closedVar <- newTVarIO "closed" False
-  newTVarIO "scope" S {closedVar, runningVar, startingVar}
+  newTVarIO "scope" S {cancelledVar, closedVar, runningVar, startingVar}
 
 withScope :: (Scope -> IO a) -> IO a
 withScope f = do
@@ -79,9 +130,18 @@ joinScope :: Scope -> STM ()
 joinScope (Scope scopeVar) = do
   S {closedVar, runningVar, startingVar} <- readTVar scopeVar
   closed <- readTVar closedVar
-  unless closed (blockUntilTVar startingVar (== 0))
-  blockUntilTVar runningVar Set.null
-  writeTVar closedVar True
+  if closed
+    then blockUntilTVar runningVar Set.null
+    else do
+      blockUntilTVar startingVar (== 0)
+      blockUntilTVar runningVar Set.null
+      writeTVar closedVar True
+
+softCancelScope :: Scope -> STM ()
+softCancelScope (Scope scopeVar) = do
+  S {closedVar, cancelledVar} <- readTVar scopeVar
+  closed <- readTVar closedVar
+  unless closed (writeTVar cancelledVar True)
 
 cancelScope :: Scope -> IO ()
 cancelScope (Scope scopeVar) =
@@ -111,41 +171,45 @@ cancelScopeWhileUninterruptiblyMasked scopeVar =
           if Set.member cancellingThreadId children
             then do
               atomically (blockUntilTVar runningVar ((== 1) . Set.size))
-              throwTo cancellingThreadId ThreadKilled -- kill self
+              throwIO ThreadKilled
             else atomically (blockUntilTVar runningVar Set.null)
 
-data Promise a = Promise
-  { await :: STM a,
-    cancel :: IO ()
-  }
-
-async :: Scope -> IO a -> IO (Promise a)
+async :: Scope -> (Run -> IO a) -> IO (Promise a)
 async scope action =
-  asyncMasked scope \unmask -> unmask action
+  asyncMasked scope \unmask run -> unmask (action run)
 
-asyncMasked :: Scope -> (RestoreMaskingState -> IO a) -> IO (Promise a)
-asyncMasked (Scope scopeVar) action = do
-  resultVar <- atomically (newEmptyTMVar "result")
-
+asyncMasked :: Scope -> (RestoreMaskingState -> Run -> IO a) -> IO (Promise a)
+asyncMasked scope action = do
   uninterruptibleMask_ do
-    S {runningVar, startingVar} <-
+    S {cancelledVar = scopeCancelledVar, runningVar, startingVar} <-
       atomically do
-        scope@(S {closedVar, startingVar}) <- readTVar scopeVar
-        closed <- readTVar closedVar
-        if closed
-          then throwSTM ScopeClosed
-          else do
-            modifyTVar' startingVar (+ 1)
-            pure scope
+        s@S {startingVar} <- assertScopeIsOpen scope
+        modifyTVar' startingVar (+ 1)
+        pure s
 
     parentThreadId <- myThreadId
+    resultVar <- atomically (newEmptyTMVar "result")
+    cancelledVar <- newTVarIO "cancelled" False
 
     childThreadId <-
       forkIOWithUnmask \unmask -> do
         childThreadId <- myThreadId
-        result <- try (action unmask)
+        result <-
+          try do
+            action
+              unmask
+              ( \act -> do
+                  cancelled <-
+                    atomically do
+                      readTVar scopeCancelledVar >>= \case
+                        False -> readTVar cancelledVar
+                        True -> pure True
+                  if cancelled
+                    then throwIO ThreadGaveUp
+                    else act
+              )
         case result of
-          Left (NotThreadKilled exception) ->
+          Left (NotThreadGaveUpOrKilled exception) ->
             throwTo parentThreadId (AsyncChildDied childThreadId exception)
           _ -> pure ()
         atomically do
@@ -162,38 +226,40 @@ asyncMasked (Scope scopeVar) action = do
 
     pure
       Promise
-        { await = readTMVar resultVar >>= \case
-            Left exception -> throwSTM (ChildDied childThreadId exception)
-            Right result -> pure result,
-          cancel = do
-            throwTo childThreadId ThreadKilled
-            void (atomically (readTMVar resultVar))
+        { threadId = childThreadId,
+          cancelledVar,
+          resultVar
         }
 
---------------------------------------------------------------------------------
--- ChildDied
+await :: Promise a -> STM a
+await Promise {resultVar, threadId} =
+  readTMVar resultVar >>= \case
+    Left exception -> throwSTM ChildDied {threadId, exception}
+    Right result -> pure result
 
-data ChildDied = ChildDied
-  { threadId :: ThreadId,
-    exception :: SomeException
-  }
-  deriving stock (Show)
-  deriving anyclass (Exception)
+softCancel :: Promise a -> STM ()
+softCancel Promise{cancelledVar} =
+  writeTVar cancelledVar True
 
--- | Unexported async variant of 'ChildDied'.
-data AsyncChildDied = AsyncChildDied
-  { threadId :: ThreadId,
-    exception :: SomeException
-  }
-  deriving stock (Show)
+cancel :: Promise a -> IO ()
+cancel Promise {resultVar, threadId} = do
+  throwTo threadId ThreadKilled
+  void (atomically (readTMVar resultVar))
 
-instance Exception AsyncChildDied where
-  fromException = asyncExceptionFromException
-  toException = asyncExceptionToException
+assertScopeIsOpen :: Scope -> STM S
+assertScopeIsOpen (Scope scopeVar) = do
+  scope@S {closedVar} <- readTVar scopeVar
+  closed <- readTVar closedVar
+  if closed
+    then throwSTM ScopeClosed
+    else pure scope
 
-translateAsyncChildDied :: SomeException -> SomeException
-translateAsyncChildDied ex =
-  case fromException ex of
-    Just AsyncChildDied {threadId, exception} ->
-      toException ChildDied {threadId, exception}
-    _ -> ex
+pattern NotThreadGaveUpOrKilled :: SomeException -> SomeException
+pattern NotThreadGaveUpOrKilled ex <-
+  (asNotThreadGaveUpOrKilled -> Just ex)
+
+asNotThreadGaveUpOrKilled :: SomeException -> Maybe SomeException
+asNotThreadGaveUpOrKilled ex
+  | Just ThreadKilled <- fromException ex = Nothing
+  | Just ThreadGaveUp <- fromException ex = Nothing
+  | otherwise = Just ex

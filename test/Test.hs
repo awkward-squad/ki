@@ -28,37 +28,37 @@ main = do
 
   test "using a closed scope throws an exception" . throws @ScopeClosed $ do
     scope <- withScope pure
-    void (async scope (pure ()))
+    void (async scope \_ -> pure ())
 
   test "scope waits for children on close" . returns True $ do
     ref <- newIORef False
-    withScope \scope -> void (async scope (writeIORef ref True))
+    withScope \scope -> void (async scope \_ -> writeIORef ref True)
     readIORef ref
 
   test "child can be awaited" . returns () $ do
     withScope \scope -> do
-      child <- async scope (pure ())
+      child <- async scope \_ -> pure ()
       atomically (await child)
 
   test "child can be awaited outside its scope" . returns () $ do
-    child <- withScope \scope -> async scope (pure ())
+    child <- withScope \scope -> async scope \_ -> pure ()
     atomically (await child)
 
-  test "child can be canceled" . returns () $ do
+  test "child can be cancelled" . returns () $ do
     withScope \scope -> do
-      child <- async scope (newEmptyMVar >>= takeMVar)
+      child <- async scope \_ -> newEmptyMVar >>= takeMVar
       cancel child
 
-  test "child can be canceled after it's finished" . returns () $ do
+  test "child can be cancelled after it's finished" . returns () $ do
     withScope \scope -> do
-      child <- async scope (pure ())
+      child <- async scope \_ -> pure ()
       atomically (await child)
       cancel child
 
   test "dying child throws async exception first" . returns True $ do
     withScope \scope ->
       mask \unmask -> do
-        child <- async scope (throw A)
+        child <- async scope \_ -> throw A
         unmask (False <$ atomically (await child)) `catch` \ex -> do
           pure (isAsyncException ex)
 
@@ -67,20 +67,20 @@ main = do
     ignoring @ChildDied do
       withScope \scope ->
         mask_ do
-          child <- async scope (() <$ throw A)
+          child <- async scope \_ -> () <$ throw A
           putMVar var child
     child <- takeMVar var
     atomically (await child)
 
   test "child can mask exceptions forever" . deadlocks $ do
     withScope \scope -> do
-      child <- asyncMasked scope \_ -> (newEmptyMVar >>= takeMVar)
+      child <- asyncMasked scope \_ _ -> (newEmptyMVar >>= takeMVar)
       cancel child
 
   test "child can mask exceptions briefly" . returns True $ do
     ref <- newIORef False
     withScope \scope -> do
-      child <- asyncMasked scope \unmask ->
+      child <- asyncMasked scope \unmask _ ->
         unmask (pure ()) `finally` writeIORef ref True
       cancel child
       readIORef ref
@@ -88,20 +88,20 @@ main = do
   test "cancelling a child doesn't cancel its siblings" . returns True $ do
     ref <- newIORef False
     withScope \scope -> do
-      child <- async scope (newEmptyMVar >>= takeMVar)
-      void (async scope (writeIORef ref True))
+      child <- async scope \_ -> newEmptyMVar >>= takeMVar
+      void (async scope \_ -> writeIORef ref True)
       cancel child
     readIORef ref
 
   test "scope re-throws exceptions from children" . throws @ChildDied $ do
-    withScope \scope -> void (async scope (() <$ throw A))
+    withScope \scope -> void (async scope \_ -> () <$ throw A)
 
   test "scope cancels children when it dies" do
     returns True do
       ref <- newIORef False
       ignoring @A do
         withScope \scope -> do
-          void $ asyncMasked scope \unmask -> do
+          void $ asyncMasked scope \unmask _ -> do
             unmask (pure ()) `finally` writeIORef ref True
           void (throw A)
       readIORef ref
@@ -111,9 +111,9 @@ main = do
     withScope \scope1 -> do
       var <- newEmptyMVar
       child <-
-        async scope1 do
+        async scope1 \_ -> do
           withScope \scope2 -> do
-            void $ asyncMasked scope2 \unmask -> do
+            void $ asyncMasked scope2 \unmask _ -> do
               putMVar var ()
               unmask (pure ()) `finally` writeIORef ref True
       takeMVar var
@@ -124,14 +124,14 @@ main = do
     ref <- newIORef False
     ignoring @ChildDied do
       withScope \scope -> do
-        void $ asyncMasked scope \unmask -> do
+        void $ asyncMasked scope \unmask _ -> do
           var <- newEmptyMVar
           unmask (takeMVar var) `finally` writeIORef ref True
-        void (async scope (() <$ throw A))
+        void (async scope \_ -> () <$ throw A)
     readIORef ref
 
   test "child joining its own scope deadlocks" . deadlocks $
-    withScope \scope -> void (async scope (atomically (joinScope scope)))
+    withScope \scope -> void (async scope \_ -> atomically (joinScope scope))
 
   test "scope can be cancelled" . returns () $
     withScope cancelScope
@@ -139,16 +139,17 @@ main = do
   test "child cancelling its own scope cancels self" . returns True $ do
     ref <- newIORef False
     withScope \scope ->
-      void (async scope (cancelScope scope `onException` writeIORef ref True))
+      void
+        (async scope \_ -> cancelScope scope `onException` writeIORef ref True)
     readIORef ref
 
   test "child cancelling its own scope cancels siblings" . returns True $ do
     ref <- newIORef False
     withScope \scope -> do
-      void $ asyncMasked scope \unmask -> do
+      void $ asyncMasked scope \unmask _ -> do
         var <- newEmptyMVar
         unmask (takeMVar var) `finally` writeIORef ref True
-      void (async scope (cancelScope scope))
+      void (async scope \_ -> cancelScope scope)
     readIORef ref
 
 type P =
