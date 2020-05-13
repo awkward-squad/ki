@@ -6,7 +6,7 @@ module Trio.Sig.Dejafu where
 
 import qualified Control.Concurrent.Classy as Conc
 import qualified Control.Concurrent.Classy.Async as Async
-import Control.Exception (Exception, SomeException)
+import Control.Exception (Exception)
 import qualified Test.DejaFu as Dejafu
 import qualified Test.DejaFu.Conc.Internal.STM as Dejafu
 import qualified Test.DejaFu.Types as Dejafu

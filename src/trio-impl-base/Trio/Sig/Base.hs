@@ -14,6 +14,7 @@ module Trio.Sig.Base
     putTMVar,
     readTMVar,
     readTVar,
+    registerDelay,
     retry,
     throwIO,
     throwSTM,
