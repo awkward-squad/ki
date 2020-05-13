@@ -20,7 +20,6 @@ module Trio.Indef
     Promise,
     RestoreMaskingState,
     ScopeClosed (..),
-    ThreadGaveUp (..),
     ThreadFailed (..),
   )
 where
@@ -63,11 +62,6 @@ data Promise a = Promise
 
 data ScopeClosed
   = ScopeClosed
-  deriving stock (Show)
-  deriving anyclass (Exception)
-
-data ThreadGaveUp
-  = ThreadGaveUp
   deriving stock (Show)
   deriving anyclass (Exception)
 
@@ -243,7 +237,7 @@ asyncMasked (Scope scopeVar) action = do
         childThreadId <- myThreadId
         result <- try (action unmask)
         case result of
-          Left (NotThreadGaveUpOrKilled exception) ->
+          Left (NotThreadKilled exception) ->
             throwTo parentThreadId (AsyncThreadFailed childThreadId exception)
           _ -> pure ()
         atomically do
@@ -280,12 +274,11 @@ cancel Promise {resultVar, threadId} = do
   throwTo threadId ThreadKilled
   void (atomically (readTMVar resultVar))
 
-pattern NotThreadGaveUpOrKilled :: SomeException -> SomeException
-pattern NotThreadGaveUpOrKilled ex <-
-  (asNotThreadGaveUpOrKilled -> Just ex)
+pattern NotThreadKilled :: SomeException -> SomeException
+pattern NotThreadKilled ex <-
+  (asNotThreadKilled -> Just ex)
 
-asNotThreadGaveUpOrKilled :: SomeException -> Maybe SomeException
-asNotThreadGaveUpOrKilled ex
+asNotThreadKilled :: SomeException -> Maybe SomeException
+asNotThreadKilled ex
   | Just ThreadKilled <- fromException ex = Nothing
-  | Just ThreadGaveUp <- fromException ex = Nothing
   | otherwise = Just ex
