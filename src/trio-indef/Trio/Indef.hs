@@ -11,18 +11,30 @@
 {-# LANGUAGE ViewPatterns #-}
 
 module Trio.Indef
-  ( Context,
-    initialize,
+  ( -- * Context
+    Context,
+    background,
+    cancelled,
+    cancelledSTM,
+
+    -- * Scope
     Scope,
     scoped,
     wait,
+    waitSTM,
     waitFor,
-    cancelled,
+
+    -- * Thread
+    Thread,
     async,
+    async_,
     asyncMasked,
-    Promise,
+    asyncMasked_,
     await,
+    awaitSTM,
     cancel,
+
+    -- * Exceptions
     ScopeClosed (..),
     ThreadFailed (..),
   )
@@ -31,7 +43,6 @@ where
 import Control.Applicative ((<|>))
 import Control.Exception (AsyncException (ThreadKilled), Exception (fromException, toException), SomeException, asyncExceptionFromException, asyncExceptionToException)
 import Control.Monad (join, unless, void)
-import Data.Coerce (coerce)
 import Data.Foldable (for_)
 import Data.Functor (($>))
 import Data.Set (Set)
@@ -42,12 +53,22 @@ import Prelude hiding (IO)
 
 -- import Trio.Internal.Debug
 
--- | A __context__ is used for propagating cancellation signals.
-newtype Context
-  = Context Scope
+-- | A __context__ models a program's call tree.
+--
+-- An ambient 'background' __context__ is available, and every __thread__ forked
+-- by 'async' derives a replacement __context__ from its __scope__.
+--
+-- A __context__ is used as a mechanism to propagate __scope__ /cancellation/.
+-- A __thread__ can call 'cancelled' to query whether its __context__ has been
+-- /cancelled/; if it has, the __thread__ should attempt to perform a graceful
+-- shutdown and finish before it is is /cancelled/.
+data Context
+  = Background
+  | Context Scope
 
--- Implementation note: contexts and scopes are the same thing. We differentiate
--- them in the type system so it's easier to prevent them from getting confused.
+-- Implementation note: contexts and scopes are the same thing (ignoring
+-- Background, which is just an optimization). We differentiate them in the type
+-- system so it's easier to prevent them from getting confused.
 --
 -- When forking a thread, the scope that it was created in is relevant to it,
 -- because we want be able to observe cancellations "deply".
@@ -129,28 +150,49 @@ newtype Context
 --     async scope \context -> ...
 --                     \
 --                      under the hood, this is 'scope'
+--
+--
 
 -- | A __scope__ delimits the lifetime of all __threads__ spawned within it.
 --
--- * When a __scope__ is /closed/, all __threads__ are /canceled/.
--- * If a __thread__ throws an exception, the scope is /closed/.
+-- * When a __scope__ is /closed/, all __threads__ are /cancelled/.
+-- * If a __thread__ throws an exception, the __scope__ is /closed/.
+--
+-- A __scope__ is both created and /closed/ by 'scoped'.
+--
+-- It can be passed into functions or shared amongst __threads__, but this is
+-- generally not advised, as it takes the "structure" out of "structured
+-- concurrency".
+--
+-- The basic usage of a __scope__ is as follows.
+--
+-- @
+-- 'scoped' context \\scope ->
+--   'async_' scope worker1
+--   'async_' scope worker2
+--   'wait' scope
+-- @
 data Scope = Scope
-  { -- Invariant: if closed, no threads are starting
+  { -- Whether this scope is closed
+    -- Invariant: if closed, no threads are starting
     closedVar :: TVar Bool,
-    cancelledVar :: TVar CancelledTree,
+    cancelledVar :: TVar Cancelled,
     runningVar :: TVar (Set ThreadId),
+    -- The number of threads that are just about to start
     startingVar :: TVar Int
   }
 
-data CancelledTree
-  = Node !Bool ![TVar CancelledTree]
+data Cancelled
+  = Cancelled !Bool ![TVar Cancelled]
 
-data Promise a = Promise
+-- | A running __thread__.
+data Thread a = Thread
   { threadId :: ThreadId,
     resultVar :: TMVar (Either SomeException a)
   }
 
--- | Some actions that use a /closed/ __scope__ throw 'ScopeClosed'.
+-- | Some actions that attempt to use a /closed/ __scope__ throw 'ScopeClosed'
+-- instead.
 data ScopeClosed
   = ScopeClosed
   deriving stock (Show)
@@ -181,33 +223,33 @@ translateAsyncThreadFailed ex =
       toException ThreadFailed {threadId, exception}
     _ -> ex
 
--- | Initialize a new __context__.
+-- | Perform an action with a new __context__.
 --
 -- You should only call this function once.
-initialize :: IO Context
-initialize =
-  coerce (atomically (newScope_ False))
+background :: Context
+background =
+  Background
 
 -- | Create a new scope derived from a parent context: the scope inherits
 -- whether the context is cancelled, and if it isn't, the context's cancellation
 -- tree is adjusted to include the new scope.
 newScope :: Context -> STM Scope
-newScope (Context Scope {cancelledVar = parentCancelledVar}) = do
-  Node c vars <- readTVar parentCancelledVar
-  scope@Scope {cancelledVar} <- newScope_ c
-  unless c (writeTVar parentCancelledVar $! Node c (cancelledVar : vars))
-  pure scope
-
-newScope_ :: Bool -> STM Scope
-newScope_ c = do
-  cancelledVar <- newTVar "cancelled" (Node c [])
+newScope context = do
   closedVar <- newTVar "closed" False
   runningVar <- newTVar "running" Set.empty
   startingVar <- newTVar "starting" 0
+  cancelledVar <-
+    case context of
+      Background -> newTVar "cancelled" (Cancelled False [])
+      Context Scope {cancelledVar = parentCancelledVar} -> do
+        Cancelled parentCancelled parentTree <- readTVar parentCancelledVar
+        cancelledVar <- newTVar "cancelled" (Cancelled parentCancelled [])
+        writeTVar parentCancelledVar
+          $! Cancelled parentCancelled (cancelledVar : parentTree)
+        pure cancelledVar
   pure Scope {cancelledVar, closedVar, runningVar, startingVar}
 
--- | Perform an action with a new __scope__. When the action finishes, the scope
--- is /closed/.
+-- | Perform an action with a new __scope__, then /close/ the __scope__.
 --
 -- /Throws/:
 --
@@ -217,8 +259,8 @@ newScope_ c = do
 --
 -- @
 -- 'scoped' context \\scope ->
---   void ('async' scope worker1)
---   void ('async' scope worker2)
+--   'async_' scope worker1
+--   'async_' scope worker2
 --   'wait' scope
 -- @
 scoped :: Context -> (Scope -> IO a) -> IO a
@@ -229,36 +271,41 @@ scoped context f = do
     closeScope scope
     either (throwIO . translateAsyncThreadFailed) pure result
 
--- | Block until all __threads__ finish, then close the __scope__.
-wait :: Scope -> STM ()
-wait Scope {closedVar, runningVar, startingVar} = do
+-- | Wait until all __threads__ finish, then /close/ the __scope__.
+wait :: Scope -> IO ()
+wait =
+  atomically . waitSTM
+
+-- | @STM@ variant of 'wait'.
+waitSTM :: Scope -> STM ()
+waitSTM Scope {closedVar, runningVar, startingVar} = do
   blockUntilTVar startingVar (== 0)
   blockUntilTVar runningVar Set.null
   writeTVar closedVar True
 
--- | /Cancel/ a __scope__ and all __scopes__ created within, then block until
--- all __threads__ finish, or the given number of microseconds elapse, after
--- which the __scope__ is /closed/.
+-- | /Cancel/ all __contexts__ derived from a __scope__, then wait until either
+-- all __threads__ finish or the given number of microseconds elapse, then
+-- /close/ the __scope__.
 waitFor :: Scope -> Int -> IO ()
 waitFor scope@(Scope {cancelledVar}) micros
-  | micros < 0 = atomically (wait scope)
+  | micros < 0 = wait scope
   | micros == 0 = uninterruptibleMask_ (closeScope scope)
   | otherwise = do
     atomically (cancelTree cancelledVar)
     blockUntilTimeout <- registerBlock micros
     let happyTeardown :: STM (IO ())
         happyTeardown =
-          wait scope $> pure ()
+          waitSTM scope $> pure ()
     let sadTeardown :: STM (IO ())
         sadTeardown =
           blockUntilTimeout $> uninterruptibleMask_ (closeScope scope)
     (join . atomically) (happyTeardown <|> sadTeardown)
   where
-    cancelTree :: TVar CancelledTree -> STM ()
+    cancelTree :: TVar Cancelled -> STM ()
     cancelTree treeVar = do
-      Node c trees <- readTVar treeVar
+      Cancelled c trees <- readTVar treeVar
       unless c do
-        writeTVar treeVar (Node True trees)
+        writeTVar treeVar (Cancelled True trees)
         for_ trees cancelTree
 
 -- Precondition: uninterruptibly masked
@@ -288,24 +335,49 @@ closeScope Scope {closedVar, runningVar, startingVar} = do
             else atomically (blockUntilTVar runningVar Set.null)
       True -> pure (pure ())
 
--- | Return whether the __context__ is /canceled/.
-cancelled :: Context -> STM Bool
-cancelled (Context Scope {cancelledVar}) = do
-  Node c _ <- readTVar cancelledVar
+-- | Return whether a __context__ is /cancelled/.
+--
+-- __Threads__ running in a /cancelled/ __context__ will be /cancelled/ soon;
+-- they should attempt to perform a graceful shutdown and finish.
+cancelled :: Context -> IO Bool
+cancelled = \case
+  Background -> pure False
+  Context scope ->
+    atomically (scopeCancelledSTM scope)
+
+-- | @STM@ variant of 'cancelled'.
+cancelledSTM :: Context -> STM Bool
+cancelledSTM = \case
+  Background -> pure False
+  Context scope ->
+    scopeCancelledSTM scope
+
+scopeCancelledSTM :: Scope -> STM Bool
+scopeCancelledSTM Scope {cancelledVar} = do
+  Cancelled c _ <- readTVar cancelledVar
   pure c
 
--- | Fork a __thread__. The derived __context__ should shadow any other
--- __contexts__ in scope.
+-- | Fork a __thread__. The derived __context__ should replace the usage of any
+-- other __context__ in scope.
 --
 -- /Throws/:
 --
 --   * 'ScopeClosed' if the __scope__ is closed.
-async :: Scope -> (Context -> IO a) -> IO (Promise a)
+async :: Scope -> (Context -> IO a) -> IO (Thread a)
 async scope action =
   asyncMasked scope \context unmask -> unmask (action context)
 
--- | Like 'async', but forks a __thread__ with asynchronous exceptions
--- uninterruptibly masked.
+-- | Fire-and-forget variant of @async@.
+--
+-- /Throws/:
+--
+--   * 'ScopeClosed' if the __scope__ is closed.
+async_ :: Scope -> (Context -> IO a) -> IO ()
+async_ scope action =
+  asyncMasked_ scope \context unmask -> unmask (action context)
+
+-- | Variant of 'async' that but forks a __thread__ with asynchronous
+-- exceptions uninterruptibly masked.
 --
 -- /Throws/:
 --
@@ -313,7 +385,7 @@ async scope action =
 asyncMasked ::
   Scope ->
   (Context -> (forall x. IO x -> IO x) -> IO a) ->
-  IO (Promise a)
+  IO (Thread a)
 asyncMasked scope@(Scope {closedVar, runningVar, startingVar}) action = do
   uninterruptibleMask_ do
     atomically do
@@ -345,29 +417,51 @@ asyncMasked scope@(Scope {closedVar, runningVar, startingVar}) action = do
       modifyTVar' runningVar (Set.insert childThreadId)
 
     pure
-      Promise
+      Thread
         { threadId = childThreadId,
           resultVar
         }
 
--- | Wait for a __promise__ to be fulfilled.
+-- | Fire-and-forget variant of 'asyncMasked'.
+--
+-- /Throws/:
+--
+--   * 'ScopeClosed' if the __scope__ is closed.
+asyncMasked_ ::
+  Scope ->
+  (Context -> (forall x. IO x -> IO x) -> IO a) ->
+  IO ()
+asyncMasked_ scope f =
+  void (asyncMasked scope f)
+
+-- | Wait for a __thread__ to finish.
 --
 -- /Throws/:
 --
 --   * 'ThreadFailed' if the __thread__ failed.
-await :: Promise a -> STM a
-await Promise {resultVar, threadId} =
+await :: Thread a -> IO a
+await =
+  atomically . awaitSTM
+
+-- | @STM@ variant of 'await'.
+--
+-- /Throws/:
+--
+--   * 'ThreadFailed' if the __thread__ failed.
+awaitSTM :: Thread a -> STM a
+awaitSTM Thread {resultVar, threadId} =
   readTMVar resultVar >>= \case
     Left exception -> throwSTM ThreadFailed {threadId, exception}
     Right result -> pure result
 
--- | Kill a __thread__ and wait for it to finish.
+-- | /Cancel/ a __thread__, which throws a 'ThreadKilled' to it and waits for it
+-- to finish.
 --
 -- /Throws/:
 --
---   * 'ThreadKilled' if a __thread__ attempts to cancel its own __promise__.
-cancel :: Promise a -> IO ()
-cancel Promise {resultVar, threadId} = do
+--   * 'ThreadKilled' if a __thread__ attempts to /cancel/ itself.
+cancel :: Thread a -> IO ()
+cancel Thread {resultVar, threadId} = do
   throwTo threadId ThreadKilled
   void (atomically (readTMVar resultVar))
 
