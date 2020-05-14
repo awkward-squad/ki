@@ -1,6 +1,6 @@
 {-# LANGUAGE BlockArguments #-}
 
-module Trio.Internal.Debug
+module Gy.Internal.Debug
   ( debug,
   )
 where

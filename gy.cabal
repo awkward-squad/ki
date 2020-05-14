@@ -1,5 +1,5 @@
 cabal-version: 2.4
-name: trio
+name: gy
 version: 0
 
 common component
@@ -13,32 +13,32 @@ common component
 
 library
   import: component
-  build-depends: trio-impl-base, trio-indef
-  mixins: trio-indef (Trio.Indef as Trio) requires (Trio.Sig as Trio.Sig.Base)
-  reexported-modules: Trio
+  build-depends: gy-impl-base, gy-indef
+  mixins: gy-indef (Gy.Indef as Gy) requires (Gy.Sig as Gy.Sig.Base)
+  reexported-modules: Gy
 
-library trio-impl-base
+library gy-impl-base
   import: component
   build-depends: base, stm
-  exposed-modules: Trio.Sig.Base
-  hs-source-dirs: src/trio-impl-base
+  exposed-modules: Gy.Sig.Base
+  hs-source-dirs: src/gy-impl-base
 
-library trio-impl-dejafu
+library gy-impl-dejafu
   import: component
   build-depends: base, concurrency, dejafu, stm
-  exposed-modules: Trio.Sig.Dejafu
-  hs-source-dirs: src/trio-impl-dejafu
+  exposed-modules: Gy.Sig.Dejafu
+  hs-source-dirs: src/gy-impl-dejafu
 
-library trio-indef
+library gy-indef
   import: component
   build-depends: base, containers
-  exposed-modules: Trio.Indef
-  hs-source-dirs: src/trio-indef
+  exposed-modules: Gy.Indef
+  hs-source-dirs: src/gy-indef
   other-modules:
-    Trio.Internal.Conc
-    Trio.Internal.Debug
+    Gy.Internal.Conc
+    Gy.Internal.Debug
   signatures:
-    Trio.Sig
+    Gy.Sig
 
 test-suite tests
   import: component
@@ -46,10 +46,10 @@ test-suite tests
     base,
     concurrency,
     dejafu,
-    trio-impl-dejafu,
-    trio-indef,
+    gy-impl-dejafu,
+    gy-indef,
   ghc-options: -threaded -O -with-rtsopts=-N
   hs-source-dirs: test
   main-is: Test.hs
-  mixins: trio-indef (Trio.Indef as Trio) requires (Trio.Sig as Trio.Sig.Dejafu)
+  mixins: gy-indef (Gy.Indef as Gy) requires (Gy.Sig as Gy.Sig.Dejafu)
   type: exitcode-stdio-1.0

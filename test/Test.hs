@@ -16,11 +16,11 @@ import Data.Function
 import Data.List
 import Data.Maybe (isJust)
 import GHC.Clock
+import Gy
 import System.Exit
 import qualified Test.DejaFu as DejaFu
 import qualified Test.DejaFu.Types as DejaFu
 import Text.Printf (printf)
-import Trio
 
 main :: IO ()
 main = do

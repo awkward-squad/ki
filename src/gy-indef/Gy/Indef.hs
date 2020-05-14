@@ -10,7 +10,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Trio.Indef
+module Gy.Indef
   ( -- * Context
     Context,
     background,
@@ -47,11 +47,11 @@ import Data.Foldable (for_)
 import Data.Functor (($>))
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Trio.Internal.Conc (blockUntilTVar, registerBlock, retryingUntilSuccess)
-import Trio.Sig (IO, STM, TMVar, TVar, ThreadId, atomically, forkIOWithUnmask, modifyTVar', myThreadId, newEmptyTMVar, newTVar, putTMVar, readTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, uninterruptibleMask_, unsafeUnmask, writeTVar)
+import Gy.Internal.Conc (blockUntilTVar, registerBlock, retryingUntilSuccess)
+import Gy.Sig (IO, STM, TMVar, TVar, ThreadId, atomically, forkIOWithUnmask, modifyTVar', myThreadId, newEmptyTMVar, newTVar, putTMVar, readTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, uninterruptibleMask_, unsafeUnmask, writeTVar)
 import Prelude hiding (IO)
 
--- import Trio.Internal.Debug
+-- import Gy.Internal.Debug
 
 -- | A __context__ models a program's call tree.
 --

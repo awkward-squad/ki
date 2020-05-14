@@ -1,4 +1,4 @@
-module Trio.Sig.Base
+module Gy.Sig.Base
   ( IO,
     STM,
     TVar,
@@ -9,8 +9,8 @@ module Trio.Sig.Base
     forkIOWithUnmask,
     modifyTVar',
     myThreadId,
-    Trio.Sig.Base.newEmptyTMVar,
-    Trio.Sig.Base.newTVar,
+    Gy.Sig.Base.newEmptyTMVar,
+    Gy.Sig.Base.newTVar,
     putTMVar,
     readTMVar,
     readTVar,

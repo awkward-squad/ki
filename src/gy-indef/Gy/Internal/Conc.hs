@@ -3,7 +3,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 -- | Random concurrency utils.
-module Trio.Internal.Conc
+module Gy.Internal.Conc
   ( blockUntilTVar,
     registerBlock,
     retryingUntilSuccess,
@@ -13,7 +13,7 @@ where
 import Control.Exception (SomeException)
 import Control.Monad (unless)
 import Data.Function (fix)
-import Trio.Sig (IO, STM, TVar, catch, readTVar, registerDelay, retry)
+import Gy.Sig (IO, STM, TVar, catch, readTVar, registerDelay, retry)
 import Prelude hiding (IO)
 
 blockUntilTVar :: TVar a -> (a -> Bool) -> STM ()
