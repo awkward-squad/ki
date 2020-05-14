@@ -6,10 +6,10 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Main where
+module Main (main) where
 
 import Control.Concurrent.Classy hiding (wait)
-import Control.Exception (Exception (fromException), SomeAsyncException, SomeException)
+import Control.Exception (Exception (fromException), MaskingState (..), SomeAsyncException, SomeException)
 import Control.Monad
 import Data.Foldable
 import Data.Function
@@ -24,143 +24,131 @@ import Text.Printf (printf)
 
 main :: IO ()
 main = do
-  test "noop" . returns () $ do
-    scoped background \_ -> pure ()
+  test "the background context isn't cancelled" . returns False $ do
+    cancelled background
+
+  test "a new context isn't cancelled" . returns False $ do
+    scoped background \scope -> async scope cancelled >>= await
+
+  test "a context can be cancelled" . returns () $ do
+    scoped background \scope -> do
+      uninterruptibleMask_ do
+        async_ scope \context ->
+          atomically (retryUntilTrue (cancelledSTM context))
+      waitFor scope 1
+
+  todo "a context derived from a cancelled context is cancelled"
+
+  test "can wait on a scope" . returns True $ do
+    ref <- newIORef False
+    scoped background \scope -> do
+      async_ scope \_ -> writeIORef ref True
+      wait scope
+    readIORef ref
 
   test "using a closed scope throws an exception" . throws @ScopeClosed $ do
     scope <- scoped background pure
-    void (async scope \_ -> pure ())
+    async_ scope \_ -> pure ()
 
-  test "join (-1) waits indefinitely for children" . returns True $ do
+  test "thread can be awaited" . returns True $ do
     ref <- newIORef False
     scoped background \scope -> do
-      void (async scope \_ -> writeIORef ref True)
-      wait scope
+      thread <- async scope \_ -> writeIORef ref True
+      await thread
     readIORef ref
 
-  test "child can be awaited" . returns () $ do
-    scoped background \scope -> do
-      child <- async scope \_ -> pure ()
-      await child
-
-  test "child can be awaited outside its scope" . returns () $ do
-    child <- scoped background \scope -> do
-      child <- async scope \_ -> pure ()
+  test "thread can be awaited after its scope closes" . returns () $ do
+    thread <- scoped background \scope -> do
+      thread <- async scope \_ -> pure ()
       wait scope
-      pure child
-    await child
+      pure thread
+    await thread
 
-  test "child can be cancelled" . returns () $ do
+  test "thread can be killed" . returns () $ do
     scoped background \scope -> do
-      child <- async scope \_ -> newEmptyMVar >>= takeMVar
-      cancel child
+      thread <- async scope \_ -> block
+      kill thread
 
-  test "child can be cancelled after it's finished" . returns () $ do
+  test "thread can be killed after it's finished" . returns () $ do
     scoped background \scope -> do
-      child <- async scope \_ -> pure ()
-      await child
-      cancel child
+      thread <- async scope \_ -> pure ()
+      await thread
+      kill thread
 
-  test "dying child throws async exception first" . returns True $ do
+  test "failed thread throws async exception first" . returns True $ do
     scoped background \scope ->
-      mask \unmask -> do
-        child <- async scope \_ -> throw A
-        unmask (False <$ await child) `catch` \ex -> do
+      mask \restore -> do
+        thread <- async scope \_ -> throw A
+        restore (False <$ await thread) `catch` \ex ->
           pure (isAsyncException ex)
 
-  test "failed child throws exception when awaited" . throws @ThreadFailed $ do
-    var <- newEmptyMVar
-    ignoring @ThreadFailed do
-      scoped background \scope ->
-        mask_ do
-          child <- async scope \_ -> () <$ throw A
-          putMVar var child
-          wait scope
-    child <- takeMVar var
-    await child
+  test "failed thread throws exception when awaited" . throws @ThreadFailed $ do
+    thread <- scoped background \scope -> async scope \_ -> block
+    await thread
 
-  test "child can mask exceptions forever" . deadlocks $ do
+  test "thread forked with async inherits masking state" . returns (Unmasked, MaskedInterruptible, MaskedUninterruptible) $ do
     scoped background \scope -> do
-      child <- asyncMasked scope \_ _ -> newEmptyMVar >>= takeMVar
-      cancel child
+      thread1 <- async scope \_ -> getMaskingState
+      thread2 <- mask_ (async scope \_ -> getMaskingState)
+      thread3 <- uninterruptibleMask_ (async scope \_ -> getMaskingState)
+      (,,) <$> await thread1 <*> await thread2 <*> await thread3
 
-  test "child can mask exceptions briefly" . returns True $ do
+  test "thread forked with asyncWithUnmask inherits masking state" . returns (Unmasked, MaskedInterruptible, MaskedUninterruptible) $ do
+    scoped background \scope -> do
+      thread1 <- asyncWithUnmask scope \_ _ -> getMaskingState
+      thread2 <- mask_ (asyncWithUnmask scope \_ _ -> getMaskingState)
+      thread3 <- uninterruptibleMask_ (asyncWithUnmask scope \_ _ -> getMaskingState)
+      (,,) <$> await thread1 <*> await thread2 <*> await thread3
+
+  test "asyncWithUnmask provides an unmasking function" . returns Unmasked $ do
+    scoped background \scope -> do
+      thread <- mask_ (asyncWithUnmask scope \_ unmask -> unmask getMaskingState)
+      await thread
+
+  test "killing a thread doesn't close its scope" . returns True $ do
     ref <- newIORef False
     scoped background \scope -> do
-      child <- asyncMasked scope \_ unmask ->
-        unmask (pure ()) `finally` writeIORef ref True
-      cancel child
-      readIORef ref
-
-  test "cancelling a child doesn't cancel its siblings" . returns True $ do
-    ref <- newIORef False
-    scoped background \scope -> do
-      child <- async scope \_ -> newEmptyMVar >>= takeMVar
-      void (async scope \_ -> writeIORef ref True)
-      cancel child
+      thread <- async scope \_ -> block
+      async_ scope \_ -> writeIORef ref True
+      kill thread
       wait scope
     readIORef ref
 
-  test "scope re-throws exceptions from children" . throws @ThreadFailed $ do
+  todo "scope waits for threads to finish before returning"
+
+  test "scope re-throws exceptions from threads" . throws @ThreadFailed $ do
     scoped background \scope -> do
-      void (async scope \_ -> () <$ throw A)
+      async_ scope \_ -> () <$ throw A
       wait scope
 
-  test "scope cancels children when it dies" . returns True $ do
-    ref <- newIORef False
+  test "scope closes when it fails" . returns () $ do
     ignoring @A do
       scoped background \scope -> do
-        void $ asyncMasked scope \_ unmask -> do
-          unmask (pure ()) `finally` writeIORef ref True
+        async_ scope \_ -> block
         void (throw A)
-    readIORef ref
 
-  test "scope cancels children when it's cancelled" . returns True $ do
-    ref <- newIORef False
-    scoped background \scope1 -> do
-      var <- newEmptyMVar
-      child <-
-        async scope1 \context ->
-          scoped context \scope2 -> do
-            void $ asyncMasked scope2 \_ unmask -> do
-              putMVar var ()
-              unmask (pure ()) `finally` writeIORef ref True
-            wait scope2
-      takeMVar var
-      cancel child
-      wait scope1
-    readIORef ref
-
-  test "scope cancels children when one dies" . returns True $ do
-    ref <- newIORef False
+  test "scope closes when a thread fails" . returns () $ do
     ignoring @ThreadFailed do
       scoped background \scope -> do
-        void $ asyncMasked scope \_ unmask -> do
-          var <- newEmptyMVar
-          unmask (takeMVar var) `finally` writeIORef ref True
-        void (async scope \_ -> () <$ throw A)
+        async_ scope \_ -> block
+        async_ scope \_ -> void (throw A)
         wait scope
-    readIORef ref
 
-  test "scope can be joined immediately" . returns () $ do
+  test "scope can be waited on for 0us" . returns () $ do
     scoped background \scope -> waitFor scope 0
 
-  test "child joining its own scope cancels self" . returns True $ do
+  test "thread waiting indefinitely on its own scope fails" . returns True $ do
     ref <- newIORef False
     scoped background \scope -> do
-      void (async scope \_ -> waitFor scope 0 `onException` writeIORef ref True)
+      async_ scope \_ -> waitFor scope 0 `onException` writeIORef ref True
       wait scope
     readIORef ref
 
-  test "child joining its own scope cancels siblings" . returns True $ do
-    ref <- newIORef False
+  test "thread waiting for 0us own its own scope closes it" . returns () $ do
     scoped background \scope -> do
-      void $ asyncMasked scope \_ unmask -> do
-        var <- newEmptyMVar
-        unmask (takeMVar var) `finally` writeIORef ref True
-      void (async scope \_ -> waitFor scope 0)
+      async_ scope \_ -> block
+      async_ scope \_ -> waitFor scope 0
       wait scope
-    readIORef ref
 
 type P =
   DejaFu.Program DejaFu.Basic IO
@@ -178,6 +166,10 @@ test name action = do
   for_ (DejaFu._failures result) \(value, trace) ->
     prettyPrintTrace value trace
   unless (DejaFu._pass result) exitFailure
+
+todo :: String -> IO ()
+todo =
+  printf "[ ] %4.0fms %s\n" (0 :: Float)
 
 runTest ::
   Eq a =>
@@ -211,14 +203,18 @@ throws =
     )
     (const False)
 
-deadlocks :: Eq a => P a -> IO (DejaFu.Result a)
-deadlocks =
-  runTest
-    ( \case
-        DejaFu.Deadlock -> True
-        _ -> False
-    )
-    (const False)
+-- deadlocks :: Eq a => P a -> IO (DejaFu.Result a)
+-- deadlocks =
+--   runTest
+--     ( \case
+--         DejaFu.Deadlock -> True
+--         _ -> False
+--     )
+--     (const False)
+
+block :: P ()
+block =
+  newEmptyMVar >>= takeMVar
 
 ignoring :: forall e. Exception e => P () -> P ()
 ignoring action =
@@ -228,9 +224,15 @@ isAsyncException :: SomeException -> Bool
 isAsyncException =
   isJust . fromException @SomeAsyncException
 
-isSyncException :: SomeException -> Bool
-isSyncException =
-  not . isAsyncException
+retryUntilTrue :: MonadSTM m => m Bool -> m ()
+retryUntilTrue action =
+  action >>= \case
+    False -> retry
+    True -> pure ()
+
+-- isSyncException :: SomeException -> Bool
+-- isSyncException =
+--   not . isAsyncException
 
 prettyPrintTrace :: Show a => Either DejaFu.Condition a -> DejaFu.Trace -> IO ()
 prettyPrintTrace value trace = do
@@ -292,12 +294,12 @@ data A
   deriving stock (Eq, Show)
   deriving anyclass (Exception)
 
-finally :: P a -> P b -> P a
-finally action after =
-  mask \restore -> do
-    result <- restore action `onException` after
-    _ <- after
-    pure result
+-- finally :: P a -> P b -> P a
+-- finally action after =
+--   mask \restore -> do
+--     result <- restore action `onException` after
+--     _ <- after
+--     pure result
 
 onException :: P a -> P b -> P a
 onException action cleanup =

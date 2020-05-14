@@ -6,7 +6,7 @@ module Gy.Sig.Base
     ThreadId,
     atomically,
     catch,
-    forkIOWithUnmask,
+    forkIO,
     modifyTVar',
     myThreadId,
     Gy.Sig.Base.newEmptyTMVar,

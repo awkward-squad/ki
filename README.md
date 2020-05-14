@@ -6,8 +6,10 @@ The primary abstraction is the *scope*, which delimits the lifetime of *threads*
 forked within it.
 
 ```haskell
+-- Create a new scope
 scoped :: Context -> (Scope -> IO a) -> IO a
 
+-- Fork a thread within a scope
 async :: Scope -> (Context -> IO a) -> IO (Thread a)
 ```
 
@@ -34,6 +36,11 @@ can observe whether it's meant to gracefully terminate, but it may never notice,
 or ignore the suggestion.
 
 ```haskell
+-- Should I finish up?
+cancelled :: Context -> IO Bool
+```
+
+```haskell
 scoped context \scope ->
   -- Fork a worker thread
   async_ scope worker
@@ -46,12 +53,7 @@ scoped context \scope ->
 ```
 
 Soft-cancellation is hierarchical: it is observable by all *threads* forked
-within a *scope*, all *threads* _forked by_ *threads* within a scope, and so on.
-
-```haskell
--- Should I finish up?
-cancelled :: Context -> IO Bool
-```
+within a *scope*, all *threads* _forked by_ them, and so on.
 
 The implementation is tested for deadlocks, race conditions, and other
 concurrency anomalies by [dejafu](http://hackage.haskell.org/package/dejafu), a

@@ -31,9 +31,9 @@ catch :: forall e a. Exception e => IO a -> (e -> IO a) -> IO a
 catch =
   Conc.catch
 
-forkIOWithUnmask :: ((forall x. IO x -> IO x) -> IO ()) -> IO ThreadId
-forkIOWithUnmask =
-  Conc.forkWithUnmask
+forkIO :: IO () -> IO ThreadId
+forkIO =
+  Conc.fork
 
 modifyTVar' :: TVar a -> (a -> a) -> STM ()
 modifyTVar' =

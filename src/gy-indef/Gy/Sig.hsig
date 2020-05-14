@@ -32,7 +32,7 @@ data TVar a
 
 atomically :: STM a -> IO a
 catch :: forall e a. Exception e => IO a -> (e -> IO a) -> IO a
-forkIOWithUnmask :: ((forall x. IO x -> IO x) -> IO ()) -> IO ThreadId
+forkIO :: IO () -> IO ThreadId
 modifyTVar' :: TVar a -> (a -> a) -> STM ()
 myThreadId :: IO ThreadId
 newEmptyTMVar :: String -> STM (TMVar a)
