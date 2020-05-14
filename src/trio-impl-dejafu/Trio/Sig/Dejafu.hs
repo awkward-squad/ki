@@ -47,9 +47,9 @@ newEmptyTMVar :: String -> STM (TMVar a)
 newEmptyTMVar =
   Conc.newEmptyTMVarN
 
-newTVarIO :: String -> a -> IO (TVar a)
-newTVarIO name =
-  Conc.atomically . Conc.newTVarN name
+newTVar :: String -> a -> STM (TVar a)
+newTVar name =
+  Conc.newTVarN name
 
 putTMVar :: TMVar a -> a -> STM ()
 putTMVar =

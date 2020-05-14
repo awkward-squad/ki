@@ -8,7 +8,7 @@
 
 module Main where
 
-import Control.Concurrent.Classy
+import Control.Concurrent.Classy hiding (wait)
 import Control.Exception (Exception (fromException), SomeAsyncException, SomeException)
 import Control.Monad
 import Data.Foldable
@@ -24,143 +24,161 @@ import Trio
 
 main :: IO ()
 main = do
-  test "noop" do
-    returns () (withScope \_ -> pure ())
+  test "noop" . returns () $ do
+    context <- initialize
+    scoped context \_ -> pure ()
 
   test "using a closed scope throws an exception" . throws @ScopeClosed $ do
-    scope <- withScope pure
-    void (async scope (pure ()))
+    context <- initialize
+    scope <- scoped context pure
+    void (async scope \_ -> pure ())
 
   test "join (-1) waits indefinitely for children" . returns True $ do
+    context <- initialize
     ref <- newIORef False
-    withScope \scope -> do
-      void (async scope (writeIORef ref True))
-      joinScope scope (-1)
+    scoped context \scope -> do
+      void (async scope \_ -> writeIORef ref True)
+      atomically (wait scope)
     readIORef ref
 
   test "child can be awaited" . returns () $ do
-    withScope \scope -> do
-      child <- async scope (pure ())
+    context <- initialize
+    scoped context \scope -> do
+      child <- async scope \_ -> pure ()
       atomically (await child)
 
   test "child can be awaited outside its scope" . returns () $ do
-    child <- withScope \scope -> do
-      child <- async scope (pure ())
-      joinScope scope (-1)
+    context <- initialize
+    child <- scoped context \scope -> do
+      child <- async scope \_ -> pure ()
+      atomically (wait scope)
       pure child
     atomically (await child)
 
   test "child can be cancelled" . returns () $ do
-    withScope \scope -> do
-      child <- async scope (newEmptyMVar >>= takeMVar)
+    context <- initialize
+    scoped context \scope -> do
+      child <- async scope \_ -> newEmptyMVar >>= takeMVar
       cancel child
 
   test "child can be cancelled after it's finished" . returns () $ do
-    withScope \scope -> do
-      child <- async scope (pure ())
+    context <- initialize
+    scoped context \scope -> do
+      child <- async scope \_ -> pure ()
       atomically (await child)
       cancel child
 
   test "dying child throws async exception first" . returns True $ do
-    withScope \scope ->
+    context <- initialize
+    scoped context \scope ->
       mask \unmask -> do
-        child <- async scope (throw A)
+        child <- async scope \_ -> throw A
         unmask (False <$ atomically (await child)) `catch` \ex -> do
           pure (isAsyncException ex)
 
   test "failed child throws exception when awaited" . throws @ThreadFailed $ do
+    context <- initialize
     var <- newEmptyMVar
     ignoring @ThreadFailed do
-      withScope \scope ->
+      scoped context \scope ->
         mask_ do
-          child <- async scope (() <$ throw A)
+          child <- async scope \_ -> () <$ throw A
           putMVar var child
-          joinScope scope (-1)
+          atomically (wait scope)
     child <- takeMVar var
     atomically (await child)
 
   test "child can mask exceptions forever" . deadlocks $ do
-    withScope \scope -> do
-      child <- asyncMasked scope \_ -> (newEmptyMVar >>= takeMVar)
+    context <- initialize
+    scoped context \scope -> do
+      child <- asyncMasked scope \_ _ -> newEmptyMVar >>= takeMVar
       cancel child
 
   test "child can mask exceptions briefly" . returns True $ do
+    context <- initialize
     ref <- newIORef False
-    withScope \scope -> do
-      child <- asyncMasked scope \unmask ->
+    scoped context \scope -> do
+      child <- asyncMasked scope \_ unmask ->
         unmask (pure ()) `finally` writeIORef ref True
       cancel child
       readIORef ref
 
   test "cancelling a child doesn't cancel its siblings" . returns True $ do
+    context <- initialize
     ref <- newIORef False
-    withScope \scope -> do
-      child <- async scope (newEmptyMVar >>= takeMVar)
-      void (async scope (writeIORef ref True))
+    scoped context \scope -> do
+      child <- async scope \_ -> newEmptyMVar >>= takeMVar
+      void (async scope \_ -> writeIORef ref True)
       cancel child
-      joinScope scope (-1)
+      atomically (wait scope)
     readIORef ref
 
   test "scope re-throws exceptions from children" . throws @ThreadFailed $ do
-    withScope \scope -> do
-      void (async scope (() <$ throw A))
-      joinScope scope (-1)
+    context <- initialize
+    scoped context \scope -> do
+      void (async scope \_ -> () <$ throw A)
+      atomically (wait scope)
 
-  test "scope cancels children when it dies" do
-    returns True do
-      ref <- newIORef False
-      ignoring @A do
-        withScope \scope -> do
-          void $ asyncMasked scope \unmask -> do
-            unmask (pure ()) `finally` writeIORef ref True
-          void (throw A)
-      readIORef ref
+  test "scope cancels children when it dies" . returns True $ do
+    context <- initialize
+    ref <- newIORef False
+    ignoring @A do
+      scoped context \scope -> do
+        void $ asyncMasked scope \_ unmask -> do
+          unmask (pure ()) `finally` writeIORef ref True
+        void (throw A)
+    readIORef ref
 
   test "scope cancels children when it's cancelled" . returns True $ do
+    context <- initialize
     ref <- newIORef False
-    withScope \scope1 -> do
+    scoped context \scope1 -> do
       var <- newEmptyMVar
       child <-
-        async scope1 do
-          withScope \scope2 -> do
-            void $ asyncMasked scope2 \unmask -> do
+        async scope1 \context' ->
+          scoped context' \scope2 -> do
+            void $ asyncMasked scope2 \_ unmask -> do
               putMVar var ()
               unmask (pure ()) `finally` writeIORef ref True
-            joinScope scope2 (-1)
+            atomically (wait scope2)
       takeMVar var
       cancel child
-      joinScope scope1 (-1)
+      atomically (wait scope1)
     readIORef ref
 
   test "scope cancels children when one dies" . returns True $ do
+    context <- initialize
     ref <- newIORef False
     ignoring @ThreadFailed do
-      withScope \scope -> do
-        void $ asyncMasked scope \unmask -> do
+      scoped context \scope -> do
+        void $ asyncMasked scope \_ unmask -> do
           var <- newEmptyMVar
           unmask (takeMVar var) `finally` writeIORef ref True
-        void (async scope (() <$ throw A))
-        joinScope scope (-1)
+        void (async scope \_ -> () <$ throw A)
+        atomically (wait scope)
     readIORef ref
 
-  test "scope can be joined immediately" . returns () $
-    withScope \scope -> joinScope scope 0
+  test "scope can be joined immediately" . returns () $ do
+    context <- initialize
+    scoped context \scope -> waitFor scope 0
 
   test "child joining its own scope cancels self" . returns True $ do
+    context <- initialize
     ref <- newIORef False
-    withScope \scope -> do
-      void (async scope (joinScope scope 0 `onException` writeIORef ref True))
-      joinScope scope (-1)
+    scoped context \scope -> do
+      void (async scope \_ -> waitFor scope 0 `onException` writeIORef ref True)
+      atomically (wait scope)
     readIORef ref
 
   test "child joining its own scope cancels siblings" . returns True $ do
+    context <- initialize
     ref <- newIORef False
-    withScope \scope -> do
-      void $ asyncMasked scope \unmask -> do
+    scoped context \scope -> do
+      void $ asyncMasked scope \_ unmask -> do
         var <- newEmptyMVar
         unmask (takeMVar var) `finally` writeIORef ref True
-      void (async scope (joinScope scope 0))
-      joinScope scope (-1)
+      void (async scope \_ -> waitFor scope 0)
+      atomically (wait scope)
     readIORef ref
 
 type P =

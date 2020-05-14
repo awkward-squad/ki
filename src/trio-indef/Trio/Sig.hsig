@@ -1,5 +1,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE RoleAnnotations #-}
 
 signature Trio.Sig (module Trio.Sig) where
 
@@ -7,11 +8,13 @@ import Control.Applicative (Alternative)
 import Control.Exception (Exception)
 import Prelude hiding (IO)
 
+type role IO representational
 data IO a
 instance Applicative IO
 instance Functor IO
 instance Monad IO
 
+type role STM representational
 data STM a
 instance Alternative STM
 instance Applicative STM
@@ -33,7 +36,7 @@ forkIOWithUnmask :: ((forall x. IO x -> IO x) -> IO ()) -> IO ThreadId
 modifyTVar' :: TVar a -> (a -> a) -> STM ()
 myThreadId :: IO ThreadId
 newEmptyTMVar :: String -> STM (TMVar a)
-newTVarIO :: String -> a -> IO (TVar a)
+newTVar :: String -> a -> STM (TVar a)
 putTMVar :: TMVar a -> a -> STM ()
 readTMVar :: TMVar a -> STM a
 readTVar :: TVar a -> STM a

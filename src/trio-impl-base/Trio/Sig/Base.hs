@@ -10,7 +10,7 @@ module Trio.Sig.Base
     modifyTVar',
     myThreadId,
     Trio.Sig.Base.newEmptyTMVar,
-    Trio.Sig.Base.newTVarIO,
+    Trio.Sig.Base.newTVar,
     putTMVar,
     readTMVar,
     readTVar,
@@ -36,6 +36,6 @@ newEmptyTMVar :: String -> STM (TMVar a)
 newEmptyTMVar _ =
   Control.Concurrent.STM.newEmptyTMVar
 
-newTVarIO :: String -> a -> IO (TVar a)
-newTVarIO _ =
-  Control.Concurrent.STM.newTVarIO
+newTVar :: String -> a -> STM (TVar a)
+newTVar _ =
+  Control.Concurrent.STM.newTVar
