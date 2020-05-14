@@ -2,7 +2,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE RoleAnnotations #-}
 
-signature Gy.Sig (module Gy.Sig) where
+signature Ki.Sig (module Ki.Sig) where
 
 import Control.Applicative (Alternative)
 import Control.Exception (Exception)

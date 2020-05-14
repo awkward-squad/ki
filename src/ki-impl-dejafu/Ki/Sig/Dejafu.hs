@@ -2,7 +2,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Gy.Sig.Dejafu where
+module Ki.Sig.Dejafu (module Ki.Sig.Dejafu) where
 
 import qualified Control.Concurrent.Classy as Conc
 import qualified Control.Concurrent.Classy.Async as Async

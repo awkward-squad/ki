@@ -1,4 +1,4 @@
-module Gy.Sig.Base
+module Ki.Sig.Base
   ( IO,
     STM,
     TVar,
@@ -9,8 +9,8 @@ module Gy.Sig.Base
     forkIO,
     modifyTVar',
     myThreadId,
-    Gy.Sig.Base.newEmptyTMVar,
-    Gy.Sig.Base.newTVar,
+    Ki.Sig.Base.newEmptyTMVar,
+    Ki.Sig.Base.newTVar,
     putTMVar,
     readTMVar,
     readTVar,

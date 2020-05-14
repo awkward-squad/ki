@@ -1,4 +1,4 @@
-`gy` is a lightweight structured-concurrency library inspired by
+`ki` is a lightweight structured-concurrency library inspired by
 [libdill](http://libdill.org/), [trio](https://github.com/python-trio/trio),
 and [golang.org/pkg/context](https://golang.org/pkg/context/).
 
@@ -14,17 +14,17 @@ async :: Scope -> (Context -> IO a) -> IO (Thread a)
 ```
 
 ```haskell
-scoped context \scope ->
+Ki.scoped context \scope -> do
   -- Fork three worker threads
-  async_ scope worker1
-  async_ scope worker2
-  async_ scope worker3
+  Ki.async_ scope worker1
+  Ki.async_ scope worker2
+  Ki.async_ scope worker3
 
   -- Block until either:
   --   * They all finish successfully
   --   * One throws an exception
   --   * Someone throws an asynchronous exception to us
-  wait scope
+  Ki.wait scope
 ```
 
 A *scope* can be hard-cancelled: when the callback provided to `scoped` returns,
@@ -41,15 +41,15 @@ cancelled :: Context -> IO Bool
 ```
 
 ```haskell
-scoped context \scope ->
+Ki.scoped context \scope -> do
   -- Fork a worker thread
-  async_ scope worker
+  Ki.async_ scope worker
 
   -- Signal soft-cancellation, and block until either:
   --   * It finishes, either successfully or by throwing an exception
   --   * Someone throws an asynchronous exception to us
   --   * 1 second elapses
-  waitFor scope 1000000
+  Ki.waitFor scope 1000000
 ```
 
 Soft-cancellation is hierarchical: it is observable by all *threads* forked

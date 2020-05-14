@@ -10,7 +10,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Gy.Indef
+module Ki.Indef
   ( -- * Context
     Context,
     background,
@@ -47,11 +47,11 @@ import Data.Foldable (for_)
 import Data.Functor (($>))
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Gy.Internal.Conc (blockUntilTVar, registerBlock, retryingUntilSuccess)
-import Gy.Sig (IO, STM, TMVar, TVar, ThreadId, atomically, forkIO, modifyTVar', myThreadId, newEmptyTMVar, newTVar, putTMVar, readTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, uninterruptibleMask_, unsafeUnmask, writeTVar)
+import Ki.Internal.Conc (blockUntilTVar, registerBlock, retryingUntilSuccess)
+import Ki.Sig (IO, STM, TMVar, TVar, ThreadId, atomically, forkIO, modifyTVar', myThreadId, newEmptyTMVar, newTVar, putTMVar, readTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, uninterruptibleMask_, unsafeUnmask, writeTVar)
 import Prelude hiding (IO)
 
--- import Gy.Internal.Debug
+-- import Ki.Internal.Debug
 
 -- | A __context__ models a program's call tree.
 --

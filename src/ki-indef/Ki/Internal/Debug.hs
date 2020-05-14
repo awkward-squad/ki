@@ -1,6 +1,6 @@
 {-# LANGUAGE BlockArguments #-}
 
-module Gy.Internal.Debug
+module Ki.Internal.Debug
   ( debug,
   )
 where
