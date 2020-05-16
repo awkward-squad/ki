@@ -50,8 +50,7 @@ import Data.Functor (($>))
 import qualified Data.Semigroup as Semigroup
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Ki.Internal.Conc (blockUntilTVar, registerBlock)
-import Ki.Sig (IO, STM, TMVar, TVar, ThreadId, atomically, forkIO, modifyTVar', myThreadId, newEmptyTMVar, newTVar, putTMVar, readTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, uninterruptibleMask_, unsafeUnmask, writeTVar)
+import Ki.Sig (IO, STM, TMVar, TVar, ThreadId, atomically, forkIO, modifyTVar', myThreadId, newEmptyTMVar, newTVar, putTMVar, readTMVar, readTVar, registerDelay, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, uninterruptibleMask_, unsafeUnmask, writeTVar)
 import Prelude hiding (IO)
 
 -- import Ki.Internal.Debug
@@ -521,6 +520,8 @@ kill (Thread threadId resultVar) = do
   throwTo threadId ThreadKilled
   void (atomically (readTMVar resultVar))
 
+--- Misc. utils
+
 pattern NotThreadKilled :: SomeException -> SomeException
 pattern NotThreadKilled ex <-
   (asNotThreadKilled -> Just ex)
@@ -529,3 +530,16 @@ asNotThreadKilled :: SomeException -> Maybe SomeException
 asNotThreadKilled ex
   | Just ThreadKilled <- fromException ex = Nothing
   | otherwise = Just ex
+
+blockUntilTVar :: TVar a -> (a -> Bool) -> STM ()
+blockUntilTVar var f = do
+  value <- readTVar var
+  unless (f value) retry
+
+registerBlock :: Int -> IO (STM ())
+registerBlock micros = do
+  delayVar <- registerDelay micros
+  pure $
+    readTVar delayVar >>= \case
+      False -> retry
+      True -> pure ()

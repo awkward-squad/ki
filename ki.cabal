@@ -40,9 +40,7 @@ library ki-indef
   build-depends: base, containers
   exposed-modules: Ki.Indef
   hs-source-dirs: src/ki-indef
-  other-modules:
-    Ki.Internal.Conc
-    Ki.Internal.Debug
+  other-modules: Ki.Internal.Debug
   signatures:
     Ki.Sig
 
