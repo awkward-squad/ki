@@ -1,3 +1,7 @@
+{-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE MagicHash #-}
+{-# LANGUAGE UnboxedTuples #-}
+
 module Ki.Sig.Base
   ( IO,
     STM,
@@ -6,7 +10,7 @@ module Ki.Sig.Base
     ThreadId,
     atomically,
     catch,
-    forkIO,
+    Ki.Sig.Base.forkIO,
     modifyTVar',
     myThreadId,
     Ki.Sig.Base.newEmptyTMVar,
@@ -30,7 +34,15 @@ where
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
+import GHC.Conc
+import GHC.Exts (fork#)
 import GHC.IO
+
+forkIO :: IO () -> IO ThreadId
+forkIO action =
+  IO \s ->
+    case fork# action s of
+      (# s1, tid #) -> (# s1, ThreadId tid #)
 
 newEmptyTMVar :: String -> STM (TMVar a)
 newEmptyTMVar _ =
