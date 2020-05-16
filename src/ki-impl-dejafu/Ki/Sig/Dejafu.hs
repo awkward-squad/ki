@@ -5,7 +5,6 @@
 module Ki.Sig.Dejafu (module Ki.Sig.Dejafu) where
 
 import qualified Control.Concurrent.Classy as Conc
-import qualified Control.Concurrent.Classy.Async as Async
 import Control.Exception (Exception)
 import qualified Test.DejaFu as Dejafu
 import qualified Test.DejaFu.Conc.Internal.STM as Dejafu
@@ -95,12 +94,9 @@ uninterruptibleMask_ :: IO a -> IO a
 uninterruptibleMask_ =
   Conc.uninterruptibleMask_
 
--- Not Good! Waiting for https://github.com/barrucadu/dejafu/issues/316
 unsafeUnmask :: IO a -> IO a
-unsafeUnmask action = do
-  Async.withAsyncWithUnmask
-    (\unmask -> unmask action)
-    Async.wait
+unsafeUnmask = do
+  Conc.unsafeUnmask
 
 writeTVar :: TVar a -> a -> STM ()
 writeTVar =
