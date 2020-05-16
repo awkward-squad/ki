@@ -144,11 +144,13 @@ main = do
       wait scope
     readIORef ref
 
-  test "thread waiting for 0us own its own scope closes it" . returns () $ do
+  test "thread waiting for 0us own its own scope closes it" . returns True $ do
+    ref <- newIORef False
     scoped background \scope -> do
       async_ scope \_ -> block
-      async_ scope \_ -> waitFor scope 0
+      async_ scope \_ -> waitFor scope 0 `onException` writeIORef ref True
       wait scope
+    readIORef ref
 
 type P =
   DejaFu.Program DejaFu.Basic IO

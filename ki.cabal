@@ -1,0 +1,61 @@
+cabal-version: 2.4
+name: ki
+version: 0
+
+common component
+  default-language: Haskell2010
+  ghc-options:
+    -Weverything
+    -fno-warn-all-missed-specialisations
+    -fno-warn-implicit-prelude
+    -fno-warn-missed-specialisations
+    -fno-warn-missing-import-lists
+    -fno-warn-safe
+    -fno-warn-unsafe
+
+library
+  import: component
+  build-depends: ki-impl-base, ki-indef
+  mixins: ki-indef (Ki.Indef as Ki) requires (Ki.Sig as Ki.Sig.Base)
+  reexported-modules: Ki
+
+library ki-impl-base
+  import: component
+  build-depends: base, stm
+  exposed-modules: Ki.Sig.Base
+  hs-source-dirs: src/ki-impl-base
+
+library ki-impl-dejafu
+  import: component
+  build-depends:
+    base,
+    concurrency ^>= 1.11.0.0,
+    dejafu ^>= 2.3.0.0,
+    stm
+  exposed-modules: Ki.Sig.Dejafu
+  hs-source-dirs: src/ki-impl-dejafu
+
+library ki-indef
+  import: component
+  build-depends: base, containers
+  exposed-modules: Ki.Indef
+  hs-source-dirs: src/ki-indef
+  other-modules:
+    Ki.Internal.Conc
+    Ki.Internal.Debug
+  signatures:
+    Ki.Sig
+
+test-suite tests
+  import: component
+  build-depends:
+    base,
+    concurrency,
+    dejafu,
+    ki-impl-dejafu,
+    ki-indef,
+  ghc-options: -threaded -O -with-rtsopts=-N
+  hs-source-dirs: test
+  main-is: Test.hs
+  mixins: ki-indef (Ki.Indef as Ki) requires (Ki.Sig as Ki.Sig.Dejafu)
+  type: exitcode-stdio-1.0
