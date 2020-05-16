@@ -1,19 +1,14 @@
-{-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE TypeApplications #-}
 
 -- | Random concurrency utils.
 module Ki.Internal.Conc
   ( blockUntilTVar,
     registerBlock,
-    retryingUntilSuccess,
   )
 where
 
-import Control.Exception (SomeException)
 import Control.Monad (unless)
-import Data.Function (fix)
-import Ki.Sig (IO, STM, TVar, catch, readTVar, registerDelay, retry)
+import Ki.Sig (IO, STM, TVar, readTVar, registerDelay, retry)
 import Prelude hiding (IO)
 
 blockUntilTVar :: TVar a -> (a -> Bool) -> STM ()
@@ -28,10 +23,3 @@ registerBlock micros = do
     readTVar delayVar >>= \case
       False -> retry
       True -> pure ()
-
--- | Execute an IO action until it successfully completes, ignoring all
--- synchronous and asynchronous exceptions.
-retryingUntilSuccess :: IO a -> IO a
-retryingUntilSuccess action =
-  fix \again ->
-    catch @SomeException action \_ -> again

@@ -7,6 +7,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -43,11 +44,13 @@ where
 import Control.Applicative ((<|>))
 import Control.Exception (AsyncException (ThreadKilled), Exception (fromException, toException), SomeException, asyncExceptionFromException, asyncExceptionToException)
 import Control.Monad (join, unless, void)
+import Data.Coerce (coerce)
 import Data.Foldable (for_)
 import Data.Functor (($>))
+import qualified Data.Semigroup as Semigroup
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Ki.Internal.Conc (blockUntilTVar, registerBlock, retryingUntilSuccess)
+import Ki.Internal.Conc (blockUntilTVar, registerBlock)
 import Ki.Sig (IO, STM, TMVar, TVar, ThreadId, atomically, forkIO, modifyTVar', myThreadId, newEmptyTMVar, newTVar, putTMVar, readTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, uninterruptibleMask_, unsafeUnmask, writeTVar)
 import Prelude hiding (IO)
 
@@ -173,7 +176,7 @@ background =
 -- The basic usage of a __scope__ is as follows:
 --
 -- @
--- 'scoped' context \\scope ->
+-- 'scoped' context \\scope -> do
 --   'async_' scope worker1
 --   'async_' scope worker2
 --   'wait' scope
@@ -189,11 +192,18 @@ data Scope = Scope
   }
 
 data Cancelled
-  = Cancelled !Bool ![TVar Cancelled]
+  = Cancelled
+      -- Whether this scope is cancelled. Invariant: if True, so are all the TVars
+      -- below.
+      !Bool
+      -- The scopes derived from this one that should be cancelled when we are.
+      ![TVar Cancelled]
 
 -- | A running __thread__.
 data Thread a
-  = Thread !ThreadId !(TMVar (Either SomeException a))
+  = Thread
+      !ThreadId
+      !(TMVar (Either SomeException a))
 
 -- | Some actions that attempt to use a /closed/ __scope__ throw 'ScopeClosed'
 -- instead.
@@ -223,25 +233,6 @@ translateAsyncThreadFailed ex =
       toException (ThreadFailed threadId exception)
     _ -> ex
 
--- | Create a new scope derived from a parent context: the scope inherits
--- whether the context is cancelled, and if it isn't, the context's cancellation
--- tree is adjusted to include the new scope.
-newScope :: Context -> STM Scope
-newScope context = do
-  closedVar <- newTVar "closed" False
-  runningVar <- newTVar "running" Set.empty
-  startingVar <- newTVar "starting" 0
-  cancelledVar <-
-    case context of
-      Background -> newTVar "cancelled" (Cancelled False [])
-      Context Scope {cancelledVar = parentCancelledVar} -> do
-        Cancelled parentCancelled parentTree <- readTVar parentCancelledVar
-        cancelledVar <- newTVar "cancelled" (Cancelled parentCancelled [])
-        writeTVar parentCancelledVar
-          $! Cancelled parentCancelled (cancelledVar : parentTree)
-        pure cancelledVar
-  pure Scope {cancelledVar, closedVar, runningVar, startingVar}
-
 -- | Perform an action with a new __scope__, then /close/ the __scope__.
 --
 -- /Throws/:
@@ -259,10 +250,38 @@ newScope context = do
 scoped :: Context -> (Scope -> IO a) -> IO a
 scoped context f = do
   uninterruptibleMask \restore -> do
-    scope <- atomically (newScope context)
+    scope <- atomically makeScope
     result <- restore (try (f scope))
-    closeScope scope
-    either (throwIO . translateAsyncThreadFailed) pure result
+    exception <- closeScope scope
+    either
+      -- If the callback failed, we don't care if we were thrown an async
+      -- exception afterwards while closing the scope
+      (throwIO . translateAsyncThreadFailed)
+      -- Otherwise, throw that exception (if it exists)
+      (\value -> for_ @Maybe exception throwIO $> value)
+      result
+  where
+    -- Create a new scope derived from a parent context: the scope inherits
+    -- whether the context is cancelled, and if it isn't, the context's
+    -- cancellation tree is adjusted to include the new scope.
+    makeScope :: STM Scope
+    makeScope = do
+      closedVar <- newTVar "closed" False
+      runningVar <- newTVar "running" Set.empty
+      startingVar <- newTVar "starting" 0
+      cancelledVar <-
+        case context of
+          Background -> newTVar "cancelled" (Cancelled False [])
+          Context Scope {cancelledVar = parentCancelledVar} -> do
+            Cancelled parentCancelled parentTree <- readTVar parentCancelledVar
+            cancelledVar <- newTVar "cancelled" (Cancelled parentCancelled [])
+            -- No point in adding to the parent's cancel tree if it's already
+            -- cancelled (and thus so are we)
+            unless parentCancelled do
+              writeTVar parentCancelledVar
+                $! Cancelled parentCancelled (cancelledVar : parentTree)
+            pure cancelledVar
+      pure Scope {cancelledVar, closedVar, runningVar, startingVar}
 
 -- | Wait until all __threads__ finish, then /close/ the __scope__.
 wait :: Scope -> IO ()
@@ -285,7 +304,7 @@ waitSTM Scope {closedVar, runningVar, startingVar} = do
 waitFor :: Scope -> Int -> IO ()
 waitFor scope@(Scope {cancelledVar}) micros
   | micros < 0 = wait scope
-  | micros == 0 = uninterruptibleMask_ (closeScope scope)
+  | micros == 0 = close
   | otherwise = do
     atomically (cancelTree cancelledVar)
     blockUntilTimeout <- registerBlock micros
@@ -294,7 +313,7 @@ waitFor scope@(Scope {cancelledVar}) micros
           waitSTM scope $> pure ()
     let sadTeardown :: STM (IO ())
         sadTeardown =
-          blockUntilTimeout $> uninterruptibleMask_ (closeScope scope)
+          blockUntilTimeout $> close
     (join . atomically) (happyTeardown <|> sadTeardown)
   where
     cancelTree :: TVar Cancelled -> STM ()
@@ -303,33 +322,72 @@ waitFor scope@(Scope {cancelledVar}) micros
       unless c do
         writeTVar treeVar (Cancelled True trees)
         for_ trees cancelTree
+    close :: IO ()
+    close = do
+      exception <- uninterruptibleMask_ (closeScope scope)
+      for_ exception throwIO
 
+-- If already closed, no-op.
+--
+-- If open, regardless of if it's cancelled or not,
+--   * Wait for 0 starting threads
+--   * Set closed to True
+--   * Cancel children one at a time (have to a bit careful because *we* might
+--     be a child canceling our own scope)
+--
+-- Returns the first async exception thrown to us while killing children.
+--
 -- Precondition: uninterruptibly masked
-closeScope :: Scope -> IO ()
+closeScope :: Scope -> IO (Maybe SomeException)
 closeScope Scope {closedVar, runningVar, startingVar} = do
   (join . atomically) do
     readTVar closedVar >>= \case
       False -> do
         blockUntilTVar startingVar (== 0)
         writeTVar closedVar True
-        pure do
-          cancellingThreadId <- myThreadId
-          children <- atomically (readTVar runningVar)
-          for_ (Set.delete cancellingThreadId children) \child ->
-            -- Kill the child with asynchronous exceptions unmasked, because
-            -- we don't want to deadlock with a child concurrently trying to
-            -- throw a exception back to us. But if any exceptions are thrown
-            -- to us during this time, just ignore them. We already have an
-            -- exception to throw, and we prefer it because it was delivered
-            -- first.
-            retryingUntilSuccess (unsafeUnmask (throwTo child ThreadKilled))
+        pure killChildren
+      True -> pure (pure Nothing)
+  where
+    killChildren :: IO (Maybe SomeException)
+    killChildren = do
+      -- We waited for starting=0 and then set closed=True, so no new threads
+      -- will appear in runningVar. Some children may remove themselves from it
+      -- while we are in the process of killing them all, but that's ok - we'll
+      -- just needlessly throw ThreadKilled to these things
+      cancellingThreadId <- myThreadId
+      children <- atomically (readTVar runningVar)
+      -- Kill every child that's not us, keeping track of the first random
+      -- asynchronous exception delivered to us while doing so. We don't keep
+      -- exceptions masked because we don't want to deadlock with a child that
+      -- is concurrently trying to throw an exception to us with exceptions
+      -- masked.
+      firstExceptionThrownToUs :: Maybe SomeException <-
+        coerce
+          @(IO (Maybe (Semigroup.First SomeException)))
+          @(IO (Maybe SomeException))
+          (loop Nothing (Set.toList (Set.delete cancellingThreadId children)))
 
-          if Set.member cancellingThreadId children
-            then do
-              atomically (blockUntilTVar runningVar ((== 1) . Set.size))
-              throwIO ThreadKilled
-            else atomically (blockUntilTVar runningVar Set.null)
-      True -> pure (pure ())
+      if Set.member cancellingThreadId children
+        then do
+          atomically (blockUntilTVar runningVar ((== 1) . Set.size))
+          throwIO ThreadKilled
+        else do
+          atomically (blockUntilTVar runningVar Set.null)
+          pure firstExceptionThrownToUs
+      where
+        loop ::
+          Maybe (Semigroup.First SomeException) ->
+          [ThreadId] ->
+          IO (Maybe (Semigroup.First SomeException))
+        loop acc = \case
+          [] -> pure acc
+          child : children ->
+            try (unsafeUnmask (throwTo child ThreadKilled)) >>= \case
+              Left exception ->
+                loop
+                  (acc <> Just (Semigroup.First exception))
+                  (child : children) -- don't drop child we didn't kill
+              Right () -> loop acc children
 
 -- | Return whether a __context__ is /cancelled/.
 --
