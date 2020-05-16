@@ -47,9 +47,12 @@ import Control.Monad (join, unless, void)
 import Data.Coerce (coerce)
 import Data.Foldable (for_)
 import Data.Functor (($>))
+import Data.Map (Map)
+import qualified Data.Map as Map
 import qualified Data.Semigroup as Semigroup
 import Data.Set (Set)
 import qualified Data.Set as Set
+import Data.Word (Word32)
 import Ki.Sig (IO, STM, TMVar, TVar, ThreadId, atomically, forkIO, modifyTVar', myThreadId, newEmptyTMVar, newTVar, putTMVar, readTMVar, readTVar, registerDelay, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, uninterruptibleMask_, unsafeUnmask, writeTVar)
 import Prelude hiding (IO)
 
@@ -181,13 +184,15 @@ background =
 --   'wait' scope
 -- @
 data Scope = Scope
-  { -- Whether this scope is closed
+  { nextIdentVar :: TVar Word32,
+    -- Whether this scope is closed
     -- Invariant: if closed, no threads are starting
     closedVar :: TVar Bool,
     cancelledVar :: TVar Cancelled,
     runningVar :: TVar (Set ThreadId),
     -- The number of threads that are just about to start
-    startingVar :: TVar Int
+    startingVar :: TVar Int,
+    onCancelled :: STM ()
   }
 
 data Cancelled
@@ -196,7 +201,7 @@ data Cancelled
       -- below.
       !Bool
       -- The scopes derived from this one that should be cancelled when we are.
-      ![TVar Cancelled]
+      !(Map Word32 (TVar Cancelled))
 
 -- | A running __thread__.
 data Thread a
@@ -249,7 +254,57 @@ translateAsyncThreadFailed ex =
 scoped :: Context -> (Scope -> IO a) -> IO a
 scoped context f = do
   uninterruptibleMask \restore -> do
-    scope <- atomically makeScope
+    scope <-
+      -- Create a new scope derived from a parent context: the scope inherits
+      -- whether the context is cancelled, and if it isn't, the context's
+      -- cancellation tree is adjusted to include the new scope.
+      atomically do
+        nextIdentVar <- newTVar "nextIdent" 0
+        closedVar <- newTVar "closed" False
+        runningVar <- newTVar "running" Set.empty
+        startingVar <- newTVar "starting" 0
+        (cancelledVar, onCancelled) <-
+          case context of
+            Background -> do
+              cancelledVar <- newCancelledTVar False
+              pure (cancelledVar, cancelTree cancelledVar)
+            Context
+              Scope
+                { nextIdentVar = parentNextIdentVar,
+                  cancelledVar = parentCancelledVar
+                } -> do
+                Cancelled parentCancelled parentTree <-
+                  readTVar parentCancelledVar
+                cancelledVar <- newCancelledTVar parentCancelled
+                if parentCancelled
+                  then-- No point in adding to the parent's cancel tree and
+                  -- registering deletion from it if it's already cancelled (and
+                  -- thus so are we)
+                    pure (cancelledVar, pure ())
+                  else do
+                    ident <- readTVar parentNextIdentVar
+                    writeTVar parentNextIdentVar $! ident + 1
+
+                    let parentTree' = Map.insert ident cancelledVar parentTree
+                    writeTVar parentCancelledVar
+                      $! Cancelled parentCancelled parentTree'
+                    pure
+                      ( cancelledVar,
+                        do
+                          cancelTree cancelledVar
+                          modifyTVar'
+                            parentCancelledVar
+                            \(Cancelled b t) -> Cancelled b (Map.delete ident t)
+                      )
+        pure
+          Scope
+            { nextIdentVar,
+              cancelledVar,
+              closedVar,
+              runningVar,
+              startingVar,
+              onCancelled
+            }
     result <- restore (try (f scope))
     exception <- closeScope scope
     either
@@ -260,27 +315,14 @@ scoped context f = do
       (\value -> for_ @Maybe exception throwIO $> value)
       result
   where
-    -- Create a new scope derived from a parent context: the scope inherits
-    -- whether the context is cancelled, and if it isn't, the context's
-    -- cancellation tree is adjusted to include the new scope.
-    makeScope :: STM Scope
-    makeScope = do
-      closedVar <- newTVar "closed" False
-      runningVar <- newTVar "running" Set.empty
-      startingVar <- newTVar "starting" 0
-      cancelledVar <-
-        case context of
-          Background -> newTVar "cancelled" (Cancelled False [])
-          Context Scope {cancelledVar = parentCancelledVar} -> do
-            Cancelled parentCancelled parentTree <- readTVar parentCancelledVar
-            cancelledVar <- newTVar "cancelled" (Cancelled parentCancelled [])
-            -- No point in adding to the parent's cancel tree if it's already
-            -- cancelled (and thus so are we)
-            unless parentCancelled do
-              writeTVar parentCancelledVar
-                $! Cancelled parentCancelled (cancelledVar : parentTree)
-            pure cancelledVar
-      pure Scope {cancelledVar, closedVar, runningVar, startingVar}
+    newCancelledTVar :: Bool -> STM (TVar Cancelled)
+    newCancelledTVar b =
+      newTVar "cancelled" (Cancelled b Map.empty)
+    cancelTree :: TVar Cancelled -> STM ()
+    cancelTree treeVar = do
+      Cancelled _false trees <- readTVar treeVar
+      writeTVar treeVar (Cancelled True trees)
+      for_ trees cancelTree
 
 -- | Wait until all __threads__ finish, then /close/ the __scope__.
 wait :: Scope -> IO ()
@@ -301,11 +343,11 @@ waitSTM Scope {closedVar, runningVar, startingVar} = do
 --
 -- Then, /close/ the __scope__.
 waitFor :: Scope -> Int -> IO ()
-waitFor scope@(Scope {cancelledVar}) micros
+waitFor scope micros
   | micros < 0 = wait scope
   | micros == 0 = close
   | otherwise = do
-    atomically (cancelTree cancelledVar)
+    atomically (onCancelled scope)
     blockUntilTimeout <- registerBlock micros
     let happyTeardown :: STM (IO ())
         happyTeardown =
@@ -315,12 +357,6 @@ waitFor scope@(Scope {cancelledVar}) micros
           blockUntilTimeout $> close
     (join . atomically) (happyTeardown <|> sadTeardown)
   where
-    cancelTree :: TVar Cancelled -> STM ()
-    cancelTree treeVar = do
-      Cancelled c trees <- readTVar treeVar
-      unless c do
-        writeTVar treeVar (Cancelled True trees)
-        for_ trees cancelTree
     close :: IO ()
     close = do
       exception <- uninterruptibleMask_ (closeScope scope)
