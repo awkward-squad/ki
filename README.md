@@ -15,6 +15,9 @@ scoped :: Context -> (Scope -> IO a) -> IO a
 
 -- Fork a thread within a scope
 async :: Scope -> (Context -> IO a) -> IO (Thread a)
+
+-- Should I finish up?
+cancelled :: Context -> IO Bool
 ```
 
 ```haskell
@@ -40,13 +43,25 @@ A **scope** can be soft-cancelled, too, but it requires cooperation. A
 **thread** can observe whether it's meant to gracefully terminate, but it may
 never notice, or ignore the suggestion.
 
-```haskell
--- Should I finish up?
-cancelled :: Context -> IO Bool
-```
-
 Soft-cancellation is also hierarchical. It is observable by all **threads**
 forked within a **scope**, and all **threads** _forked by_ them, and so on.
+
+There's another abstraction, too: the **context**. It's not as interesting. 
+Just pass it around everywhere you need to create a new **scope** or check 
+for cancellation.
+
+`ki-mtl` is an `mtl`-compatible shim that passes the **context** around 
+implicitly in a `MonadReader`.
+
+```haskell
+type MonadKi r m
+
+scoped :: MonadKi r m => (Scope -> m a) -> m a
+
+async :: MonadKi r m => Scope -> m a -> m (Thread a)
+
+cancelled :: MonadKi r m => m Bool
+```
 
 The implementation is tested for deadlocks, race conditions, and other
 concurrency anomalies by [`dejafu`](http://hackage.haskell.org/package/dejafu), a
