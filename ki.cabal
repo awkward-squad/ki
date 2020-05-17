@@ -1,4 +1,4 @@
-cabal-version: 2.4
+cabal-version: 3.0
 name: ki
 version: 0
 
@@ -19,6 +19,21 @@ library
   mixins: ki-indef (Ki.Indef as Ki) requires (Ki.Sig as Ki.Sig.Base)
   reexported-modules: Ki
 
+library ki-mtl
+  import: component
+  build-depends: base, generic-lens, ki, mtl, unliftio-core
+  hs-source-dirs: src/ki-mtl
+  exposed-modules: Ki.Mtl
+  visibility: public
+
+library ki-indef
+  import: component
+  build-depends: base, containers
+  exposed-modules: Ki.Indef
+  hs-source-dirs: src/ki-indef
+  other-modules: Ki.Internal.Debug
+  signatures: Ki.Sig
+
 library ki-impl-base
   import: component
   build-depends: base, stm
@@ -35,14 +50,6 @@ library ki-impl-dejafu
   exposed-modules: Ki.Sig.Dejafu
   hs-source-dirs: src/ki-impl-dejafu
 
-library ki-indef
-  import: component
-  build-depends: base, containers
-  exposed-modules: Ki.Indef
-  hs-source-dirs: src/ki-indef
-  other-modules: Ki.Internal.Debug
-  signatures:
-    Ki.Sig
 
 test-suite tests
   import: component
