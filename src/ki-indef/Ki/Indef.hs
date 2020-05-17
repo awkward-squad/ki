@@ -141,8 +141,8 @@ wait =
 -- | @STM@ variant of 'wait'.
 waitSTM :: Scope -> STM ()
 waitSTM Scope {runningVar, startingVar} = do
-  blockUntilTVar startingVar (== 0)
   blockUntilTVar runningVar Set.null
+  blockUntilTVar startingVar (== 0)
 
 -- | Variant of 'wait' that gives up after the given number of seconds elapses.
 --
