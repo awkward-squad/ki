@@ -1,5 +1,3 @@
-{-# LANGUAGE BlockArguments #-}
-
 module Ki.Internal.Debug
   ( debug,
   )

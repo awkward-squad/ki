@@ -1,7 +1,3 @@
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE RoleAnnotations #-}
-
 signature Ki.Sig (module Ki.Sig) where
 
 import Control.Applicative (Alternative)

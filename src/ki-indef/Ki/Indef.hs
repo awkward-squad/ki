@@ -1,15 +1,5 @@
-{-# LANGUAGE BlockArguments #-}
-{-# LANGUAGE DeriveAnyClass #-}
-{-# LANGUAGE DerivingStrategies #-}
-{-# LANGUAGE DuplicateRecordFields #-}
-{-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE ViewPatterns #-}
 
 module Ki.Indef
   ( -- * Context
@@ -32,9 +22,9 @@ module Ki.Indef
     async_,
     asyncWithUnmask,
     asyncWithUnmask_,
-    await,
-    awaitSTM,
-    kill,
+    Thread.await,
+    Thread.awaitSTM,
+    Thread.kill,
 
     -- * Exceptions
     ScopeClosed (..),
@@ -42,7 +32,7 @@ module Ki.Indef
   )
 where
 
-import Control.Exception (AsyncException (ThreadKilled), Exception (fromException, toException), SomeException, asyncExceptionFromException, asyncExceptionToException)
+import Control.Exception (AsyncException (ThreadKilled), Exception (fromException), SomeException)
 import Control.Monad (unless, void)
 import Data.Coerce (coerce)
 import Data.Foldable (for_)
@@ -52,7 +42,9 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Ki.Indef.Context (Context)
 import qualified Ki.Indef.Context as Ki.Context
-import Ki.Sig (IO, STM, TMVar, TVar, ThreadId, atomically, forkIO, modifyTVar', myThreadId, newEmptyTMVar, newTVar, putTMVar, readTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, unsafeUnmask, writeTVar)
+import Ki.Indef.Thread (AsyncThreadFailed (..), Thread (Thread), ThreadFailed (..))
+import qualified Ki.Indef.Thread as Thread
+import Ki.Sig (IO, STM, TVar, ThreadId, atomically, forkIO, modifyTVar', myThreadId, newEmptyTMVar, newTVar, putTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, unsafeUnmask, writeTVar)
 import Prelude hiding (IO)
 
 -- import Ki.Internal.Debug
@@ -76,19 +68,13 @@ import Prelude hiding (IO)
 -- @
 data Scope = Scope
   { context :: Context,
-    -- Whether this scope is closed
+    -- | Whether this scope is closed
     -- Invariant: if closed, no threads are starting
     closedVar :: TVar Bool,
     runningVar :: TVar (Set ThreadId),
-    -- The number of threads that are just about to start
+    -- | The number of threads that are just about to start
     startingVar :: TVar Int
   }
-
--- | A running __thread__.
-data Thread a
-  = Thread
-      !ThreadId
-      !(TMVar (Either SomeException a))
 
 -- | Some actions that attempt to use a /closed/ __scope__ throw 'ScopeClosed'
 -- instead.
@@ -96,27 +82,6 @@ data ScopeClosed
   = ScopeClosed
   deriving stock (Show)
   deriving anyclass (Exception)
-
-data ThreadFailed
-  = ThreadFailed !ThreadId !SomeException
-  deriving stock (Show)
-  deriving anyclass (Exception)
-
--- | Unexported async variant of 'ThreadFailed'.
-data AsyncThreadFailed
-  = AsyncThreadFailed !ThreadId !SomeException
-  deriving stock (Show)
-
-instance Exception AsyncThreadFailed where
-  fromException = asyncExceptionFromException
-  toException = asyncExceptionToException
-
-translateAsyncThreadFailed :: SomeException -> SomeException
-translateAsyncThreadFailed ex =
-  case fromException ex of
-    Just (AsyncThreadFailed threadId exception) ->
-      toException (ThreadFailed threadId exception)
-    _ -> ex
 
 -- | Perform an action with a new __scope__, then /close/ the __scope__.
 --
@@ -135,7 +100,19 @@ translateAsyncThreadFailed ex =
 scoped :: Context -> (Scope -> IO a) -> IO a
 scoped parentContext f = do
   uninterruptibleMask \restore -> do
-    scope <-
+    scope <- new
+    result <- restore (try (f scope))
+    exception <- closeScope scope
+    either
+      -- If the callback failed, we don't care if we were thrown an async
+      -- exception while closing the scope
+      (throwIO . Thread.translateAsyncThreadFailed)
+      -- Otherwise, throw that exception (if it exists)
+      (\value -> for_ @Maybe exception throwIO $> value)
+      result
+  where
+    new :: IO Scope
+    new =
       atomically do
         context <- Ki.Context.derive parentContext
         closedVar <- newTVar "closed" False
@@ -148,15 +125,6 @@ scoped parentContext f = do
               runningVar,
               startingVar
             }
-    result <- restore (try (f scope))
-    exception <- closeScope scope
-    either
-      -- If the callback failed, we don't care if we were thrown an async
-      -- exception while closing the scope
-      (throwIO . translateAsyncThreadFailed)
-      -- Otherwise, throw that exception (if it exists)
-      (\value -> for_ @Maybe exception throwIO $> value)
-      result
 
 -- | Wait until all __threads__ finish.
 wait :: Scope -> IO ()
@@ -174,6 +142,7 @@ cancel :: Scope -> IO ()
 cancel =
   atomically . cancelSTM
 
+-- | @STM@ variant of 'cancel'.
 cancelSTM :: Scope -> STM ()
 cancelSTM Scope {context} =
   Ki.Context.cancel context
@@ -300,36 +269,6 @@ asyncImpl Scope {context, closedVar, runningVar, startingVar} action = do
       modifyTVar' runningVar (Set.insert childThreadId)
 
     pure (Thread childThreadId resultVar)
-
--- | Wait for a __thread__ to finish.
---
--- /Throws/:
---
---   * 'ThreadFailed' if the __thread__ threw an exception.
-await :: Thread a -> IO a
-await =
-  atomically . awaitSTM
-
--- | @STM@ variant of 'await'.
---
--- /Throws/:
---
---   * 'ThreadFailed' if the __thread__ threw an exception.
-awaitSTM :: Thread a -> STM a
-awaitSTM (Thread threadId resultVar) =
-  readTMVar resultVar >>= \case
-    Left exception -> throwSTM (ThreadFailed threadId exception)
-    Right result -> pure result
-
--- | Kill a __thread__ wait for it to finish.
---
--- /Throws/:
---
---   * 'ThreadKilled' if a __thread__ attempts to kill itself.
-kill :: Thread a -> IO ()
-kill (Thread threadId resultVar) = do
-  throwTo threadId ThreadKilled
-  void (atomically (readTMVar resultVar))
 
 --- Misc. utils
 

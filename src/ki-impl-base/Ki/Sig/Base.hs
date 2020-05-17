@@ -1,4 +1,3 @@
-{-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
