@@ -148,7 +148,7 @@ waitSTM Scope {runningVar, startingVar} = do
 --
 -- @
 -- 'waitFor' scope seconds =
---   'timeout' seconds (pure <$> 'waitSTM' scope) (pure ())
+--   'timeout' seconds (pure \<$\> 'waitSTM' scope) (pure ())
 -- @
 waitFor :: Scope -> Seconds -> IO ()
 waitFor scope seconds =

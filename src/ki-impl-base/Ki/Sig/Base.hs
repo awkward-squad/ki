@@ -1,3 +1,4 @@
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
@@ -33,7 +34,11 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
 import GHC.Conc
+#if defined(mingw32_HOST_OS)
+import GHC.Conc.Windows
+#else
 import GHC.Event
+#endif
 import GHC.Exts (fork#)
 import GHC.IO
 
@@ -51,9 +56,16 @@ newTVar :: String -> a -> STM (TVar a)
 newTVar _ =
   Control.Concurrent.STM.newTVar
 
+#if defined(mingw32_HOST_OS)
+registerDelay :: Int -> IO (STM (), IO ())
+registerDelay micros = do
+  var <- GHC.Conc.Windows.registerDelay micros
+  pure (readTVar var >>= check, pure ()) -- no unregister on Windows =P
+#else
 registerDelay :: Int -> IO (STM (), IO ())
 registerDelay micros = do
   var <- newTVarIO False
   manager <- getSystemTimerManager
   key <- registerTimeout manager micros (atomically (writeTVar var True))
   pure (readTVar var >>= check, unregisterTimeout manager key)
+#endif

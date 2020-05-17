@@ -63,7 +63,7 @@ awaitSTM (Thread threadId resultVar) =
 --
 -- @
 -- 'awaitFor' thread seconds =
---   'timeout' seconds (pure . Just <$> 'awaitSTM' thread) (pure Nothing)
+--   'timeout' seconds (pure . Just \<$\> 'awaitSTM' thread) (pure Nothing)
 -- @
 awaitFor :: Thread a -> Seconds -> IO (Maybe a)
 awaitFor thread seconds =

@@ -116,7 +116,7 @@ await =
 --
 -- @
 -- 'awaitFor' thread seconds =
---   'timeout' seconds (pure . Just <$> 'awaitSTM' thread) (pure Nothing)
+--   'timeout' seconds (pure . Just \<$\> 'awaitSTM' thread) (pure Nothing)
 -- @
 awaitFor :: MonadIO m => Thread a -> Seconds -> m (Maybe a)
 awaitFor thread seconds =
@@ -184,7 +184,7 @@ wait =
 --
 -- @
 -- 'waitFor' scope seconds =
---   'timeout' seconds (pure <$> 'waitSTM' scope) (pure ())
+--   'timeout' seconds (pure \<$\> 'waitSTM' scope) (pure ())
 -- @
 waitFor :: MonadIO m => Scope -> Seconds -> m ()
 waitFor scope seconds =
