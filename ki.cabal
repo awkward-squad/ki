@@ -5,6 +5,7 @@ version: 0
 common component
   default-extensions:
     BlockArguments
+    ConstraintKinds
     DeriveAnyClass
     DerivingStrategies
     DuplicateRecordFields

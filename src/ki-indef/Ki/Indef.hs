@@ -126,7 +126,7 @@ scoped parentContext f = do
               startingVar
             }
 
--- | Wait until all __threads__ finish.
+-- | Wait until all __threads__ within a __scope__ finish.
 wait :: Scope -> IO ()
 wait =
   atomically . waitSTM
