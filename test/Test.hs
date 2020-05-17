@@ -13,7 +13,7 @@ import Control.Exception (Exception (fromException), MaskingState (..), SomeAsyn
 import Control.Monad
 import Data.Foldable
 import Data.Function
-import Data.List
+import Data.List (intercalate)
 import Data.Maybe (isJust)
 import GHC.Clock
 import Ki

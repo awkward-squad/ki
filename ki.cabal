@@ -6,12 +6,23 @@ common component
   default-language: Haskell2010
   ghc-options:
     -Weverything
-    -fno-warn-all-missed-specialisations
-    -fno-warn-implicit-prelude
-    -fno-warn-missed-specialisations
-    -fno-warn-missing-import-lists
-    -fno-warn-safe
-    -fno-warn-unsafe
+    -Wno-all-missed-specialisations
+    -Wno-implicit-prelude
+    -Wno-missed-specialisations
+    -Wno-missing-import-lists
+    -Wno-safe
+    -Wno-unsafe
+  if impl(ghc >= 8.10)
+    ghc-options:
+      -Wno-missing-safe-haskell-mode
+      -Wno-prepositive-qualified-module
+  ghc-options:
+    -Werror
+  -- Putting this after -Werror because of a false positive - I still want to
+  -- see these
+  if impl(ghc >= 8.10)
+    ghc-options:
+      -Wno-unused-packages
 
 library
   import: component
@@ -21,7 +32,12 @@ library
 
 library ki-mtl
   import: component
-  build-depends: base, generic-lens, ki, mtl, unliftio-core
+  build-depends:
+    base,
+    generic-lens,
+    ki,
+    mtl,
+    unliftio-core
   hs-source-dirs: src/ki-mtl
   exposed-modules: Ki.Mtl
   visibility: public
