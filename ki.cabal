@@ -18,8 +18,9 @@ common component
       -Wno-prepositive-qualified-module
   ghc-options:
     -Werror
-  -- Putting this after -Werror because of a false positive - I still want to
-  -- see these
+    -- can't load ghci if this is an error :|
+    -Wwarn=missing-local-signatures
+  -- -no-unsed-packages seems to have a false positive when used with backpack
   if impl(ghc >= 8.10)
     ghc-options:
       -Wno-unused-packages
@@ -47,7 +48,9 @@ library ki-indef
   build-depends: base, containers
   exposed-modules: Ki.Indef
   hs-source-dirs: src/ki-indef
-  other-modules: Ki.Internal.Debug
+  other-modules:
+    Ki.Indef.Context
+    Ki.Internal.Debug
   signatures: Ki.Sig
 
 library ki-impl-base
