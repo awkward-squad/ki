@@ -5,16 +5,22 @@
 module Ki.Indef.Context
   ( Context,
     background,
+    cancelled,
+    cancelledSTM,
+
+    -- * Internal API
     derive,
     cancel,
   )
 where
 
 import Data.Foldable (for_)
+import Data.Functor ((<&>))
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Word (Word32)
 import Ki.Sig -- (STM, readTVar, TVar)
+import Prelude hiding (IO)
 
 -- | A __context__ models a program's call tree.
 --
@@ -41,30 +47,67 @@ data OpenCtx = OpenCtx
     onCancel :: STM ()
   }
 
+-- | The background __context__.
+--
+-- You should only use this when another __context__ isn't available, as when
+-- creating a top-level __scope__ from the main thread.
+--
+-- The background __context__ cannot be /cancelled/.
 background :: Context
 background =
   Background
 
+-- | Return whether a __context__ is /cancelled/.
+--
+-- __Threads__ running in a /cancelled/ __context__ will be killed soon; they
+-- should attempt to perform a graceful shutdown and finish.
+cancelled :: Context -> IO Bool
+cancelled = \case
+  Background -> pure False
+  Context contextVar -> atomically (cancelled_ contextVar)
+
+-- | @STM@ variant of 'cancelled'.
+cancelledSTM :: Context -> STM Bool
+cancelledSTM = \case
+  Background -> pure False
+  Context contextVar -> cancelled_ contextVar
+
+cancelled_ :: TVar Ctx -> STM Bool
+cancelled_ contextVar =
+  readTVar contextVar <&> \case
+    CtxOpen _ -> False
+    CtxCancelled -> True
+
+new :: STM () -> STM (TVar Ctx)
+new onCancel =
+  newTVar "context" context
+  where
+    context :: Ctx
+    context =
+      CtxOpen
+        OpenCtx
+          { nextId = 0,
+            children = Map.empty,
+            onCancel
+          }
+
+-- Derive a child context from a parent context.
+--
+--   * If the parent is already cancelled, so is the child.
+--   * If the parent isn't already canceled, the child registers itself with the
+--     parent such that:
+--       * When the parent is cancelled, so is the child
+--       * When the child is cancelled, it removes the parent's reference to it
 derive :: Context -> STM Context
 derive = \case
-  Background -> pure Background
+  Background -> Context <$> new (pure ())
   Context contextVar -> Context <$> derive_ contextVar
 
 derive_ :: TVar Ctx -> STM (TVar Ctx)
 derive_ parentVar =
   readTVar parentVar >>= \case
     CtxOpen OpenCtx {nextId = childId, children, onCancel} -> do
-      child <-
-        newTVar
-          "context"
-          ( CtxOpen
-              ( OpenCtx
-                  { nextId = 0,
-                    children = Map.empty,
-                    onCancel = deleteChildFromParent childId
-                  }
-              )
-          )
+      child <- new (deleteChildFromParent childId)
       writeTVar parentVar
         $! CtxOpen
           OpenCtx

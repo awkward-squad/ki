@@ -14,9 +14,9 @@
 module Ki.Indef
   ( -- * Context
     Context,
-    background,
-    cancelled,
-    cancelledSTM,
+    Ki.Context.background,
+    Ki.Context.cancelled,
+    Ki.Context.cancelledSTM,
 
     -- * Scope
     Scope,
@@ -47,125 +47,15 @@ import Control.Monad (unless, void)
 import Data.Coerce (coerce)
 import Data.Foldable (for_)
 import Data.Functor (($>))
-import Data.Map (Map)
-import qualified Data.Map as Map
 import qualified Data.Semigroup as Semigroup
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.Word (Word32)
+import Ki.Indef.Context (Context)
+import qualified Ki.Indef.Context as Ki.Context
 import Ki.Sig (IO, STM, TMVar, TVar, ThreadId, atomically, forkIO, modifyTVar', myThreadId, newEmptyTMVar, newTVar, putTMVar, readTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, unsafeUnmask, writeTVar)
 import Prelude hiding (IO)
 
 -- import Ki.Internal.Debug
-
--- | A __context__ models a program's call tree.
---
--- Every __thread__ has its own __context__, which is used as a mechanism to
--- propagate /cancellation/.
---
--- A __thread__ can query whether its __context__ has been /cancelled/, which is
--- a suggestion to perform a graceful shutdown and finish.
-data Context
-  = Background
-  | Context Scope
-
--- Implementation note: contexts and scopes are the same thing (ignoring
--- Background, which is just an optimization). We differentiate them in the type
--- system so it's easier to prevent them from getting confused.
---
--- When forking a thread, the scope that it was created in is relevant to it,
--- because we want be able to observe cancellations "deply".
---
--- Consider a call tree like
---
---       foo
---      /   \
---     bar  baz
---            \
---            qux
---
--- If scope 'foo' is cancelled, we want threads running in scope 'qux' to
--- observe it, without an explicit reference to 'foo'. In code:
---
---     foo context =
---       scoped context \scope -> do
---         async scope bar
---         async scope baz
---         cancel scope -- We want bar, baz, and qux to notice this
---         wait scope
---
---     bar context =
---       cancelled context >>= \case
---         False -> do
---           putStrLn "bar: working"
---           threadDelay 1000000
---           bar context
---         True ->
---           putStrLn "bar: cleaning up"
---
---     baz context =
---       scoped context \scope ->
---         async scope qux
---         wait scope
---
---     qux context =
---       cancelled context >>= \case
---         False -> do
---           putStrLn "qux: working"
---           threadDelay 1000000
---           qux context
---         True ->
---           putStrLn "qux: cleaning up"
---
--- The necessary relationship is established when creating a new scope with
--- 'scoped':
---
---                when this scope is cancelled
---               /
---     scoped context \scope -> ...
---                       \
---                        this scope is cancelled too
---
---
--- However, if these things both had the same type, it would be easy to
--- accidentally use one in place of the other:
---
---     async scope do
---       -- Oops, encapsulation violation! I just forked my own sibling!
---       async scope worker
---
---       -- Oops, I just waited on my own scope, which is guaranteed to
---       -- deadlock!
---       wait scope
---
---       -- One legitimate use of scope is to check it for cancellation from
---       -- within a thread.
---       cancelled scope
---
---       -- The other legitimate use of scope is to derive new scopes, so that
---       -- cancellation of the outer is observed by the inner.
---       scoped scope \scope' ->
---         ...
---
--- So when forking a thread, the scope it's created in is redundantly passed
--- along, wrapped in a newtype, so that it can only make its way back into
--- calls to 'cancelled' and 'scoped'.
---
---     async scope \context -> ...
---                     \
---                      under the hood, this is 'scope'
---
---
-
--- | The background __context__.
---
--- You should only use this when another __context__ isn't available, as when
--- creating a top-level __scope__ from the main thread.
---
--- The background __context__ cannot be /cancelled/.
-background :: Context
-background =
-  Background
 
 -- | A __scope__ delimits the lifetime of all __threads__ forked within it.
 --
@@ -185,24 +75,14 @@ background =
 --   'wait' scope
 -- @
 data Scope = Scope
-  { nextIdentVar :: TVar Word32,
+  { context :: Context,
     -- Whether this scope is closed
     -- Invariant: if closed, no threads are starting
     closedVar :: TVar Bool,
-    cancelledVar :: TVar Cancelled,
     runningVar :: TVar (Set ThreadId),
     -- The number of threads that are just about to start
-    startingVar :: TVar Int,
-    onCancelled :: STM ()
+    startingVar :: TVar Int
   }
-
-data Cancelled
-  = Cancelled
-      -- Whether this scope is cancelled. Invariant: if True, so are all the TVars
-      -- below.
-      !Bool
-      -- The scopes derived from this one that should be cancelled when we are.
-      !(Map Word32 (TVar Cancelled))
 
 -- | A running __thread__.
 data Thread a
@@ -253,9 +133,21 @@ translateAsyncThreadFailed ex =
 --   'wait' scope
 -- @
 scoped :: Context -> (Scope -> IO a) -> IO a
-scoped context f = do
+scoped parentContext f = do
   uninterruptibleMask \restore -> do
-    scope <- atomically newScope
+    scope <-
+      atomically do
+        context <- Ki.Context.derive parentContext
+        closedVar <- newTVar "closed" False
+        runningVar <- newTVar "running" Set.empty
+        startingVar <- newTVar "starting" 0
+        pure
+          Scope
+            { context,
+              closedVar,
+              runningVar,
+              startingVar
+            }
     result <- restore (try (f scope))
     exception <- closeScope scope
     either
@@ -265,66 +157,6 @@ scoped context f = do
       -- Otherwise, throw that exception (if it exists)
       (\value -> for_ @Maybe exception throwIO $> value)
       result
-  where
-    -- Create a new scope derived from a parent context: the scope inherits
-    -- whether the context is cancelled, and if it isn't, the context's
-    -- cancellation tree is adjusted to include the new scope.
-    newScope :: STM Scope
-    newScope = do
-      nextIdentVar <- newTVar "nextIdent" 0
-      closedVar <- newTVar "closed" False
-      runningVar <- newTVar "running" Set.empty
-      startingVar <- newTVar "starting" 0
-      (cancelledVar, onCancelled) <-
-        case context of
-          Background -> do
-            cancelledVar <- newCancelledTVar False
-            pure (cancelledVar, cancelTree cancelledVar)
-          Context
-            Scope
-              { nextIdentVar = parentNextIdentVar,
-                cancelledVar = parentCancelledVar
-              } -> do
-              Cancelled parentCancelled parentTree <-
-                readTVar parentCancelledVar
-              cancelledVar <- newCancelledTVar parentCancelled
-              if parentCancelled
-                then-- No point in adding to the parent's cancel tree and
-                -- registering deletion from it if it's already cancelled (and
-                -- thus so are we)
-                  pure (cancelledVar, pure ())
-                else do
-                  ident <- readTVar parentNextIdentVar
-                  writeTVar parentNextIdentVar $! ident + 1
-
-                  let parentTree' = Map.insert ident cancelledVar parentTree
-                  writeTVar parentCancelledVar
-                    $! Cancelled parentCancelled parentTree'
-                  pure
-                    ( cancelledVar,
-                      do
-                        cancelTree cancelledVar
-                        modifyTVar'
-                          parentCancelledVar
-                          \(Cancelled b t) -> Cancelled b (Map.delete ident t)
-                    )
-      pure
-        Scope
-          { nextIdentVar,
-            cancelledVar,
-            closedVar,
-            runningVar,
-            startingVar,
-            onCancelled
-          }
-    newCancelledTVar :: Bool -> STM (TVar Cancelled)
-    newCancelledTVar b =
-      newTVar "cancelled" (Cancelled b Map.empty)
-    cancelTree :: TVar Cancelled -> STM ()
-    cancelTree treeVar = do
-      Cancelled _false trees <- readTVar treeVar
-      writeTVar treeVar (Cancelled True trees)
-      for_ trees cancelTree
 
 -- | Wait until all __threads__ finish.
 wait :: Scope -> IO ()
@@ -343,8 +175,8 @@ cancel =
   atomically . cancelSTM
 
 cancelSTM :: Scope -> STM ()
-cancelSTM =
-  onCancelled
+cancelSTM Scope {context} =
+  Ki.Context.cancel context
 
 -- Close a scope, kill all of the running threads, and return the first async
 -- exception delivered to us while doing so, if any.
@@ -388,28 +220,6 @@ closeScope Scope {closedVar, runningVar, startingVar} = do
                   (acc <> Just (Semigroup.First exception))
                   (threadId : threadIds) -- don't drop thread we didn't kill
               Right () -> loop acc threadIds
-
--- | Return whether a __context__ is /cancelled/.
---
--- __Threads__ running in a /cancelled/ __context__ will be killed soon; they
--- should attempt to perform a graceful shutdown and finish.
-cancelled :: Context -> IO Bool
-cancelled = \case
-  Background -> pure False
-  Context scope ->
-    atomically (scopeCancelledSTM scope)
-
--- | @STM@ variant of 'cancelled'.
-cancelledSTM :: Context -> STM Bool
-cancelledSTM = \case
-  Background -> pure False
-  Context scope ->
-    scopeCancelledSTM scope
-
-scopeCancelledSTM :: Scope -> STM Bool
-scopeCancelledSTM Scope {cancelledVar} = do
-  Cancelled c _ <- readTVar cancelledVar
-  pure c
 
 -- | Fork a __thread__ within a __scope__. The derived __context__ should
 -- replace the usage of any other __context__ in scope.
@@ -459,7 +269,7 @@ asyncImpl ::
   Scope ->
   (Context -> (forall x. IO x -> IO x) -> IO a) ->
   IO (Thread a)
-asyncImpl scope@(Scope {closedVar, runningVar, startingVar}) action = do
+asyncImpl Scope {context, closedVar, runningVar, startingVar} action = do
   uninterruptibleMask \restore -> do
     atomically do
       readTVar closedVar >>= \case
@@ -472,7 +282,7 @@ asyncImpl scope@(Scope {closedVar, runningVar, startingVar}) action = do
     childThreadId <-
       forkIO do
         childThreadId <- myThreadId
-        result <- try (action (Context scope) restore)
+        result <- try (action context restore)
         case result of
           Left (NotThreadKilled exception) ->
             throwTo parentThreadId (AsyncThreadFailed childThreadId exception)
