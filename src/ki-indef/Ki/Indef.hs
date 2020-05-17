@@ -13,6 +13,7 @@ module Ki.Indef
     scoped,
     wait,
     waitSTM,
+    waitFor,
     cancel,
     cancelSTM,
 
@@ -24,25 +25,31 @@ module Ki.Indef
     asyncWithUnmask_,
     Thread.await,
     Thread.awaitSTM,
+    Thread.awaitFor,
     Thread.kill,
 
     -- * Exceptions
     ScopeClosed (..),
     ThreadFailed (..),
+
+    -- * Miscellaneous
+    Seconds,
+    timeout,
   )
 where
 
 import Control.Exception (AsyncException (ThreadKilled), Exception (fromException), SomeException)
-import Control.Monad (unless, void)
+import Control.Monad (unless)
 import Data.Coerce (coerce)
 import Data.Foldable (for_)
-import Data.Functor (($>))
+import Data.Functor (($>), void)
 import qualified Data.Semigroup as Semigroup
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Ki.Indef.Context (Context)
 import qualified Ki.Indef.Context as Ki.Context
-import Ki.Indef.Thread (AsyncThreadFailed (..), Thread (Thread), ThreadFailed (..))
+import Ki.Indef.Seconds (Seconds)
+import Ki.Indef.Thread (AsyncThreadFailed (..), Thread (Thread), ThreadFailed (..), timeout)
 import qualified Ki.Indef.Thread as Thread
 import Ki.Sig (IO, STM, TVar, ThreadId, atomically, forkIO, modifyTVar', myThreadId, newEmptyTMVar, newTVar, putTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, unsafeUnmask, writeTVar)
 import Prelude hiding (IO)
@@ -136,6 +143,16 @@ waitSTM :: Scope -> STM ()
 waitSTM Scope {runningVar, startingVar} = do
   blockUntilTVar startingVar (== 0)
   blockUntilTVar runningVar Set.null
+
+-- | Variant of 'wait' that gives up after the given number of seconds elapses.
+--
+-- @
+-- 'waitFor' scope seconds =
+--   'timeout' seconds (pure <$> 'waitSTM' scope) (pure ())
+-- @
+waitFor :: Scope -> Seconds -> IO ()
+waitFor scope seconds =
+  timeout seconds (pure <$> waitSTM scope) (pure ())
 
 -- | /Cancel/ all __contexts__ derived from a __scope__.
 cancel :: Scope -> IO ()
@@ -285,11 +302,3 @@ blockUntilTVar :: TVar a -> (a -> Bool) -> STM ()
 blockUntilTVar var f = do
   value <- readTVar var
   unless (f value) retry
-
--- registerBlock :: Int -> IO (STM ())
--- registerBlock micros = do
---   delayVar <- registerDelay micros
---   pure $
---     readTVar delayVar >>= \case
---       False -> retry
---       True -> pure ()

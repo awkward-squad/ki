@@ -36,7 +36,7 @@ newTVar :: String -> a -> STM (TVar a)
 putTMVar :: TMVar a -> a -> STM ()
 readTMVar :: TMVar a -> STM a
 readTVar :: TVar a -> STM a
--- registerDelay :: Int -> IO (TVar Bool)
+registerDelay :: Int -> IO (STM (), IO ())
 retry :: STM a
 throwIO :: Exception e => e -> IO a
 throwSTM :: Exception e => e -> STM a

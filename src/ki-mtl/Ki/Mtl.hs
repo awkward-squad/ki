@@ -15,6 +15,7 @@ module Ki.Mtl
     Scope,
     scoped,
     wait,
+    waitFor,
     waitSTM,
 
     -- * Thread
@@ -24,12 +25,17 @@ module Ki.Mtl
     asyncWithUnmask,
     asyncWithUnmask_,
     await,
+    awaitFor,
     awaitSTM,
     kill,
 
     -- * Exceptions
     ScopeClosed (..),
     ThreadFailed (..),
+
+    -- * Miscellaneous
+    Seconds,
+    timeout,
   )
 where
 
@@ -37,7 +43,7 @@ import Control.Monad.IO.Unlift
 import Control.Monad.Reader
 import Data.Generics.Product.Typed (HasType (getTyped, setTyped))
 import GHC.Conc (STM)
-import Ki (Context, Scope, ScopeClosed (..), Thread, ThreadFailed (..), awaitSTM, background, waitSTM)
+import Ki (Context, Scope, ScopeClosed (..), Seconds, Thread, ThreadFailed (..), awaitSTM, background, waitSTM)
 import qualified Ki
 
 -- | A convenience type alias for classifying monads suitable for use with @ki@.
@@ -106,6 +112,16 @@ await :: MonadIO m => Thread a -> m a
 await =
   liftIO . Ki.await
 
+-- | Variant of 'await' that gives up after the given number of seconds elapses.
+--
+-- @
+-- 'awaitFor' thread seconds =
+--   'timeout' seconds (pure . Just <$> 'awaitSTM' thread) (pure Nothing)
+-- @
+awaitFor :: MonadIO m => Thread a -> Seconds -> m (Maybe a)
+awaitFor thread seconds =
+  liftIO (Ki.awaitFor thread seconds)
+
 -- | Kill a __thread__ wait for it to finish.
 --
 -- /Throws/:
@@ -151,10 +167,28 @@ scoped k = do
     Ki.scoped context \scope ->
       unlift (k scope)
 
+-- | Wait for an @STM@ action to return, and return the action contained within.
+--
+-- If the given number of seconds elapse, return the given action instead.
+timeout :: MonadUnliftIO m => Seconds -> STM (m a) -> m a -> m a
+timeout seconds action fallback =
+  withRunInIO \unlift ->
+    liftIO (Ki.timeout seconds (unlift <$> action) (unlift fallback))
+
 -- | Wait until all __threads__ within a __scope__ finish.
 wait :: MonadIO m => Scope -> m ()
 wait =
   liftIO . Ki.wait
+
+-- | Variant of 'wait' that gives up after the given number of seconds elapses.
+--
+-- @
+-- 'waitFor' scope seconds =
+--   'timeout' seconds (pure <$> 'waitSTM' scope) (pure ())
+-- @
+waitFor :: MonadIO m => Scope -> Seconds -> m ()
+waitFor scope seconds =
+  liftIO (Ki.waitFor scope seconds)
 
 --- Helpers
 

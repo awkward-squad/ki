@@ -2,8 +2,11 @@ module Ki.Indef.Thread
   ( Thread (..),
     await,
     awaitSTM,
+    awaitFor,
     kill,
     ThreadFailed (..),
+    --
+    timeout,
 
     -- * Internal API
     AsyncThreadFailed (..),
@@ -11,9 +14,14 @@ module Ki.Indef.Thread
   )
 where
 
+import Control.Applicative ((<|>))
 import Control.Exception (AsyncException (ThreadKilled), Exception (..), SomeException, asyncExceptionFromException, asyncExceptionToException)
-import Data.Functor (void)
-import Ki.Sig (IO, STM, TMVar, ThreadId, atomically, readTMVar, throwSTM, throwTo)
+import Control.Monad (join)
+import Data.Functor (($>), void)
+import GHC.Generics (Generic)
+import Ki.Indef.Seconds (Seconds)
+import qualified Ki.Indef.Seconds as Seconds
+import Ki.Sig (IO, STM, TMVar, ThreadId, atomically, readTMVar, registerDelay, throwSTM, throwTo)
 import Prelude hiding (IO)
 
 -- | A running __thread__.
@@ -21,6 +29,15 @@ data Thread a
   = Thread
       !ThreadId
       !(TMVar (Either SomeException a))
+  deriving stock (Generic)
+
+instance Eq (Thread a) where
+  Thread id1 _ == Thread id2 _ =
+    id1 == id2
+
+instance Ord (Thread a) where
+  compare (Thread id1 _) (Thread id2 _) =
+    compare id1 id2
 
 -- | Wait for a __thread__ to finish.
 --
@@ -41,6 +58,16 @@ awaitSTM (Thread threadId resultVar) =
   readTMVar resultVar >>= \case
     Left exception -> throwSTM (ThreadFailed threadId exception)
     Right result -> pure result
+
+-- | Variant of 'await' that gives up after the given number of seconds elapses.
+--
+-- @
+-- 'awaitFor' thread seconds =
+--   'timeout' seconds (pure . Just <$> 'awaitSTM' thread) (pure Nothing)
+-- @
+awaitFor :: Thread a -> Seconds -> IO (Maybe a)
+awaitFor thread seconds =
+  timeout seconds (pure . Just <$> awaitSTM thread) (pure Nothing)
 
 -- | Kill a __thread__ wait for it to finish.
 --
@@ -72,3 +99,14 @@ translateAsyncThreadFailed ex =
     Just (AsyncThreadFailed threadId exception) ->
       toException (ThreadFailed threadId exception)
     _ -> ex
+
+-- Misc. utils
+
+-- | Wait for an @STM@ action to return, and return the @IO@ action contained
+-- within.
+--
+-- If the given number of seconds elapse, return the given @IO@ action instead.
+timeout :: Seconds -> STM (IO a) -> IO a -> IO a
+timeout seconds action fallback = do
+  (delay, unregister) <- registerDelay (Seconds.toMicros seconds)
+  join (atomically (delay $> fallback <|> (unregister >>) <$> action))

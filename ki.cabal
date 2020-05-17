@@ -7,9 +7,13 @@ common component
     BlockArguments
     ConstraintKinds
     DeriveAnyClass
+    DeriveDataTypeable
+    DeriveFunctor
+    DeriveGeneric
     DerivingStrategies
     DuplicateRecordFields
     ExistentialQuantification
+    GeneralizedNewtypeDeriving
     LambdaCase
     NamedFieldPuns
     RankNTypes
@@ -63,6 +67,7 @@ library ki-indef
   hs-source-dirs: src/ki-indef
   other-modules:
     Ki.Indef.Context
+    Ki.Indef.Seconds
     Ki.Indef.Thread
     Ki.Internal.Debug
   signatures: Ki.Sig

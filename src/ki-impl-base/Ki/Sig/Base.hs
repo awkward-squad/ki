@@ -17,7 +17,7 @@ module Ki.Sig.Base
     putTMVar,
     readTMVar,
     readTVar,
-    -- registerDelay,
+    Ki.Sig.Base.registerDelay,
     retry,
     throwIO,
     throwSTM,
@@ -33,6 +33,7 @@ import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
 import GHC.Conc
+import GHC.Event
 import GHC.Exts (fork#)
 import GHC.IO
 
@@ -49,3 +50,10 @@ newEmptyTMVar _ =
 newTVar :: String -> a -> STM (TVar a)
 newTVar _ =
   Control.Concurrent.STM.newTVar
+
+registerDelay :: Int -> IO (STM (), IO ())
+registerDelay micros = do
+  var <- newTVarIO False
+  manager <- getSystemTimerManager
+  key <- registerTimeout manager micros (atomically (writeTVar var True))
+  pure (readTVar var >>= check, unregisterTimeout manager key)

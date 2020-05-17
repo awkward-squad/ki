@@ -24,22 +24,29 @@ import Text.Printf (printf)
 
 main :: IO ()
 main = do
-  test "the background context isn't cancelled" . returns False $ do
+  test "background context isn't cancelled" . returns False $ do
     cancelled background
 
-  test "a new context isn't cancelled" . returns False $ do
+  test "new context isn't cancelled" . returns False $ do
     scoped background \scope -> async scope cancelled >>= await
 
-  test "a context can be cancelled" . returns () $ do
+  test "context derives cancelled from parent" . returns (False, True) $ do
     scoped background \scope -> do
-      uninterruptibleMask_ do
-        async_ scope \context ->
-          atomically (retryUntilTrue (cancelledSTM context))
+      c1 <- async scope cancelled >>= await
       cancel scope
+      c2 <- async scope cancelled >>= await
+      pure (c1, c2)
 
-  todo "a context derived from a cancelled context is cancelled"
+  test "cancellation propagates to all descendants" . returns () $ do
+    scoped background \scope1 -> do
+      async_ scope1 \context1 -> do
+        scoped context1 \scope2 ->
+          async scope2 blockUntilCancelled >>= await
+      cancel scope1
 
-  test "can wait on a scope" . returns True $ do
+  todo "cancelled child context removes parent's ref to it"
+
+  test "wait waits for all threads" . returns True $ do
     ref <- newIORef False
     scoped background \scope -> do
       async_ scope \_ -> writeIORef ref True
@@ -86,14 +93,14 @@ main = do
     thread <- scoped background \scope -> async scope \_ -> block
     await thread
 
-  test "thread forked with async inherits masking state" . returns (Unmasked, MaskedInterruptible, MaskedUninterruptible) $ do
+  test "async inherits masking state" . returns (Unmasked, MaskedInterruptible, MaskedUninterruptible) $ do
     scoped background \scope -> do
       thread1 <- async scope \_ -> getMaskingState
       thread2 <- mask_ (async scope \_ -> getMaskingState)
       thread3 <- uninterruptibleMask_ (async scope \_ -> getMaskingState)
       (,,) <$> await thread1 <*> await thread2 <*> await thread3
 
-  test "thread forked with asyncWithUnmask inherits masking state" . returns (Unmasked, MaskedInterruptible, MaskedUninterruptible) $ do
+  test "asyncWithUnmask inherits masking state" . returns (Unmasked, MaskedInterruptible, MaskedUninterruptible) $ do
     scoped background \scope -> do
       thread1 <- asyncWithUnmask scope \_ _ -> getMaskingState
       thread2 <- mask_ (asyncWithUnmask scope \_ _ -> getMaskingState)
@@ -105,7 +112,7 @@ main = do
       thread <- mask_ (asyncWithUnmask scope \_ unmask -> unmask getMaskingState)
       await thread
 
-  test "killing a thread doesn't close its scope" . returns True $ do
+  test "killing thread doesn't close scope" . returns True $ do
     ref <- newIORef False
     scoped background \scope -> do
       thread <- async scope \_ -> block
@@ -113,8 +120,6 @@ main = do
       kill thread
       wait scope
     readIORef ref
-
-  todo "scope waits for threads to finish before returning"
 
   test "scope re-throws exceptions from threads" . throws @ThreadFailed $ do
     scoped background \scope -> do
@@ -127,7 +132,7 @@ main = do
         async_ scope \_ -> block
         void (throw A)
 
-  test "scope closes when a thread fails" . returns () $ do
+  test "scope closes when thread fails" . returns () $ do
     ignoring @ThreadFailed do
       scoped background \scope -> do
         async_ scope \_ -> block
@@ -138,6 +143,10 @@ main = do
     scoped background \scope -> do
       async_ scope \_ -> wait scope
       wait scope
+
+  test "thread waiting on its own scope allows async exceptions" . returns () $ do
+    scoped background \scope -> do
+      async_ scope \_ -> wait scope
 
 type P =
   DejaFu.Program DejaFu.Basic IO
@@ -213,16 +222,6 @@ isAsyncException :: SomeException -> Bool
 isAsyncException =
   isJust . fromException @SomeAsyncException
 
-retryUntilTrue :: MonadSTM m => m Bool -> m ()
-retryUntilTrue action =
-  action >>= \case
-    False -> retry
-    True -> pure ()
-
--- isSyncException :: SomeException -> Bool
--- isSyncException =
---   not . isAsyncException
-
 prettyPrintTrace :: Show a => Either DejaFu.Condition a -> DejaFu.Trace -> IO ()
 prettyPrintTrace value trace = do
   print value
@@ -282,6 +281,13 @@ data A
   = A
   deriving stock (Eq, Show)
   deriving anyclass (Exception)
+
+blockUntilCancelled :: Context -> P ()
+blockUntilCancelled context =
+  atomically do
+    cancelledSTM context >>= \case
+      False -> retry
+      True -> pure ()
 
 -- finally :: P a -> P b -> P a
 -- finally action after =

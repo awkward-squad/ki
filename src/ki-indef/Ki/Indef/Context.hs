@@ -17,7 +17,8 @@ import Data.Functor ((<&>))
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Word (Word32)
-import Ki.Sig -- (STM, readTVar, TVar)
+import GHC.Generics (Generic)
+import Ki.Sig (IO, STM, TVar, atomically, newTVar, readTVar, writeTVar)
 import Prelude hiding (IO)
 
 -- | A __context__ models a program's call tree.
@@ -30,6 +31,7 @@ import Prelude hiding (IO)
 data Context
   = Background
   | Context (TVar Ctx)
+  deriving stock (Generic)
 
 data Ctx
   = CtxOpen OpenCtx

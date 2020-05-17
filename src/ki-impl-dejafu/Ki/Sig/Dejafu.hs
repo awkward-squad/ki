@@ -62,9 +62,10 @@ readTVar :: TVar a -> STM a
 readTVar =
   Conc.readTVar
 
--- registerDelay :: Int -> IO (TVar Bool)
--- registerDelay =
---   Conc.registerDelay
+registerDelay :: Int -> IO (STM (), IO ())
+registerDelay micros = do
+  var <- Conc.registerDelay micros
+  pure (Conc.readTVar var >>= \b -> if b then pure () else Conc.retry, pure ())
 
 retry :: STM a
 retry =
