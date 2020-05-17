@@ -4,8 +4,8 @@
 [`libdill`](http://libdill.org/), [`trio`](https://github.com/python-trio/trio),
 and [`golang.org/pkg/context`](https://golang.org/pkg/context/).
 
-The primary abstraction is the **scope**, which delimits the lifetime of **threads**
-forked within it.
+The primary abstraction is the **scope**, which delimits the lifetime of
+**threads** forked within it.
 
 ```haskell
 -- Create a new scope
@@ -29,33 +29,22 @@ Ki.scoped context \scope -> do
   Ki.wait scope
 ```
 
-A **scope** can be hard-cancelled. When the callback provided to `scoped` returns,
-all remaining **threads** forked within it are killed. By the time `scoped` itself
-returns, they're guaranteed to have finished.
+A **scope** can be hard-cancelled. When the callback provided to `scoped`
+returns, all remaining **threads** within it are killed. By the time
+`scoped` itself returns, they're guaranteed to have finished, so
+hard-cancellation is hierarchical.
 
-A **scope** can be soft-cancelled, too, but it requires cooperation. A **thread**
-can observe whether it's meant to gracefully terminate, but it may never notice,
-or ignore the suggestion.
+A **scope** can be soft-cancelled, too, but it requires cooperation. A
+**thread** can observe whether it's meant to gracefully terminate, but it may
+never notice, or ignore the suggestion.
 
 ```haskell
 -- Should I finish up?
 cancelled :: Context -> IO Bool
 ```
 
-```haskell
-Ki.scoped context \scope -> do
-  -- Fork a worker thread
-  Ki.async_ scope worker
-
-  -- Signal soft-cancellation, and block until either:
-  --   * It finishes, either successfully or by throwing an exception
-  --   * Someone throws an asynchronous exception to us
-  --   * 1 second elapses
-  Ki.waitFor scope 1000000
-```
-
-Soft-cancellation is hierarchical. It is observable by all **threads** forked
-within a **scope**, all **threads** _forked by_ them, and so on.
+Soft-cancellation is also hierarchical. It is observable by all **threads**
+forked within a **scope**, and all **threads** _forked by_ them, and so on.
 
 The implementation is tested for deadlocks, race conditions, and other
 concurrency anomalies by [`dejafu`](http://hackage.haskell.org/package/dejafu), a

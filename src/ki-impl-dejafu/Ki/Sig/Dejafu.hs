@@ -62,9 +62,9 @@ readTVar :: TVar a -> STM a
 readTVar =
   Conc.readTVar
 
-registerDelay :: Int -> IO (TVar Bool)
-registerDelay =
-  Conc.registerDelay
+-- registerDelay :: Int -> IO (TVar Bool)
+-- registerDelay =
+--   Conc.registerDelay
 
 retry :: STM a
 retry =
@@ -89,10 +89,6 @@ try action =
 uninterruptibleMask :: ((forall x. IO x -> IO x) -> IO a) -> IO a
 uninterruptibleMask =
   Conc.uninterruptibleMask
-
-uninterruptibleMask_ :: IO a -> IO a
-uninterruptibleMask_ =
-  Conc.uninterruptibleMask_
 
 unsafeUnmask :: IO a -> IO a
 unsafeUnmask = do

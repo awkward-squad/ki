@@ -14,7 +14,6 @@ module Ki.Mtl
     scoped,
     wait,
     waitSTM,
-    waitFor,
 
     -- * Thread
     Thread,
@@ -110,10 +109,6 @@ scoped k = do
 wait :: MonadIO m => Scope -> m ()
 wait =
   liftIO . Ki.wait
-
-waitFor :: MonadIO m => Scope -> Int -> m ()
-waitFor scope micros =
-  liftIO (Ki.waitFor scope micros)
 
 --- Helpers
 

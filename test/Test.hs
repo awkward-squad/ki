@@ -35,7 +35,7 @@ main = do
       uninterruptibleMask_ do
         async_ scope \context ->
           atomically (retryUntilTrue (cancelledSTM context))
-      waitFor scope 1
+      cancel scope
 
   todo "a context derived from a cancelled context is cancelled"
 
@@ -134,23 +134,10 @@ main = do
         async_ scope \_ -> void (throw A)
         wait scope
 
-  test "scope can be waited on for 0us" . returns () $ do
-    scoped background \scope -> waitFor scope 0
-
-  test "thread waiting indefinitely on its own scope fails" . returns True $ do
-    ref <- newIORef False
+  test "thread waiting on its own scope blocks" . deadlocks $ do
     scoped background \scope -> do
-      async_ scope \_ -> waitFor scope 0 `onException` writeIORef ref True
+      async_ scope \_ -> wait scope
       wait scope
-    readIORef ref
-
-  test "thread waiting for 0us own its own scope closes it" . returns True $ do
-    ref <- newIORef False
-    scoped background \scope -> do
-      async_ scope \_ -> block
-      async_ scope \_ -> waitFor scope 0 `onException` writeIORef ref True
-      wait scope
-    readIORef ref
 
 type P =
   DejaFu.Program DejaFu.Basic IO
@@ -205,14 +192,14 @@ throws =
     )
     (const False)
 
--- deadlocks :: Eq a => P a -> IO (DejaFu.Result a)
--- deadlocks =
---   runTest
---     ( \case
---         DejaFu.Deadlock -> True
---         _ -> False
---     )
---     (const False)
+deadlocks :: Eq a => P a -> IO (DejaFu.Result a)
+deadlocks =
+  runTest
+    ( \case
+        DejaFu.Deadlock -> True
+        _ -> False
+    )
+    (const False)
 
 block :: P ()
 block =
@@ -303,8 +290,8 @@ data A
 --     _ <- after
 --     pure result
 
-onException :: P a -> P b -> P a
-onException action cleanup =
-  catch @_ @SomeException action \ex -> do
-    _ <- cleanup
-    throw ex
+-- onException :: P a -> P b -> P a
+-- onException action cleanup =
+--   catch @_ @SomeException action \ex -> do
+--     _ <- cleanup
+--     throw ex

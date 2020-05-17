@@ -23,7 +23,8 @@ module Ki.Indef
     scoped,
     wait,
     waitSTM,
-    waitFor,
+    cancel,
+    cancelSTM,
 
     -- * Thread
     Thread,
@@ -41,9 +42,8 @@ module Ki.Indef
   )
 where
 
-import Control.Applicative ((<|>))
 import Control.Exception (AsyncException (ThreadKilled), Exception (fromException, toException), SomeException, asyncExceptionFromException, asyncExceptionToException)
-import Control.Monad (join, unless, void)
+import Control.Monad (unless, void)
 import Data.Coerce (coerce)
 import Data.Foldable (for_)
 import Data.Functor (($>))
@@ -53,7 +53,7 @@ import qualified Data.Semigroup as Semigroup
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Word (Word32)
-import Ki.Sig (IO, STM, TMVar, TVar, ThreadId, atomically, forkIO, modifyTVar', myThreadId, newEmptyTMVar, newTVar, putTMVar, readTMVar, readTVar, registerDelay, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, uninterruptibleMask_, unsafeUnmask, writeTVar)
+import Ki.Sig (IO, STM, TMVar, TVar, ThreadId, atomically, forkIO, modifyTVar', myThreadId, newEmptyTMVar, newTVar, putTMVar, readTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, unsafeUnmask, writeTVar)
 import Prelude hiding (IO)
 
 -- import Ki.Internal.Debug
@@ -91,7 +91,8 @@ data Context
 --       scoped context \scope -> do
 --         async scope bar
 --         async scope baz
---         waitFor scope 1000 -- We want bar, baz, and qux to notice this
+--         cancel scope -- We want bar, baz, and qux to notice this
+--         wait scope
 --
 --     bar context =
 --       cancelled context >>= \case
@@ -246,7 +247,7 @@ translateAsyncThreadFailed ex =
 -- ==== __Examples__
 --
 -- @
--- 'scoped' context \\scope ->
+-- 'scoped' context \\scope -> do
 --   'async_' scope worker1
 --   'async_' scope worker2
 --   'wait' scope
@@ -254,67 +255,68 @@ translateAsyncThreadFailed ex =
 scoped :: Context -> (Scope -> IO a) -> IO a
 scoped context f = do
   uninterruptibleMask \restore -> do
-    scope <-
-      -- Create a new scope derived from a parent context: the scope inherits
-      -- whether the context is cancelled, and if it isn't, the context's
-      -- cancellation tree is adjusted to include the new scope.
-      atomically do
-        nextIdentVar <- newTVar "nextIdent" 0
-        closedVar <- newTVar "closed" False
-        runningVar <- newTVar "running" Set.empty
-        startingVar <- newTVar "starting" 0
-        (cancelledVar, onCancelled) <-
-          case context of
-            Background -> do
-              cancelledVar <- newCancelledTVar False
-              pure (cancelledVar, cancelTree cancelledVar)
-            Context
-              Scope
-                { nextIdentVar = parentNextIdentVar,
-                  cancelledVar = parentCancelledVar
-                } -> do
-                Cancelled parentCancelled parentTree <-
-                  readTVar parentCancelledVar
-                cancelledVar <- newCancelledTVar parentCancelled
-                if parentCancelled
-                  then-- No point in adding to the parent's cancel tree and
-                  -- registering deletion from it if it's already cancelled (and
-                  -- thus so are we)
-                    pure (cancelledVar, pure ())
-                  else do
-                    ident <- readTVar parentNextIdentVar
-                    writeTVar parentNextIdentVar $! ident + 1
-
-                    let parentTree' = Map.insert ident cancelledVar parentTree
-                    writeTVar parentCancelledVar
-                      $! Cancelled parentCancelled parentTree'
-                    pure
-                      ( cancelledVar,
-                        do
-                          cancelTree cancelledVar
-                          modifyTVar'
-                            parentCancelledVar
-                            \(Cancelled b t) -> Cancelled b (Map.delete ident t)
-                      )
-        pure
-          Scope
-            { nextIdentVar,
-              cancelledVar,
-              closedVar,
-              runningVar,
-              startingVar,
-              onCancelled
-            }
+    scope <- atomically newScope
     result <- restore (try (f scope))
     exception <- closeScope scope
     either
       -- If the callback failed, we don't care if we were thrown an async
-      -- exception afterwards while closing the scope
+      -- exception while closing the scope
       (throwIO . translateAsyncThreadFailed)
       -- Otherwise, throw that exception (if it exists)
       (\value -> for_ @Maybe exception throwIO $> value)
       result
   where
+    -- Create a new scope derived from a parent context: the scope inherits
+    -- whether the context is cancelled, and if it isn't, the context's
+    -- cancellation tree is adjusted to include the new scope.
+    newScope :: STM Scope
+    newScope = do
+      nextIdentVar <- newTVar "nextIdent" 0
+      closedVar <- newTVar "closed" False
+      runningVar <- newTVar "running" Set.empty
+      startingVar <- newTVar "starting" 0
+      (cancelledVar, onCancelled) <-
+        case context of
+          Background -> do
+            cancelledVar <- newCancelledTVar False
+            pure (cancelledVar, cancelTree cancelledVar)
+          Context
+            Scope
+              { nextIdentVar = parentNextIdentVar,
+                cancelledVar = parentCancelledVar
+              } -> do
+              Cancelled parentCancelled parentTree <-
+                readTVar parentCancelledVar
+              cancelledVar <- newCancelledTVar parentCancelled
+              if parentCancelled
+                then-- No point in adding to the parent's cancel tree and
+                -- registering deletion from it if it's already cancelled (and
+                -- thus so are we)
+                  pure (cancelledVar, pure ())
+                else do
+                  ident <- readTVar parentNextIdentVar
+                  writeTVar parentNextIdentVar $! ident + 1
+
+                  let parentTree' = Map.insert ident cancelledVar parentTree
+                  writeTVar parentCancelledVar
+                    $! Cancelled parentCancelled parentTree'
+                  pure
+                    ( cancelledVar,
+                      do
+                        cancelTree cancelledVar
+                        modifyTVar'
+                          parentCancelledVar
+                          \(Cancelled b t) -> Cancelled b (Map.delete ident t)
+                    )
+      pure
+        Scope
+          { nextIdentVar,
+            cancelledVar,
+            closedVar,
+            runningVar,
+            startingVar,
+            onCancelled
+          }
     newCancelledTVar :: Bool -> STM (TVar Cancelled)
     newCancelledTVar b =
       newTVar "cancelled" (Cancelled b Map.empty)
@@ -324,91 +326,51 @@ scoped context f = do
       writeTVar treeVar (Cancelled True trees)
       for_ trees cancelTree
 
--- | Wait until all __threads__ finish, then /close/ the __scope__.
+-- | Wait until all __threads__ finish.
 wait :: Scope -> IO ()
 wait =
   atomically . waitSTM
 
 -- | @STM@ variant of 'wait'.
 waitSTM :: Scope -> STM ()
-waitSTM Scope {closedVar, runningVar, startingVar} = do
+waitSTM Scope {runningVar, startingVar} = do
   blockUntilTVar startingVar (== 0)
   blockUntilTVar runningVar Set.null
-  writeTVar closedVar True
 
--- | /Cancel/ all __contexts__ derived from a __scope__, then wait until either:
---
---   * All __threads__ finish.
---   * The given number of microseconds elapse.
---
--- Then, /close/ the __scope__.
-waitFor :: Scope -> Int -> IO ()
-waitFor scope micros
-  | micros < 0 = wait scope
-  | micros == 0 = close
-  | otherwise = do
-    atomically (onCancelled scope)
-    blockUntilTimeout <- registerBlock micros
-    let happyTeardown :: STM (IO ())
-        happyTeardown =
-          waitSTM scope $> pure ()
-    let sadTeardown :: STM (IO ())
-        sadTeardown =
-          blockUntilTimeout $> close
-    (join . atomically) (happyTeardown <|> sadTeardown)
-  where
-    close :: IO ()
-    close = do
-      exception <- uninterruptibleMask_ (closeScope scope)
-      for_ exception throwIO
+-- | /Cancel/ all __contexts__ derived from a __scope__.
+cancel :: Scope -> IO ()
+cancel =
+  atomically . cancelSTM
 
--- If already closed, no-op.
+cancelSTM :: Scope -> STM ()
+cancelSTM =
+  onCancelled
+
+-- Close a scope, kill all of the running threads, and return the first async
+-- exception delivered to us while doing so, if any.
 --
--- If open, regardless of if it's cancelled or not,
---   * Wait for 0 starting threads
---   * Set closed to True
---   * Cancel children one at a time (have to a bit careful because *we* might
---     be a child canceling our own scope)
---
--- Returns the first async exception thrown to us while killing children.
---
--- Precondition: uninterruptibly masked
+-- Preconditions:
+--   * The set of threads doesn't include us
+--   * We're uninterruptibly masked
 closeScope :: Scope -> IO (Maybe SomeException)
 closeScope Scope {closedVar, runningVar, startingVar} = do
-  (join . atomically) do
-    readTVar closedVar >>= \case
-      False -> do
-        blockUntilTVar startingVar (== 0)
-        writeTVar closedVar True
-        pure killChildren
-      True -> pure (pure Nothing)
+  threads <-
+    atomically do
+      blockUntilTVar startingVar (== 0)
+      writeTVar closedVar True
+      readTVar runningVar
+  exception <- killThreads (Set.toList threads)
+  atomically (blockUntilTVar runningVar Set.null)
+  pure
+    ( coerce
+        @(Maybe (Semigroup.First SomeException))
+        @(Maybe SomeException)
+        exception
+    )
   where
-    killChildren :: IO (Maybe SomeException)
-    killChildren = do
-      -- We waited for starting=0 and then set closed=True, so no new threads
-      -- will appear in runningVar. Some children may remove themselves from it
-      -- while we are in the process of killing them all, but that's ok - we'll
-      -- just needlessly throw ThreadKilled to these things
-      cancellingThreadId <- myThreadId
-      children <- atomically (readTVar runningVar)
-      -- Kill every child that's not us, keeping track of the first random
-      -- asynchronous exception delivered to us while doing so. We don't keep
-      -- exceptions masked because we don't want to deadlock with a child that
-      -- is concurrently trying to throw an exception to us with exceptions
-      -- masked.
-      firstExceptionThrownToUs :: Maybe SomeException <-
-        coerce
-          @(IO (Maybe (Semigroup.First SomeException)))
-          @(IO (Maybe SomeException))
-          (loop Nothing (Set.toList (Set.delete cancellingThreadId children)))
-
-      if Set.member cancellingThreadId children
-        then do
-          atomically (blockUntilTVar runningVar ((== 1) . Set.size))
-          throwIO ThreadKilled
-        else do
-          atomically (blockUntilTVar runningVar Set.null)
-          pure firstExceptionThrownToUs
+    killThreads :: [ThreadId] -> IO (Maybe (Semigroup.First SomeException))
+    killThreads =
+      loop Nothing
       where
         loop ::
           Maybe (Semigroup.First SomeException) ->
@@ -416,13 +378,16 @@ closeScope Scope {closedVar, runningVar, startingVar} = do
           IO (Maybe (Semigroup.First SomeException))
         loop acc = \case
           [] -> pure acc
-          child : children ->
-            try (unsafeUnmask (throwTo child ThreadKilled)) >>= \case
+          threadId : threadIds ->
+            -- We unmask because we don't want to deadlock with a thread that is
+            -- concurrently trying to throw an exception to us with exceptions
+            -- masked.
+            try (unsafeUnmask (throwTo threadId ThreadKilled)) >>= \case
               Left exception ->
                 loop
                   (acc <> Just (Semigroup.First exception))
-                  (child : children) -- don't drop child we didn't kill
-              Right () -> loop acc children
+                  (threadId : threadIds) -- don't drop thread we didn't kill
+              Right () -> loop acc threadIds
 
 -- | Return whether a __context__ is /cancelled/.
 --
@@ -572,10 +537,10 @@ blockUntilTVar var f = do
   value <- readTVar var
   unless (f value) retry
 
-registerBlock :: Int -> IO (STM ())
-registerBlock micros = do
-  delayVar <- registerDelay micros
-  pure $
-    readTVar delayVar >>= \case
-      False -> retry
-      True -> pure ()
+-- registerBlock :: Int -> IO (STM ())
+-- registerBlock micros = do
+--   delayVar <- registerDelay micros
+--   pure $
+--     readTVar delayVar >>= \case
+--       False -> retry
+--       True -> pure ()

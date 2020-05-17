@@ -40,13 +40,12 @@ newTVar :: String -> a -> STM (TVar a)
 putTMVar :: TMVar a -> a -> STM ()
 readTMVar :: TMVar a -> STM a
 readTVar :: TVar a -> STM a
-registerDelay :: Int -> IO (TVar Bool)
+-- registerDelay :: Int -> IO (TVar Bool)
 retry :: STM a
 throwIO :: Exception e => e -> IO a
 throwSTM :: Exception e => e -> STM a
 throwTo :: Exception e => ThreadId -> e -> IO ()
 try :: forall e a. Exception e => IO a -> IO (Either e a)
 uninterruptibleMask :: ((forall x. IO x -> IO x) -> IO a) -> IO a
-uninterruptibleMask_ :: IO a -> IO a
 unsafeUnmask :: IO a -> IO a
 writeTVar :: TVar a -> a -> STM ()
