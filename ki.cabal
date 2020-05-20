@@ -1,6 +1,26 @@
 cabal-version: 3.0
+
+author: Mitchell Rosen
+bug-reports: https://github.com/mitchellwrosen/ki/issues
+category: Concurrency
+copyright: Copyright (C) 2020 Mitchell Rosen
+description: A lightweight, structured concurrency library.
+homepage: https://github.com/mitchellwrosen/ki
+license: BSD-3-Clause
+license-file: LICENSE
+maintainer: Mitchell Rosen <mitchellwrosen@gmail.com>
 name: ki
+stability: experimental
+synopsis: A lightweight, structured concurrency library
+tested-with: GHC == 8.6.5, GHC == 8.8.3, GHC == 8.10.1
 version: 0
+
+extra-source-files:
+  README.md
+
+source-repository head
+  type: git
+  location: https://github.com/mitchellwrosen/ki.git
 
 common component
   default-extensions:
@@ -33,36 +53,39 @@ common component
     ghc-options:
       -Wno-missing-safe-haskell-mode
       -Wno-prepositive-qualified-module
-  ghc-options:
-    -Werror
-    -- can't load ghci if this is an error :|
-    -Wwarn=missing-local-signatures
-  -- -no-unsed-packages seems to have a false positive when used with backpack
-  if impl(ghc >= 8.10)
-    ghc-options:
-      -Wno-unused-packages
 
 library
   import: component
-  build-depends: ki-impl-base, ki-indef
-  mixins: ki-indef (Ki.Indef as Ki) requires (Ki.Sig as Ki.Sig.Base)
-  reexported-modules: Ki
+  -- build-depends: ki-impl-base, ki-indef
+  build-depends:
+    base >= 4.12.0.0 && < 4.15,
+    ki-impl-base,
+    ki-indef
+  exposed-modules: Ki
+  hs-source-dirs: src/ki
+  mixins: ki-indef (Ki.Indef) requires (Ki.Sig as Ki.Sig.Base)
+  -- mixins: ki-indef (Ki.Indef as Ki) requires (Ki.Sig as Ki.Sig.Base)
+  -- reexported-modules: Ki
 
 library ki-mtl
   import: component
+  buildable: False
   build-depends:
-    base,
+    base >= 4.12.0.0 && < 4.15,
     generic-lens,
     ki,
     mtl,
     unliftio-core
-  hs-source-dirs: src/ki-mtl
   exposed-modules: Ki.Mtl
-  visibility: public
+  hs-source-dirs: src/ki-mtl
+  -- can't upload to hackage with this
+  -- visibility: public
 
 library ki-indef
   import: component
-  build-depends: base, containers
+  build-depends:
+    base,
+    containers
   exposed-modules: Ki.Indef
   hs-source-dirs: src/ki-indef
   other-modules:
@@ -80,6 +103,7 @@ library ki-impl-base
 
 library ki-impl-dejafu
   import: component
+  buildable: False
   build-depends:
     base,
     concurrency ^>= 1.11.0.0,
@@ -88,16 +112,15 @@ library ki-impl-dejafu
   exposed-modules: Ki.Sig.Dejafu
   hs-source-dirs: src/ki-impl-dejafu
 
-
 test-suite tests
   import: component
+  buildable: False
   build-depends:
     base,
     concurrency,
     dejafu,
     ki-impl-dejafu,
     ki-indef,
-  ghc-options: -threaded -O -with-rtsopts=-N
   hs-source-dirs: test
   main-is: Test.hs
   mixins: ki-indef (Ki.Indef as Ki) requires (Ki.Sig as Ki.Sig.Dejafu)
