@@ -17,6 +17,7 @@ module Ki.Mtl
     wait,
     waitFor,
     waitSTM,
+    cancel,
 
     -- * Thread
     Thread,
@@ -122,14 +123,10 @@ awaitFor :: MonadIO m => Thread a -> Seconds -> m (Maybe a)
 awaitFor thread seconds =
   liftIO (Ki.awaitFor thread seconds)
 
--- | Kill a __thread__ wait for it to finish.
---
--- /Throws/:
---
---   * 'ThreadKilled' if a __thread__ attempts to kill itself.
-kill :: MonadIO m => Thread a -> m ()
-kill =
-  liftIO . Ki.kill
+-- | /Cancel/ all __contexts__ derived from a __scope__.
+cancel :: MonadIO m => Scope -> m ()
+cancel =
+  liftIO . Ki.cancel
 
 -- | Return whether the __context__ is /cancelled/.
 --
@@ -145,6 +142,16 @@ cancelledSTM :: MonadKi r m => m (STM Bool)
 cancelledSTM = do
   context <- askContext
   pure (Ki.cancelledSTM context)
+
+
+-- | Kill a __thread__ wait for it to finish.
+--
+-- /Throws/:
+--
+--   * 'ThreadKilled' if a __thread__ attempts to kill itself.
+kill :: MonadIO m => Thread a -> m ()
+kill =
+  liftIO . Ki.kill
 
 -- | Perform an action with a new __scope__, then /close/ the __scope__.
 --

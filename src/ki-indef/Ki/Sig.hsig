@@ -2,6 +2,7 @@ signature Ki.Sig (module Ki.Sig) where
 
 import Control.Applicative (Alternative)
 import Control.Exception (Exception)
+import Data.Unique (Unique)
 import Prelude hiding (IO)
 
 type role IO representational
@@ -33,6 +34,7 @@ modifyTVar' :: TVar a -> (a -> a) -> STM ()
 myThreadId :: IO ThreadId
 newEmptyTMVar :: String -> STM (TMVar a)
 newTVar :: String -> a -> STM (TVar a)
+newUnique :: IO Unique
 putTMVar :: TMVar a -> a -> STM ()
 readTMVar :: TMVar a -> STM a
 readTVar :: TVar a -> STM a

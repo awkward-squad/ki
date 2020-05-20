@@ -16,6 +16,7 @@ import Data.Foldable (for_)
 import Data.Functor ((<&>))
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Unique (Unique)
 import Data.Word (Word32)
 import GHC.Generics (Generic)
 import Ki.Sig (IO, STM, TVar, atomically, newTVar, readTVar, writeTVar)
@@ -35,7 +36,7 @@ data Context
 
 data Ctx
   = CtxOpen OpenCtx
-  | CtxCancelled
+  | CtxCancelled Unique
 
 data OpenCtx = OpenCtx
   { -- | The next id to assign to a child context. The child needs a unique
@@ -76,7 +77,7 @@ cancelled_ :: TVar Ctx -> STM Bool
 cancelled_ contextVar =
   readTVar contextVar <&> \case
     CtxOpen _ -> False
-    CtxCancelled -> True
+    CtxCancelled _ -> True
 
 new :: STM () -> STM (TVar Ctx)
 new onCancel =
@@ -116,7 +117,7 @@ derive_ parentVar =
               onCancel
             }
       pure child
-    CtxCancelled -> pure parentVar -- ok to reuse
+    CtxCancelled _ -> pure parentVar -- ok to reuse
   where
     deleteChildFromParent :: Word32 -> STM ()
     deleteChildFromParent childId =
@@ -128,23 +129,24 @@ derive_ parentVar =
                 { children =
                     Map.delete childId children
                 }
-        CtxCancelled -> pure ()
+        CtxCancelled _ -> pure ()
 
-cancel :: Context -> STM ()
-cancel = \case
-  Background -> pure ()
-  Context contextVar -> do
-    readTVar contextVar >>= \case
-      CtxOpen OpenCtx {children, onCancel} -> do
-        for_ (Map.elems children) cancel_
-        writeTVar contextVar CtxCancelled
-        onCancel
-      CtxCancelled -> pure ()
+cancel :: Context -> Unique -> STM ()
+cancel context unique =
+  case context of
+    Background -> pure ()
+    Context contextVar -> do
+      readTVar contextVar >>= \case
+        CtxOpen OpenCtx {children, onCancel} -> do
+          writeTVar contextVar (CtxCancelled unique)
+          for_ (Map.elems children) (cancel_ unique)
+          onCancel
+        CtxCancelled _ -> pure ()
 
-cancel_ :: TVar Ctx -> STM ()
-cancel_ contextVar =
+cancel_ :: Unique -> TVar Ctx -> STM ()
+cancel_ unique contextVar =
   readTVar contextVar >>= \case
     CtxOpen OpenCtx {children} -> do
-      for_ (Map.elems children) cancel_
-      writeTVar contextVar CtxCancelled
-    CtxCancelled -> pure ()
+      writeTVar contextVar (CtxCancelled unique)
+      for_ (Map.elems children) (cancel_ unique)
+    CtxCancelled _ -> pure ()

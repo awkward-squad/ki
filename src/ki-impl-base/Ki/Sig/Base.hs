@@ -15,6 +15,7 @@ module Ki.Sig.Base
     myThreadId,
     Ki.Sig.Base.newEmptyTMVar,
     Ki.Sig.Base.newTVar,
+    Ki.Sig.Base.newUnique,
     putTMVar,
     readTMVar,
     readTVar,
@@ -33,6 +34,7 @@ where
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
+import Data.Unique
 import GHC.Conc
 #if defined(mingw32_HOST_OS)
 import GHC.Conc.Windows
@@ -55,6 +57,10 @@ newEmptyTMVar _ =
 newTVar :: String -> a -> STM (TVar a)
 newTVar _ =
   Control.Concurrent.STM.newTVar
+
+newUnique :: IO Unique
+newUnique =
+  Data.Unique.newUnique
 
 #if defined(mingw32_HOST_OS)
 registerDelay :: Int -> IO (STM (), IO ())

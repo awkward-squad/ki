@@ -12,7 +12,6 @@ module Ki
     waitSTM,
     waitFor,
     cancel,
-    cancelSTM,
 
     -- * Thread
     Thread,

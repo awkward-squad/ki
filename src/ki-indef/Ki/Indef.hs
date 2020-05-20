@@ -15,7 +15,6 @@ module Ki.Indef
     waitSTM,
     waitFor,
     cancel,
-    cancelSTM,
 
     -- * Thread
     Thread,
@@ -51,7 +50,7 @@ import qualified Ki.Indef.Context as Ki.Context
 import Ki.Indef.Seconds (Seconds)
 import Ki.Indef.Thread (AsyncThreadFailed (..), Thread (Thread), ThreadFailed (..), timeout)
 import qualified Ki.Indef.Thread as Thread
-import Ki.Sig (IO, STM, TVar, ThreadId, atomically, forkIO, modifyTVar', myThreadId, newEmptyTMVar, newTVar, putTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, unsafeUnmask, writeTVar)
+import Ki.Sig (IO, STM, TVar, ThreadId, atomically, forkIO, modifyTVar', myThreadId, newEmptyTMVar, newTVar, newUnique, putTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, unsafeUnmask, writeTVar)
 import Prelude hiding (IO)
 
 -- import Ki.Internal.Debug
@@ -156,13 +155,9 @@ waitFor scope seconds =
 
 -- | /Cancel/ all __contexts__ derived from a __scope__.
 cancel :: Scope -> IO ()
-cancel =
-  atomically . cancelSTM
-
--- | @STM@ variant of 'cancel'.
-cancelSTM :: Scope -> STM ()
-cancelSTM Scope {context} =
-  Ki.Context.cancel context
+cancel Scope {context} = do
+  unique <- newUnique
+  atomically (Ki.Context.cancel context unique)
 
 -- Close a scope, kill all of the running threads, and return the first async
 -- exception delivered to us while doing so, if any.
