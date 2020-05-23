@@ -8,6 +8,7 @@ module Ki.Mtl
     -- * Context
     Context,
     background,
+    CancelToken,
     cancelled,
     cancelledSTM,
 
@@ -31,6 +32,7 @@ module Ki.Mtl
     kill,
 
     -- * Exceptions
+    Cancelled (..),
     ScopeClosed (..),
 
     -- * Miscellaneous
@@ -43,7 +45,7 @@ import Control.Monad.IO.Unlift
 import Control.Monad.Reader
 import Data.Generics.Product.Typed (HasType (getTyped, setTyped))
 import GHC.Conc (STM)
-import Ki (Context, Scope, ScopeClosed (..), Seconds, Thread, awaitSTM, background, waitSTM)
+import Ki (CancelToken, Cancelled (..), Context, Scope, ScopeClosed (..), Seconds, Thread, awaitSTM, background, waitSTM)
 import qualified Ki
 
 -- | A convenience type alias for classifying monads suitable for use with @ki@.
@@ -131,17 +133,16 @@ cancel =
 --
 -- __Threads__ running in a /cancelled/ __context__ will be killed soon; they
 -- should attempt to perform a graceful shutdown and finish.
-cancelled :: MonadKi r m => m Bool
+cancelled :: MonadKi r m => m (Maybe CancelToken)
 cancelled = do
   context <- askContext
   liftIO (Ki.cancelled context)
 
 -- | @STM@ variant of 'cancelled'.
-cancelledSTM :: MonadKi r m => m (STM Bool)
+cancelledSTM :: MonadKi r m => m (STM (Maybe CancelToken))
 cancelledSTM = do
   context <- askContext
   pure (Ki.cancelledSTM context)
-
 
 -- | Kill a __thread__ wait for it to finish.
 --

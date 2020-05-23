@@ -2,6 +2,7 @@ module Ki
   ( -- * Context
     Context,
     background,
+    CancelToken,
     cancelled,
     cancelledSTM,
 
@@ -25,6 +26,7 @@ module Ki
     kill,
 
     -- * Exceptions
+    Cancelled (..),
     ScopeClosed (..),
 
     -- * Miscellaneous

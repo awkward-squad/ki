@@ -69,7 +69,6 @@ library
 
 library ki-mtl
   import: component
-  buildable: False
   build-depends:
     base >= 4.12.0.0 && < 4.15,
     generic-lens,

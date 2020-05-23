@@ -1,10 +1,10 @@
-{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Ki.Indef
   ( -- * Context
     Context,
     Ki.Context.background,
+    CancelToken,
     Ki.Context.cancelled,
     Ki.Context.cancelledSTM,
 
@@ -28,6 +28,7 @@ module Ki.Indef
     Thread.kill,
 
     -- * Exceptions
+    Cancelled (..),
     ScopeClosed (..),
 
     -- * Miscellaneous
@@ -40,11 +41,11 @@ import Control.Exception (AsyncException (ThreadKilled), Exception (fromExceptio
 import Control.Monad (unless)
 import Data.Coerce (coerce)
 import Data.Foldable (for_)
-import Data.Functor (($>), void)
+import Data.Functor (void)
 import qualified Data.Semigroup as Semigroup
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Ki.Indef.Context (Context)
+import Ki.Indef.Context (CancelToken (..), Cancelled (..), Context)
 import qualified Ki.Indef.Context as Ki.Context
 import Ki.Indef.Seconds (Seconds)
 import Ki.Indef.Thread (AsyncThreadFailed (..), Thread (Thread), timeout)
@@ -107,14 +108,15 @@ scoped parentContext f = do
   uninterruptibleMask \restore -> do
     scope <- new
     result <- restore (try (f scope))
-    exception <- closeScope scope
-    either
+    closeScopeException <- closeScope scope
+    case result of
       -- If the callback failed, we don't care if we were thrown an async
       -- exception while closing the scope
-      (throwIO . Thread.unwrapAsyncThreadFailed)
+      Left exception -> throwIO (Thread.unwrapAsyncThreadFailed exception)
       -- Otherwise, throw that exception (if it exists)
-      (\value -> for_ @Maybe exception throwIO $> value)
-      result
+      Right value -> do
+        for_ @Maybe closeScopeException throwIO
+        pure value
   where
     new :: IO Scope
     new =
@@ -155,8 +157,8 @@ waitFor scope seconds =
 -- | /Cancel/ all __contexts__ derived from a __scope__.
 cancel :: Scope -> IO ()
 cancel Scope {context} = do
-  unique <- newUnique
-  atomically (Ki.Context.cancel context unique)
+  token <- newUnique
+  atomically (Ki.Context.cancel context (CancelToken token))
 
 -- Close a scope, kill all of the running threads, and return the first async
 -- exception delivered to us while doing so, if any.
@@ -263,10 +265,10 @@ asyncImpl Scope {context, closedVar, runningVar, startingVar} action = do
       forkIO do
         childThreadId <- myThreadId
         result <- try (action context restore)
-        case result of
-          Left (NotThreadKilled exception) ->
-            throwTo parentThreadId (AsyncThreadFailed exception)
-          _ -> pure ()
+        whenLeft result \exception -> do
+          whenM
+            (shouldPropagateException exception)
+            (throwTo parentThreadId (AsyncThreadFailed exception))
         atomically do
           running <- readTVar runningVar
           if Set.member childThreadId running
@@ -280,19 +282,34 @@ asyncImpl Scope {context, closedVar, runningVar, startingVar} action = do
       modifyTVar' runningVar (Set.insert childThreadId)
 
     pure (Thread childThreadId resultVar)
+  where
+    shouldPropagateException :: SomeException -> IO Bool
+    shouldPropagateException exception =
+      case fromException exception of
+        Just ThreadKilled -> pure False
+        Just _ -> pure True
+        Nothing ->
+          case fromException exception of
+            Just (Cancelled token) -> do
+              token' <- Ki.Context.cancelled context
+              pure (token' /= Just token)
+            Nothing -> pure True
 
 --- Misc. utils
-
-pattern NotThreadKilled :: SomeException -> SomeException
-pattern NotThreadKilled ex <-
-  (asNotThreadKilled -> Just ex)
-
-asNotThreadKilled :: SomeException -> Maybe SomeException
-asNotThreadKilled ex
-  | Just ThreadKilled <- fromException ex = Nothing
-  | otherwise = Just ex
 
 blockUntilTVar :: TVar a -> (a -> Bool) -> STM ()
 blockUntilTVar var f = do
   value <- readTVar var
   unless (f value) retry
+
+whenLeft :: Applicative m => Either a b -> (a -> m ()) -> m ()
+whenLeft x f =
+  case x of
+    Left y -> f y
+    Right _ -> pure ()
+
+whenM :: Monad m => m Bool -> m () -> m ()
+whenM x y =
+  x >>= \case
+    False -> pure ()
+    True -> y

@@ -14,7 +14,7 @@ import Control.Monad
 import Data.Foldable
 import Data.Function
 import Data.List (intercalate)
-import Data.Maybe (isJust)
+import Data.Maybe
 import GHC.Clock
 import Ki
 import System.Exit
@@ -24,17 +24,17 @@ import Text.Printf (printf)
 
 main :: IO ()
 main = do
-  test "background context isn't cancelled" . returns False $ do
+  test "background context isn't cancelled" . returns Nothing $ do
     cancelled background
 
   test "new context isn't cancelled" . returns False $ do
-    scoped background \scope -> async scope cancelled >>= await
+    scoped background \scope -> async scope cancelled >>= fmap isJust . await
 
   test "context derives cancelled from parent" . returns (False, True) $ do
     scoped background \scope -> do
-      c1 <- async scope cancelled >>= await
+      c1 <- async scope cancelled >>= fmap isJust . await
       cancel scope
-      c2 <- async scope cancelled >>= await
+      c2 <- async scope cancelled >>= fmap isJust . await
       pure (c1, c2)
 
   test "cancellation propagates to all descendants" . returns () $ do
@@ -147,6 +147,15 @@ main = do
   test "thread waiting on its own scope allows async exceptions" . returns () $ do
     scoped background \scope -> do
       async_ scope \_ -> wait scope
+
+  test "Cancelled exception doesn't propagate" . returns () $ do
+    scoped background \scope -> do
+      cancel scope
+      async_ scope \context ->
+        cancelled context >>= \case
+          Nothing -> throw A
+          Just token -> throw (Cancelled token)
+      wait scope
 
 type P =
   DejaFu.Program DejaFu.Basic IO
@@ -286,8 +295,8 @@ blockUntilCancelled :: Context -> P ()
 blockUntilCancelled context =
   atomically do
     cancelledSTM context >>= \case
-      False -> retry
-      True -> pure ()
+      Nothing -> retry
+      Just _ -> pure ()
 
 -- finally :: P a -> P b -> P a
 -- finally action after =

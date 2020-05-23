@@ -3,8 +3,10 @@
 module Ki.Indef.Context
   ( Context,
     background,
+    CancelToken (..),
     cancelled,
     cancelledSTM,
+    Cancelled (..),
 
     -- * Internal API
     derive,
@@ -12,6 +14,7 @@ module Ki.Indef.Context
   )
 where
 
+import Control.Exception (Exception)
 import Data.Foldable (for_)
 import Data.Functor ((<&>))
 import Data.Map (Map)
@@ -35,7 +38,7 @@ data Context
 
 data Ctx
   = CtxOpen OpenCtx
-  | CtxCancelled Integer
+  | CtxCancelled CancelToken
 
 data OpenCtx = OpenCtx
   { -- | The next id to assign to a child context. The child needs a unique
@@ -46,6 +49,15 @@ data OpenCtx = OpenCtx
     children :: Map Word32 (TVar Ctx),
     onCancel :: STM ()
   }
+
+newtype CancelToken
+  = CancelToken Integer
+  deriving stock (Eq, Show)
+
+data Cancelled
+  = Cancelled CancelToken
+  deriving stock (Eq, Show)
+  deriving anyclass (Exception)
 
 -- | The background __context__.
 --
@@ -61,22 +73,22 @@ background =
 --
 -- __Threads__ running in a /cancelled/ __context__ will be killed soon; they
 -- should attempt to perform a graceful shutdown and finish.
-cancelled :: Context -> IO Bool
+cancelled :: Context -> IO (Maybe CancelToken)
 cancelled = \case
-  Background -> pure False
+  Background -> pure Nothing
   Context contextVar -> atomically (cancelled_ contextVar)
 
 -- | @STM@ variant of 'cancelled'.
-cancelledSTM :: Context -> STM Bool
+cancelledSTM :: Context -> STM (Maybe CancelToken)
 cancelledSTM = \case
-  Background -> pure False
+  Background -> pure Nothing
   Context contextVar -> cancelled_ contextVar
 
-cancelled_ :: TVar Ctx -> STM Bool
+cancelled_ :: TVar Ctx -> STM (Maybe CancelToken)
 cancelled_ contextVar =
   readTVar contextVar <&> \case
-    CtxOpen _ -> False
-    CtxCancelled _ -> True
+    CtxOpen _ -> Nothing
+    CtxCancelled token -> Just token
 
 new :: STM () -> STM (TVar Ctx)
 new onCancel =
@@ -130,7 +142,7 @@ derive_ parentVar =
                 }
         CtxCancelled _ -> pure ()
 
-cancel :: Context -> Integer -> STM ()
+cancel :: Context -> CancelToken -> STM ()
 cancel context unique =
   case context of
     Background -> pure ()
@@ -142,7 +154,7 @@ cancel context unique =
           onCancel
         CtxCancelled _ -> pure ()
 
-cancel_ :: Integer -> TVar Ctx -> STM ()
+cancel_ :: CancelToken -> TVar Ctx -> STM ()
 cancel_ unique contextVar =
   readTVar contextVar >>= \case
     CtxOpen OpenCtx {children} -> do
