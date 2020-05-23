@@ -29,7 +29,6 @@ module Ki.Indef
 
     -- * Exceptions
     ScopeClosed (..),
-    ThreadFailed (..),
 
     -- * Miscellaneous
     Seconds,
@@ -48,7 +47,7 @@ import qualified Data.Set as Set
 import Ki.Indef.Context (Context)
 import qualified Ki.Indef.Context as Ki.Context
 import Ki.Indef.Seconds (Seconds)
-import Ki.Indef.Thread (AsyncThreadFailed (..), Thread (Thread), ThreadFailed (..), timeout)
+import Ki.Indef.Thread (AsyncThreadFailed (..), Thread (Thread), timeout)
 import qualified Ki.Indef.Thread as Thread
 import Ki.Sig (IO, STM, TVar, ThreadId, atomically, forkIO, modifyTVar', myThreadId, newEmptyTMVar, newTVar, newUnique, putTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, unsafeUnmask, writeTVar)
 import Prelude hiding (IO)
@@ -86,14 +85,14 @@ data Scope = Scope
 -- instead.
 data ScopeClosed
   = ScopeClosed
-  deriving stock (Show)
+  deriving stock (Eq, Show)
   deriving anyclass (Exception)
 
 -- | Perform an action with a new __scope__, then /close/ the __scope__.
 --
 -- /Throws/:
 --
---   * 'ThreadFailed' if a __thread__ throws an exception.
+--   * The first exception a __thread__ throws, if any.
 --
 -- ==== __Examples__
 --
@@ -112,7 +111,7 @@ scoped parentContext f = do
     either
       -- If the callback failed, we don't care if we were thrown an async
       -- exception while closing the scope
-      (throwIO . Thread.translateAsyncThreadFailed)
+      (throwIO . Thread.unwrapAsyncThreadFailed)
       -- Otherwise, throw that exception (if it exists)
       (\value -> for_ @Maybe exception throwIO $> value)
       result
@@ -266,7 +265,7 @@ asyncImpl Scope {context, closedVar, runningVar, startingVar} action = do
         result <- try (action context restore)
         case result of
           Left (NotThreadKilled exception) ->
-            throwTo parentThreadId (AsyncThreadFailed childThreadId exception)
+            throwTo parentThreadId (AsyncThreadFailed exception)
           _ -> pure ()
         atomically do
           running <- readTVar runningVar

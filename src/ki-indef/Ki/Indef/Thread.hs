@@ -4,13 +4,12 @@ module Ki.Indef.Thread
     awaitSTM,
     awaitFor,
     kill,
-    ThreadFailed (..),
     --
     timeout,
 
     -- * Internal API
     AsyncThreadFailed (..),
-    translateAsyncThreadFailed,
+    unwrapAsyncThreadFailed,
   )
 where
 
@@ -43,7 +42,7 @@ instance Ord (Thread a) where
 --
 -- /Throws/:
 --
---   * 'ThreadFailed' if the __thread__ threw an exception.
+--   * The exception that the __thread__ threw, if any.
 await :: Thread a -> IO a
 await =
   atomically . awaitSTM
@@ -52,11 +51,11 @@ await =
 --
 -- /Throws/:
 --
---   * 'ThreadFailed' if the __thread__ threw an exception.
+--   * The exception that the __thread__ threw, if any.
 awaitSTM :: Thread a -> STM a
-awaitSTM (Thread threadId resultVar) =
+awaitSTM (Thread _threadId resultVar) =
   readTMVar resultVar >>= \case
-    Left exception -> throwSTM (ThreadFailed threadId exception)
+    Left exception -> throwSTM exception
     Right result -> pure result
 
 -- | Variant of 'await' that gives up after the given number of seconds elapses.
@@ -79,25 +78,18 @@ kill (Thread threadId resultVar) = do
   throwTo threadId ThreadKilled
   void (atomically (readTMVar resultVar))
 
-data ThreadFailed
-  = ThreadFailed !ThreadId !SomeException
-  deriving stock (Show)
-  deriving anyclass (Exception)
-
--- | Unexported async variant of 'ThreadFailed'.
-data AsyncThreadFailed
-  = AsyncThreadFailed !ThreadId !SomeException
+newtype AsyncThreadFailed
+  = AsyncThreadFailed SomeException
   deriving stock (Show)
 
 instance Exception AsyncThreadFailed where
   fromException = asyncExceptionFromException
   toException = asyncExceptionToException
 
-translateAsyncThreadFailed :: SomeException -> SomeException
-translateAsyncThreadFailed ex =
+unwrapAsyncThreadFailed :: SomeException -> SomeException
+unwrapAsyncThreadFailed ex =
   case fromException ex of
-    Just (AsyncThreadFailed threadId exception) ->
-      toException (ThreadFailed threadId exception)
+    Just (AsyncThreadFailed exception) -> exception
     _ -> ex
 
 -- Misc. utils

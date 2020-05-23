@@ -26,7 +26,6 @@ module Ki
 
     -- * Exceptions
     ScopeClosed (..),
-    ThreadFailed (..),
 
     -- * Miscellaneous
     Seconds,

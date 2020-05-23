@@ -9,7 +9,7 @@
 module Main (main) where
 
 import Control.Concurrent.Classy hiding (wait)
-import Control.Exception (Exception (fromException), MaskingState (..), SomeAsyncException, SomeException)
+import Control.Exception (AsyncException (ThreadKilled), Exception (fromException), MaskingState (..), SomeAsyncException, SomeException)
 import Control.Monad
 import Data.Foldable
 import Data.Function
@@ -53,7 +53,7 @@ main = do
       wait scope
     readIORef ref
 
-  test "using a closed scope throws an exception" . throws @ScopeClosed $ do
+  test "using a closed scope throws an exception" . throws ScopeClosed $ do
     scope <- scoped background pure
     async_ scope \_ -> pure ()
 
@@ -89,7 +89,7 @@ main = do
         restore (False <$ await thread) `catch` \ex ->
           pure (isAsyncException ex)
 
-  test "failed thread throws exception when awaited" . throws @ThreadFailed $ do
+  test "failed thread throws exception when awaited" . throws ThreadKilled $ do
     thread <- scoped background \scope -> async scope \_ -> block
     await thread
 
@@ -121,7 +121,7 @@ main = do
       wait scope
     readIORef ref
 
-  test "scope re-throws exceptions from threads" . throws @ThreadFailed $ do
+  test "scope re-throws exceptions from threads" . throws A $ do
     scoped background \scope -> do
       async_ scope \_ -> () <$ throw A
       wait scope
@@ -133,7 +133,7 @@ main = do
         void (throw A)
 
   test "scope closes when thread fails" . returns () $ do
-    ignoring @ThreadFailed do
+    ignoring @A do
       scoped background \scope -> do
         async_ scope \_ -> block
         async_ scope \_ -> void (throw A)
@@ -192,11 +192,11 @@ returns :: Eq a => a -> P a -> IO (DejaFu.Result a)
 returns expected =
   runTest (const False) (== expected)
 
-throws :: forall e a. (Eq a, Exception e) => P a -> IO (DejaFu.Result a)
-throws =
+throws :: (Eq a, Eq e, Exception e) => e -> P a -> IO (DejaFu.Result a)
+throws expected =
   runTest
     ( \case
-        DejaFu.UncaughtException ex -> isJust (fromException @e ex)
+        DejaFu.UncaughtException ex -> fromException ex == Just expected
         _ -> False
     )
     (const False)

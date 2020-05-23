@@ -32,7 +32,6 @@ module Ki.Mtl
 
     -- * Exceptions
     ScopeClosed (..),
-    ThreadFailed (..),
 
     -- * Miscellaneous
     Seconds,
@@ -44,7 +43,7 @@ import Control.Monad.IO.Unlift
 import Control.Monad.Reader
 import Data.Generics.Product.Typed (HasType (getTyped, setTyped))
 import GHC.Conc (STM)
-import Ki (Context, Scope, ScopeClosed (..), Seconds, Thread, ThreadFailed (..), awaitSTM, background, waitSTM)
+import Ki (Context, Scope, ScopeClosed (..), Seconds, Thread, awaitSTM, background, waitSTM)
 import qualified Ki
 
 -- | A convenience type alias for classifying monads suitable for use with @ki@.
@@ -108,7 +107,7 @@ asyncWithUnmask_ scope k =
 --
 -- /Throws/:
 --
---   * 'ThreadFailed' if the __thread__ threw an exception.
+--   * The exception the __thread__ threw, if any.
 await :: MonadIO m => Thread a -> m a
 await =
   liftIO . Ki.await
@@ -157,7 +156,7 @@ kill =
 --
 -- /Throws/:
 --
---   * 'ThreadFailed' if a __thread__ throws an exception.
+--   * The first exception a __thread__ throws, if any.
 --
 -- ==== __Examples__
 --
