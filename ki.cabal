@@ -103,7 +103,6 @@ library ki-impl-base
 
 library ki-impl-dejafu
   import: component
-  buildable: False
   build-depends:
     base,
     concurrency ^>= 1.11.0.0,
@@ -114,13 +113,13 @@ library ki-impl-dejafu
 
 test-suite tests
   import: component
-  buildable: False
   build-depends:
     base,
     concurrency,
     dejafu,
     ki-impl-dejafu,
     ki-indef,
+  ghc-options: -O0 -threaded -with-rtsopts=-N1
   hs-source-dirs: test
   main-is: Test.hs
   mixins: ki-indef (Ki.Indef as Ki) requires (Ki.Sig as Ki.Sig.Dejafu)

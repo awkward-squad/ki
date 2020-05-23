@@ -34,7 +34,7 @@ where
 import Control.Concurrent
 import Control.Concurrent.STM
 import Control.Exception
-import Data.Unique
+import Data.IORef
 import GHC.Conc
 #if defined(mingw32_HOST_OS)
 import GHC.Conc.Windows
@@ -58,9 +58,14 @@ newTVar :: String -> a -> STM (TVar a)
 newTVar _ =
   Control.Concurrent.STM.newTVar
 
-newUnique :: IO Unique
+newUnique :: IO Integer
 newUnique =
-  Data.Unique.newUnique
+  atomicModifyIORef' uniqueRef \n -> let m = n + 1 in (m, m)
+
+uniqueRef :: IORef Integer
+uniqueRef =
+  unsafePerformIO (newIORef 0)
+{-# NOINLINE uniqueRef #-}
 
 #if defined(mingw32_HOST_OS)
 registerDelay :: Int -> IO (STM (), IO ())

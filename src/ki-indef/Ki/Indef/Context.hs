@@ -16,7 +16,6 @@ import Data.Foldable (for_)
 import Data.Functor ((<&>))
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Unique (Unique)
 import Data.Word (Word32)
 import GHC.Generics (Generic)
 import Ki.Sig (IO, STM, TVar, atomically, newTVar, readTVar, writeTVar)
@@ -36,7 +35,7 @@ data Context
 
 data Ctx
   = CtxOpen OpenCtx
-  | CtxCancelled Unique
+  | CtxCancelled Integer
 
 data OpenCtx = OpenCtx
   { -- | The next id to assign to a child context. The child needs a unique
@@ -131,7 +130,7 @@ derive_ parentVar =
                 }
         CtxCancelled _ -> pure ()
 
-cancel :: Context -> Unique -> STM ()
+cancel :: Context -> Integer -> STM ()
 cancel context unique =
   case context of
     Background -> pure ()
@@ -143,7 +142,7 @@ cancel context unique =
           onCancel
         CtxCancelled _ -> pure ()
 
-cancel_ :: Unique -> TVar Ctx -> STM ()
+cancel_ :: Integer -> TVar Ctx -> STM ()
 cancel_ unique contextVar =
   readTVar contextVar >>= \case
     CtxOpen OpenCtx {children} -> do

@@ -50,6 +50,10 @@ newTVar :: String -> a -> STM (TVar a)
 newTVar name =
   Conc.newTVarN name
 
+newUnique :: IO Integer
+newUnique =
+  pure 0
+
 putTMVar :: TMVar a -> a -> STM ()
 putTMVar =
   Conc.putTMVar
