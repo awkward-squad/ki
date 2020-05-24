@@ -24,13 +24,6 @@ import GHC.Generics (Generic)
 import Ki.Sig (IO, STM, TVar, atomically, newTVar, readTVar, writeTVar)
 import Prelude hiding (IO)
 
--- | A __context__ models a program's call tree.
---
--- Every __thread__ has its own __context__, which is used as a mechanism to
--- propagate /cancellation/.
---
--- A __thread__ can query whether its __context__ has been /cancelled/, which is
--- a suggestion to perform a graceful shutdown and finish.
 data Context
   = Background
   | Context (TVar Ctx)
@@ -59,26 +52,15 @@ data Cancelled
   deriving stock (Eq, Show)
   deriving anyclass (Exception)
 
--- | The background __context__.
---
--- You should only use this when another __context__ isn't available, as when
--- creating a top-level __scope__ from the main thread.
---
--- The background __context__ cannot be /cancelled/.
 background :: Context
 background =
   Background
 
--- | Return whether a __context__ is /cancelled/.
---
--- __Threads__ running in a /cancelled/ __context__ will be killed soon; they
--- should attempt to perform a graceful shutdown and finish.
 cancelled :: Context -> IO (Maybe CancelToken)
 cancelled = \case
   Background -> pure Nothing
   Context contextVar -> atomically (cancelled_ contextVar)
 
--- | @STM@ variant of 'cancelled'.
 cancelledSTM :: Context -> STM (Maybe CancelToken)
 cancelledSTM = \case
   Background -> pure Nothing

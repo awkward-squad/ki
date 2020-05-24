@@ -55,23 +55,6 @@ import Prelude hiding (IO)
 
 -- import Ki.Internal.Debug
 
--- | A __scope__ delimits the lifetime of all __threads__ forked within it.
---
--- * When a __scope__ is /closed/, all remaining __threads__ are killed.
--- * If a __thread__ throws an exception, its __scope__ is /closed/.
---
--- A __scope__ can be passed into functions or shared amongst __threads__, but
--- this is generally not advised, as it takes the "structure" out of "structured
--- concurrency".
---
--- The basic usage of a __scope__ is as follows:
---
--- @
--- 'scoped' context \\scope -> do
---   'async_' scope worker1
---   'async_' scope worker2
---   'wait' scope
--- @
 data Scope = Scope
   { context :: Context,
     -- | Whether this scope is closed
@@ -82,27 +65,11 @@ data Scope = Scope
     startingVar :: TVar Int
   }
 
--- | Some actions that attempt to use a /closed/ __scope__ throw 'ScopeClosed'
--- instead.
 data ScopeClosed
   = ScopeClosed
   deriving stock (Eq, Show)
   deriving anyclass (Exception)
 
--- | Perform an action with a new __scope__, then /close/ the __scope__.
---
--- /Throws/:
---
---   * The first exception a __thread__ throws, if any.
---
--- ==== __Examples__
---
--- @
--- 'scoped' context \\scope -> do
---   'async_' scope worker1
---   'async_' scope worker2
---   'wait' scope
--- @
 scoped :: Context -> (Scope -> IO a) -> IO a
 scoped parentContext f = do
   uninterruptibleMask \restore -> do
@@ -133,28 +100,19 @@ scoped parentContext f = do
               startingVar
             }
 
--- | Wait until all __threads__ within a __scope__ finish.
 wait :: Scope -> IO ()
 wait =
   atomically . waitSTM
 
--- | @STM@ variant of 'wait'.
 waitSTM :: Scope -> STM ()
 waitSTM Scope {runningVar, startingVar} = do
   blockUntilTVar runningVar Set.null
   blockUntilTVar startingVar (== 0)
 
--- | Variant of 'wait' that gives up after the given number of seconds elapses.
---
--- @
--- 'waitFor' scope seconds =
---   'timeout' seconds (pure \<$\> 'waitSTM' scope) (pure ())
--- @
 waitFor :: Scope -> Seconds -> IO ()
 waitFor scope seconds =
   timeout seconds (pure <$> waitSTM scope) (pure ())
 
--- | /Cancel/ all __contexts__ derived from a __scope__.
 cancel :: Scope -> IO ()
 cancel Scope {context} = do
   token <- newUnique
@@ -203,31 +161,14 @@ closeScope Scope {closedVar, runningVar, startingVar} = do
                   (threadId : threadIds) -- don't drop thread we didn't kill
               Right () -> loop acc threadIds
 
--- | Fork a __thread__ within a __scope__. The derived __context__ should
--- replace the usage of any other __context__ in scope.
---
--- /Throws/:
---
---   * 'ScopeClosed' if the __scope__ is /closed/.
 async :: Scope -> (Context -> IO a) -> IO (Thread a)
 async scope action =
   asyncImpl scope \context restore -> restore (action context)
 
--- | Fire-and-forget variant of 'async'.
---
--- /Throws/:
---
---   * 'ScopeClosed' if the __scope__ is /closed/.
 async_ :: Scope -> (Context -> IO a) -> IO ()
 async_ scope action =
   void (async scope action)
 
--- | Variant of 'async' that provides the __thread__ a function that unmasks
--- asynchronous exceptions.
---
--- /Throws/:
---
---   * 'ScopeClosed' if the __scope__ is /closed/.
 asyncWithUnmask ::
   Scope ->
   (Context -> (forall x. IO x -> IO x) -> IO a) ->
@@ -235,11 +176,6 @@ asyncWithUnmask ::
 asyncWithUnmask scope action =
   asyncImpl scope \context restore -> restore (action context unsafeUnmask)
 
--- | Fire-and-forget variant of 'asyncWithUnmask'.
---
--- /Throws/:
---
---   * 'ScopeClosed' if the __scope__ is /closed/.
 asyncWithUnmask_ ::
   Scope ->
   (Context -> (forall x. IO x -> IO x) -> IO a) ->
