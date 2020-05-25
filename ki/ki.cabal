@@ -22,10 +22,13 @@ source-repository head
   type: git
   location: https://github.com/mitchellwrosen/ki.git
 
+flag build-tests
+  default: False
+  manual: True
+
 common component
   default-extensions:
     BlockArguments
-    ConstraintKinds
     DeriveAnyClass
     DeriveDataTypeable
     DeriveFunctor
@@ -67,19 +70,6 @@ library
   -- mixins: ki-indef (Ki.Indef as Ki) requires (Ki.Sig as Ki.Sig.Base)
   -- reexported-modules: Ki
 
-library ki-mtl
-  import: component
-  build-depends:
-    base >= 4.12.0.0 && < 4.15,
-    generic-lens,
-    ki,
-    mtl,
-    unliftio-core
-  exposed-modules: Ki.Mtl
-  hs-source-dirs: src/ki-mtl
-  -- can't upload to hackage with this
-  -- visibility: public
-
 library ki-indef
   import: component
   build-depends:
@@ -109,6 +99,10 @@ library ki-impl-dejafu
     stm
   exposed-modules: Ki.Sig.Dejafu
   hs-source-dirs: src/ki-impl-dejafu
+  if flag(build-tests)
+    buildable: True
+  else
+    buildable: False
 
 test-suite tests
   import: component
@@ -118,8 +112,12 @@ test-suite tests
     dejafu,
     ki-impl-dejafu,
     ki-indef,
-  ghc-options: -O0 -threaded -with-rtsopts=-N1
+  ghc-options: -threaded -with-rtsopts=-N1
   hs-source-dirs: test
   main-is: Test.hs
   mixins: ki-indef (Ki.Indef as Ki) requires (Ki.Sig as Ki.Sig.Dejafu)
   type: exitcode-stdio-1.0
+  if flag(build-tests)
+    buildable: True
+  else
+    buildable: False
