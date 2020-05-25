@@ -10,19 +10,15 @@ jobs:
     name: ${{ matrix.os }} / ghc ${{ matrix.ghc }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macOS-latest, windows-latest]
-        cabal: [latest]
-        ghc: ["8.6", "8.8", "8.10"]
-        exclude:
+        os: [ubuntu-latest]
+        ghc: ["8.10", "8.8", "8.6"]
+        include:
           - os: macOS-latest
-            ghc: "8.8"
-          - os: macOS-latest
-            ghc: "8.6"
+            ghc: latest
           - os: windows-latest
-            ghc: "8.6"
-          - os: windows-latest
-            ghc: "8.8"
+            ghc: latest
     steps:
       - uses: actions/checkout@v2
         name: checkout
@@ -31,7 +27,6 @@ jobs:
         name: setup
         with:
           ghc-version: ${{ matrix.ghc }}
-          cabal-version: ${{ matrix.cabal }}
       - uses: actions/cache@v1
         name: cache ~/.cabal/store
         with:
@@ -39,6 +34,13 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.ghc }}-cabal-store-${{ hashFiles('**/*.cabal') }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.ghc }}-cabal-store-
+      - uses: actions/cache@v1
+        name: cache dist-newstyle
+        with:
+          path: dist-newstyle
+          key: ${{ runner.os }}-${{ matrix.ghc }}-dist-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.ghc }}-dist-
       - name: build ki
         run: ./do build ki
       - name: test ki
