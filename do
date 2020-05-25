@@ -3,14 +3,17 @@
 set -e
 
 case "$@" in
+  "dev ki-indef")
+    exec ghcid -c 'cabal repl ki:lib:ki-indef' --restart ki/ki.cabal
+    ;;
   "build ki")
-    cabal build ki --constraint "ki +build-tests" --disable-optimization --enable-tests
+    exec cabal build ki --constraint "ki +build-tests" --disable-optimization --enable-tests
     ;;
   "test ki")
-    cabal run ki:test:tests --constraint "ki +build-tests" --disable-optimization --enable-tests
+    exec cabal run ki:test:tests --constraint "ki +build-tests" --disable-optimization --enable-tests
     ;;
   "build ki-mtl")
-    cabal build ki-mtl --constraint "ki +build-tests" --disable-optimization --enable-tests
+    exec cabal build ki-mtl --constraint "ki +build-tests" --disable-optimization --enable-tests
     ;;
   "upload ki candidate")
     cabal sdist ki
