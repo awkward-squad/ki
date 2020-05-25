@@ -20,4 +20,5 @@ case "$@" in
     cabal haddock ki --haddock-for-hackage
     cabal upload -u $HACKAGE_USERNAME -p $HACKAGE_PASSWORD dist-newstyle/sdist/ki-0.tar.gz
     cabal upload -u $HACKAGE_USERNAME -p $HACKAGE_PASSWORD -d dist-newstyle/ki-0-docs.tar.gz
+    ;;
 esac
