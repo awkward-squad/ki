@@ -9,7 +9,6 @@ module Ki.Mtl
     -- * Context
     Context,
     background,
-    CancelToken,
     cancelled,
     cancelledSTM,
 
@@ -45,7 +44,7 @@ import Control.Monad.IO.Unlift
 import Control.Monad.Reader
 import Data.Generics.Product.Typed (HasType (getTyped, setTyped))
 import GHC.Conc (STM)
-import Ki (CancelToken, Cancelled (..), Context, Scope, Seconds, Thread, awaitSTM, background, waitSTM)
+import Ki (Cancelled (..), Context, Scope, Seconds, Thread, awaitSTM, background, waitSTM)
 import qualified Ki
 
 -- | A convenience type alias for classifying monads suitable for use with @ki@.
@@ -129,20 +128,45 @@ cancel :: MonadIO m => Scope -> m ()
 cancel =
   liftIO . Ki.cancel
 
--- | Return whether the __context__ is /cancelled/.
+-- | Return whether a __context__ is /cancelled/.
 --
--- __Threads__ running in a /cancelled/ __context__ will be killed soon; they
--- should attempt to perform a graceful shutdown and finish.
-cancelled :: MonadKi r m => m (Maybe CancelToken)
+-- __Threads__ running in a /cancelled/ __context__ should terminate as soon as
+-- possible. The returned action may be used to honor the /cancellation/ request
+-- in case the __thread__ is unable or unwilling to terminate normally with a
+-- value.
+--
+-- ==== __Examples__
+--
+-- Sometimes, a __thread__ may terminate with a value after observing a
+-- cancellation request.
+--
+-- @
+-- 'cancelled' >>= \\case
+--   Nothing -> continue
+--   Just _capitulate -> do
+--     cleanup
+--     pure value
+-- @
+--
+-- Other times, it may be unable to, so it should call the provided action.
+--
+-- @
+-- 'cancelled' >>= \\case
+--   Nothing -> continue
+--   Just capitulate -> do
+--     cleanup
+--     capitulate
+-- @
+cancelled :: MonadKi r m => m (Maybe (m a))
 cancelled = do
   context <- askContext
-  liftIO (Ki.cancelled context)
+  (fmap . fmap) liftIO (liftIO (Ki.cancelled context))
 
 -- | @STM@ variant of 'cancelled'.
-cancelledSTM :: MonadKi r m => m (STM (Maybe CancelToken))
+cancelledSTM :: MonadKi r m => m (STM (Maybe (m a)))
 cancelledSTM = do
   context <- askContext
-  pure (Ki.cancelledSTM context)
+  pure ((fmap . fmap) liftIO (Ki.cancelledSTM context))
 
 -- | Kill a __thread__ wait for it to finish.
 --

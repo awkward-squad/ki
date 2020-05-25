@@ -2,38 +2,28 @@
 {-# LANGUAGE TypeApplications #-}
 
 module Ki.Indef
-  ( -- * Context
+  ( Cancelled (..),
     Context,
-    Ki.Context.background,
-    CancelToken,
-    Ki.Context.cancelled,
-    Ki.Context.cancelledSTM,
-
-    -- * Scope
     Scope,
-    scoped,
-    wait,
-    waitSTM,
-    waitFor,
-    cancel,
-
-    -- * Thread
+    Seconds,
     Thread,
     async,
-    async_,
     asyncWithUnmask,
     asyncWithUnmask_,
-    Thread.await,
-    Thread.awaitSTM,
-    Thread.awaitFor,
-    Thread.kill,
-
-    -- * Exceptions
-    Cancelled (..),
-
-    -- * Miscellaneous
-    Seconds,
+    async_,
+    await,
+    awaitFor,
+    awaitSTM,
+    background,
+    cancel,
+    cancelled,
+    cancelledSTM,
+    kill,
+    scoped,
     timeout,
+    wait,
+    waitFor,
+    waitSTM,
   )
 where
 
@@ -45,10 +35,10 @@ import Data.Functor (void)
 import qualified Data.Semigroup as Semigroup
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Ki.Indef.Context (CancelToken (..), Cancelled (..), Context)
+import Ki.Indef.Context (CancelToken (..), Cancelled (..), Context, background)
 import qualified Ki.Indef.Context as Ki.Context
 import Ki.Indef.Seconds (Seconds)
-import Ki.Indef.Thread (AsyncThreadFailed (..), Thread (Thread), timeout)
+import Ki.Indef.Thread (AsyncThreadFailed (..), Thread (Thread), await, awaitFor, awaitSTM, kill, timeout)
 import qualified Ki.Indef.Thread as Thread
 import Ki.Sig (IO, STM, TVar, ThreadId, atomically, forkIO, modifyTVar', myThreadId, newEmptyTMVar, newTVar, newUnique, putTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, unsafeUnmask, writeTVar)
 import Prelude hiding (IO)
@@ -99,19 +89,27 @@ wait :: Scope -> IO ()
 wait =
   atomically . waitSTM
 
+waitFor :: Scope -> Seconds -> IO ()
+waitFor scope seconds =
+  timeout seconds (pure <$> waitSTM scope) (pure ())
+
 waitSTM :: Scope -> STM ()
 waitSTM Scope {runningVar, startingVar} = do
   blockUntilTVar runningVar Set.null
   blockUntilTVar startingVar (== 0)
 
-waitFor :: Scope -> Seconds -> IO ()
-waitFor scope seconds =
-  timeout seconds (pure <$> waitSTM scope) (pure ())
-
 cancel :: Scope -> IO ()
 cancel Scope {context} = do
   token <- newUnique
   atomically (Ki.Context.cancel context (CancelToken token))
+
+cancelled :: Context -> IO (Maybe (IO a))
+cancelled =
+  (fmap . fmap) (throwIO . Cancelled_) . Ki.Context.cancelled
+
+cancelledSTM :: Context -> STM (Maybe (IO a))
+cancelledSTM =
+  (fmap . fmap) (throwIO . Cancelled_) . Ki.Context.cancelledSTM
 
 -- Close a scope, kill all of the running threads, and return the first async
 -- exception delivered to us while doing so, if any.
@@ -221,7 +219,7 @@ asyncImpl Scope {context, closedVar, runningVar, startingVar} action = do
         Just _ -> pure True
         Nothing ->
           case fromException exception of
-            Just (Cancelled token) -> do
+            Just (Cancelled_ token) -> do
               token' <- Ki.Context.cancelled context
               pure (token' /= Just token)
             Nothing -> pure True

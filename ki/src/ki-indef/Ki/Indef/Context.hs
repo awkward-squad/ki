@@ -48,7 +48,7 @@ newtype CancelToken
   deriving stock (Eq, Show)
 
 data Cancelled
-  = Cancelled CancelToken
+  = Cancelled_ CancelToken
   deriving stock (Eq, Show)
   deriving anyclass (Exception)
 

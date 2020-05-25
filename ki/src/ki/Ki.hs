@@ -1,3 +1,4 @@
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -fno-warn-unused-top-binds #-}
@@ -11,7 +12,6 @@ module Ki
   ( -- * Context
     Context,
     background,
-    CancelToken,
     cancelled,
     cancelledSTM,
 
@@ -35,7 +35,7 @@ module Ki
     kill,
 
     -- * Exceptions
-    Cancelled (..),
+    K.Cancelled(Cancelled),
 
     -- * Miscellaneous
     Seconds,
@@ -43,19 +43,16 @@ module Ki
   )
 where
 
-import Control.Exception (Exception)
 import Data.Coerce (coerce)
 import GHC.Conc (STM)
 import GHC.Generics (Generic)
 import qualified Ki.Indef as K
 
-newtype Cancelled
-  = Cancelled K.Cancelled
-  deriving newtype (Eq, Exception, Show)
-
-newtype CancelToken
-  = CancelToken K.CancelToken
-  deriving newtype (Eq, Show)
+-- | A 'Cancelled' exception is thrown when a __thread__ voluntarily capitulates
+-- after observing its __context__ is /cancelled/.
+pattern Cancelled :: K.Cancelled
+pattern Cancelled <- K.Cancelled_ _
+{-# COMPLETE Cancelled #-}
 
 -- | A __context__ models a program's call tree.
 --
@@ -217,16 +214,49 @@ cancel = coerce K.cancel
 
 -- | Return whether a __context__ is /cancelled/.
 --
--- __Threads__ running in a /cancelled/ __context__ will be killed soon; they
--- should attempt to perform a graceful shutdown and finish.
-cancelled :: Context -> IO (Maybe CancelToken)
-cancelled = coerce K.cancelled
+-- __Threads__ running in a /cancelled/ __context__ should terminate as soon as
+-- possible. The returned action may be used to honor the /cancellation/ request
+-- in case the __thread__ is unable or unwilling to terminate normally with a
+-- value.
+--
+-- ==== __Examples__
+--
+-- Sometimes, a __thread__ may terminate with a value after observing a
+-- cancellation request.
+--
+-- @
+-- 'cancelled' context >>= \\case
+--   Nothing -> continue
+--   Just _capitulate -> do
+--     cleanup
+--     pure value
+-- @
+--
+-- Other times, it may be unable to, so it should call the provided action.
+--
+-- @
+-- 'cancelled' context >>= \\case
+--   Nothing -> continue
+--   Just capitulate -> do
+--     cleanup
+--     capitulate
+-- @
+cancelled :: Context -> IO (Maybe (IO a))
+cancelled = _cancelled
 {-# INLINE cancelled #-}
 
+_cancelled :: forall a. Context -> IO (Maybe (IO a))
+_cancelled = coerce @(K.Context -> IO (Maybe (IO a))) K.cancelled
+{-# INLINE _cancelled #-}
+
 -- | @STM@ variant of 'cancelled'.
-cancelledSTM :: Context -> STM (Maybe CancelToken)
-cancelledSTM = coerce K.cancelledSTM
+cancelledSTM :: Context -> STM (Maybe (IO a))
+cancelledSTM = _cancelledSTM
 {-# INLINE cancelledSTM #-}
+
+_cancelledSTM :: forall a. Context -> STM (Maybe (IO a))
+_cancelledSTM = coerce @(K.Context -> STM (Maybe (IO a))) K.cancelledSTM
+{-# INLINE _cancelledSTM #-}
 
 -- | Kill a __thread__ wait for it to finish.
 --

@@ -25,8 +25,8 @@ import Text.Printf (printf)
 
 main :: IO ()
 main = do
-  test "background context isn't cancelled" . returns Nothing $ do
-    cancelled background
+  test "background context isn't cancelled" . returns False $ do
+    isJust <$> cancelled background
 
   test "new context isn't cancelled" . returns False $ do
     scoped background \scope -> async scope cancelled >>= fmap isJust . await
@@ -155,7 +155,7 @@ main = do
       async_ scope \context ->
         cancelled context >>= \case
           Nothing -> throw A
-          Just token -> throw (Cancelled token)
+          Just capitulate -> capitulate
       wait scope
 
 type P =
