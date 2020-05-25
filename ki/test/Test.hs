@@ -3,13 +3,14 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Main (main) where
 
 import Control.Concurrent.Classy hiding (wait)
-import Control.Exception (AsyncException (ThreadKilled), Exception (fromException), MaskingState (..), SomeAsyncException, SomeException)
+import Control.Exception (AsyncException (ThreadKilled), Exception (fromException), MaskingState (..), SomeAsyncException, SomeException, pattern ErrorCall)
 import Control.Monad
 import Data.Foldable
 import Data.Function
@@ -53,7 +54,7 @@ main = do
       wait scope
     readIORef ref
 
-  test "using a closed scope throws an exception" . throws ScopeClosed $ do
+  test "using a closed scope throws an exception" . throws (ErrorCall "ki: scope closed") $ do
     scope <- scoped background pure
     async_ scope \_ -> pure ()
 

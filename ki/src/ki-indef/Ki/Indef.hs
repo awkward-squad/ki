@@ -1,3 +1,4 @@
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Ki.Indef
@@ -29,7 +30,6 @@ module Ki.Indef
 
     -- * Exceptions
     Cancelled (..),
-    ScopeClosed (..),
 
     -- * Miscellaneous
     Seconds,
@@ -37,7 +37,7 @@ module Ki.Indef
   )
 where
 
-import Control.Exception (AsyncException (ThreadKilled), Exception (fromException), SomeException)
+import Control.Exception (AsyncException (ThreadKilled), Exception (fromException), SomeException, pattern ErrorCall)
 import Control.Monad (unless)
 import Data.Coerce (coerce)
 import Data.Foldable (for_)
@@ -64,11 +64,6 @@ data Scope = Scope
     -- | The number of threads that are just about to start
     startingVar :: TVar Int
   }
-
-data ScopeClosed
-  = ScopeClosed
-  deriving stock (Eq, Show)
-  deriving anyclass (Exception)
 
 scoped :: Context -> (Scope -> IO a) -> IO a
 scoped parentContext f = do
@@ -192,7 +187,7 @@ asyncImpl Scope {context, closedVar, runningVar, startingVar} action = do
     atomically do
       readTVar closedVar >>= \case
         False -> modifyTVar' startingVar (+ 1)
-        True -> throwSTM ScopeClosed
+        True -> throwSTM (ErrorCall "ki: scope closed")
 
     parentThreadId <- myThreadId
     resultVar <- atomically (newEmptyTMVar "result")

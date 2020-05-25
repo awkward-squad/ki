@@ -36,7 +36,6 @@ module Ki
 
     -- * Exceptions
     Cancelled (..),
-    ScopeClosed (..),
 
     -- * Miscellaneous
     Seconds,
@@ -89,12 +88,6 @@ newtype Context
 newtype Scope
   = Scope K.Scope
 
--- | Some actions that attempt to use a /closed/ __scope__ throw 'ScopeClosed'
--- instead.
-newtype ScopeClosed
-  = ScopeClosed K.ScopeClosed
-  deriving newtype (Eq, Exception, Show)
-
 newtype Seconds
   = Seconds K.Seconds
 
@@ -109,7 +102,7 @@ newtype Thread a
 --
 -- /Throws/:
 --
---   * 'ScopeClosed' if the __scope__ is /closed/.
+--   * Calls 'error' the __scope__ is /closed/.
 async :: Scope -> (Context -> IO a) -> IO (Thread a)
 async = _async
 {-# INLINE async #-}
@@ -122,7 +115,7 @@ _async = coerce @(K.Scope -> (K.Context -> IO a) -> IO (K.Thread a)) K.async
 --
 -- /Throws/:
 --
---   * 'ScopeClosed' if the __scope__ is /closed/.
+--   * Calls 'error' if the __scope__ is /closed/.
 async_ :: Scope -> (Context -> IO a) -> IO ()
 async_ = _async_
 {-# INLINE async_ #-}
@@ -136,7 +129,7 @@ _async_ = coerce @(K.Scope -> (K.Context -> IO a) -> IO ()) K.async_
 --
 -- /Throws/:
 --
---   * 'ScopeClosed' if the __scope__ is /closed/.
+--   * Calls 'error' if the __scope__ is /closed/.
 asyncWithUnmask ::
   Scope ->
   (Context -> (forall x. IO x -> IO x) -> IO a) ->
@@ -159,7 +152,7 @@ _asyncWithUnmask scope k =
 --
 -- /Throws/:
 --
---   * 'ScopeClosed' if the __scope__ is /closed/.
+--   * Calls 'error' if the __scope__ is /closed/.
 asyncWithUnmask_ ::
   Scope ->
   (Context -> (forall x. IO x -> IO x) -> IO a) ->

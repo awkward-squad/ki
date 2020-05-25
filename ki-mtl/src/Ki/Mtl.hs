@@ -34,7 +34,6 @@ module Ki.Mtl
 
     -- * Exceptions
     Cancelled (..),
-    ScopeClosed (..),
 
     -- * Miscellaneous
     Seconds,
@@ -46,7 +45,7 @@ import Control.Monad.IO.Unlift
 import Control.Monad.Reader
 import Data.Generics.Product.Typed (HasType (getTyped, setTyped))
 import GHC.Conc (STM)
-import Ki (CancelToken, Cancelled (..), Context, Scope, ScopeClosed (..), Seconds, Thread, awaitSTM, background, waitSTM)
+import Ki (CancelToken, Cancelled (..), Context, Scope, Seconds, Thread, awaitSTM, background, waitSTM)
 import qualified Ki
 
 -- | A convenience type alias for classifying monads suitable for use with @ki@.
@@ -57,7 +56,7 @@ type MonadKi r m =
 --
 -- /Throws/:
 --
---   * 'ScopeClosed' if the __scope__ is /closed/.
+--   * Calls 'error' if the __scope__ is /closed/.
 async :: MonadKi r m => Scope -> m a -> m (Thread a)
 async scope k =
   withRunInIO \unlift ->
@@ -68,7 +67,7 @@ async scope k =
 --
 -- /Throws/:
 --
---   * 'ScopeClosed' if the __scope__ is /closed/.
+--   * Calls 'error' if the __scope__ is /closed/.
 async_ :: MonadKi r m => Scope -> m a -> m ()
 async_ scope k =
   withRunInIO \unlift ->
@@ -80,7 +79,7 @@ async_ scope k =
 --
 -- /Throws/:
 --
---   * 'ScopeClosed' if the __scope__ is /closed/.
+--   * Calls 'error' if the __scope__ is /closed/.
 asyncWithUnmask ::
   MonadKi r m =>
   Scope ->
@@ -95,7 +94,7 @@ asyncWithUnmask scope k =
 --
 -- /Throws/:
 --
---   * 'ScopeClosed' if the __scope__ is /closed/.
+--   * Calls 'error' if the __scope__ is /closed/.
 asyncWithUnmask_ ::
   MonadKi r m =>
   Scope ->
