@@ -54,27 +54,44 @@ pattern Cancelled :: K.Cancelled
 pattern Cancelled <- K.Cancelled_ _
 {-# COMPLETE Cancelled #-}
 
--- | A __context__ models a program's call tree.
+-- | A __context__ models a program's call tree, and is used as a mechanism to
+-- propagate /cancellation requests/ to every __thread__ forked within a
+-- __scope__.
 --
--- Every __thread__ has its own __context__, which is used as a mechanism to
--- propagate /cancellation/.
+-- Every __thread__ is provided its own __context__, which is derived from its
+-- __scope__, and should replace any other __context__ variable that may be in
+-- scope.
 --
 -- A __thread__ can query whether its __context__ has been /cancelled/, which is
--- a suggestion to perform a graceful shutdown and finish.
+-- a suggestion to perform a graceful termination.
+--
+-- === Usage summary
+--
+--   * A __context__ is /introduced by/ 'background' and 'async'.
+--   * A __context__ is /queried by/ 'cancelled'.
+--   * A __context__ is /manipulated by/ 'async' and 'cancel'.
 newtype Context
   = Context K.Context
   deriving stock (Generic)
 
--- | A __scope__ delimits the lifetime of all __threads__ forked within it.
+-- | A __scope__ delimits the lifetime of all __threads__ forked within it. A
+-- __thread__ cannot outlive its __scope__.
 --
--- * When a __scope__ is /closed/, all remaining __threads__ are killed.
--- * If a __thread__ throws an exception, its __scope__ is /closed/.
+-- If a __thread__ forked within a __scope__ throws an /unexpected/ exception,
+-- it is propagated up the call tree to the __thread__ that opened the
+-- __scope__.
 --
--- A __scope__ can be passed into functions or shared amongst __threads__, but
--- this is generally not advised, as it takes the "structure" out of "structured
--- concurrency".
+-- There are two /expected/ exceptions a __thread__ may throw that will not be
+-- propagated up the call tree:
 --
--- The basic usage of a __scope__ is as follows:
+--   * 'ThreadKilled', as when killing a __thread__ with 'kill'.
+--   * 'Cancelled', as when a __thread__ voluntarily capitulates after observing
+--     a /cancellation/ request.
+--
+-- When a __scope__ is /closed/, all remaining __threads__ forked within it are
+-- killed.
+--
+-- The basic usage of a __scope__ is as follows.
 --
 -- @
 -- 'scoped' context \\scope -> do
@@ -82,6 +99,16 @@ newtype Context
 --   'async_' scope worker2
 --   'wait' scope
 -- @
+--
+-- A __scope__ can be passed into functions or shared amongst __threads__, but
+-- this is generally not advised, as it takes the "structure" out of "structured
+-- concurrency".
+--
+-- === Usage summary
+--
+--   * A __scope__ is /introduced by/ 'scoped'.
+--   * A __scope__ is /queried by/ 'wait'.
+--   * A __scope__ is /manipulated by/ 'async' and 'cancel'.
 newtype Scope
   = Scope K.Scope
 
@@ -89,6 +116,12 @@ newtype Seconds
   = Seconds K.Seconds
 
 -- | A running __thread__.
+--
+-- === Usage summary
+--
+--   * A __thread__ is /introduced by/ 'async'.
+--   * A __thread__ is /queried by/ 'await'.
+--   * A __thread__ is /manipulated by/ 'kill'.
 newtype Thread a
   = Thread (K.Thread a)
   deriving stock (Generic)
@@ -297,7 +330,7 @@ _scoped = coerce @(K.Context -> (K.Scope -> IO a) -> IO a) K.scoped
 -- | Wait for an @STM@ action to return, and return the @IO@ action contained
 -- within.
 --
--- If the given number of seconds elapse, return the given @IO@ action instead.
+-- If the given number of seconds elapses, return the given @IO@ action instead.
 timeout :: Seconds -> STM (IO a) -> IO a -> IO a
 timeout = _timeout
 {-# INLINE timeout #-}
