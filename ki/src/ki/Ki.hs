@@ -35,7 +35,7 @@ module Ki
     kill,
 
     -- * Exceptions
-    K.Cancelled(Cancelled),
+    K.Cancelled (Cancelled),
 
     -- * Miscellaneous
     Seconds,
@@ -44,6 +44,7 @@ module Ki
 where
 
 import Data.Coerce (coerce)
+import Data.Data (Data)
 import GHC.Conc (STM)
 import GHC.Generics (Generic)
 import qualified Ki.Indef as K
@@ -52,6 +53,7 @@ import qualified Ki.Indef as K
 -- after observing its __context__ is /cancelled/.
 pattern Cancelled :: K.Cancelled
 pattern Cancelled <- K.Cancelled_ _
+
 {-# COMPLETE Cancelled #-}
 
 -- | A __context__ models a program's call tree, and is used as a mechanism to
@@ -114,6 +116,8 @@ newtype Scope
 
 newtype Seconds
   = Seconds K.Seconds
+  deriving stock (Data, Generic)
+  deriving newtype (Enum, Eq, Fractional, Num, Ord, Read, Real, RealFrac, Show)
 
 -- | A running __thread__.
 --
