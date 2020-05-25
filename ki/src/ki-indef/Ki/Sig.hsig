@@ -22,9 +22,9 @@ instance Eq ThreadId
 instance Ord ThreadId
 instance Show ThreadId
 
-data TMVar a
-
 data TVar a
+
+data TMVar a
 
 atomically :: STM a -> IO a
 catch :: forall e a. Exception e => IO a -> (e -> IO a) -> IO a

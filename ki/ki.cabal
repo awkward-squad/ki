@@ -86,7 +86,7 @@ library ki-indef
 
 library ki-impl-base
   import: component
-  build-depends: base, stm
+  build-depends: base
   exposed-modules: Ki.Sig.Base
   hs-source-dirs: src/ki-impl-base
 

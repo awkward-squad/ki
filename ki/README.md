@@ -1,6 +1,8 @@
 # ki
 
 [![GitHub CI](https://github.com/mitchellwrosen/ki/workflows/CI/badge.svg)](https://github.com/mitchellwrosen/ki/actions)
+[![Hackage](https://img.shields.io/hackage/v/ki.svg?label=ki&logo=haskell)](https://hackage.haskell.org/package/ki-0/candidate)
+[![Hackage](https://img.shields.io/hackage/v/ki.svg?label=ki-mtl&logo=haskell)](https://hackage.haskell.org/package/ki-mtl-0/candidate)
 
 `ki` is a lightweight structured-concurrency library inspired by
 [`libdill`](http://libdill.org/), [`trio`](https://github.com/python-trio/trio),
