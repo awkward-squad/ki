@@ -13,15 +13,27 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        ghc: ["8.10", "8.8", "8.6"]
+        ghc: ["latest", "8.8", "8.6"]
         include:
           - os: macOS-latest
-            ghc: latest
+            ghc: "8.10.1"
           - os: windows-latest
             ghc: latest
     steps:
       - uses: actions/checkout@v2
         name: checkout
+      - uses: actions/cache@v1
+        name: cache ~/.ghcup/bin
+        if: matrix.os == 'macOS-latest'
+        with:
+          path: ~/.ghcup/bin
+          key: ${{ runner.os }}-${{ matrix.ghc }}-ghcup-bin
+      - uses: actions/cache@v1
+        name: cache ~/.ghcup/ghc
+        if: matrix.os == 'macOS-latest'
+        with:
+          path: ~/.ghcup/ghc
+          key: ${{ runner.os }}-${{ matrix.ghc }}-ghcup-ghc2
       - uses: actions/setup-haskell@v1.1
         id: setup-haskell
         name: setup
