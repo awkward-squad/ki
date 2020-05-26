@@ -4,6 +4,7 @@
 module Ki.Indef.Scope
   ( Scope,
     async,
+    async_,
     cancel,
     scoped,
     timeout,
@@ -41,49 +42,66 @@ async ::
   Scope ->
   (Context -> (forall x. IO x -> IO x) -> IO a) ->
   IO (Thread a)
-async Scope {context, closedVar, runningVar, startingVar} action = do
+async scope@Scope {context, runningVar} action = do
   uninterruptibleMask \restore -> do
-    atomically do
-      readTVar closedVar >>= \case
-        False -> modifyTVar' startingVar (+ 1)
-        True -> throwSTM (ErrorCall "ki: scope closed")
-
+    _asyncBeforeForking scope
     parentThreadId <- myThreadId
     resultVar <- newEmptyTMVarIO "result"
-
     childThreadId <-
       forkIO do
-        childThreadId <- myThreadId
         result <- try (action context restore)
-        whenLeft result \exception -> do
-          whenM
-            (shouldPropagateException exception)
-            (throwTo parentThreadId (AsyncThreadFailed exception))
-        atomically do
-          running <- readTVar runningVar
-          if Set.member childThreadId running
-            then do
-              putTMVar resultVar result
-              writeTVar runningVar $! Set.delete childThreadId running
-            else retry
-
-    atomically do
-      modifyTVar' startingVar (subtract 1)
-      modifyTVar' runningVar (Set.insert childThreadId)
-
+        _asyncWithResult context parentThreadId result
+        childThreadId <- myThreadId
+        _asyncAfterRunning scope childThreadId \running -> do
+          putTMVar resultVar result
+          writeTVar runningVar $! Set.delete childThreadId running
+    _asyncAfterForking scope childThreadId
     pure (Thread childThreadId resultVar)
-  where
-    shouldPropagateException :: SomeException -> IO Bool
-    shouldPropagateException exception =
-      case fromException exception of
-        Just ThreadKilled -> pure False
-        Just _ -> pure True
-        Nothing ->
-          case fromException exception of
-            Just (Cancelled_ token) -> do
-              token' <- Ki.Context.cancelled context
-              pure (token' /= Just token)
-            Nothing -> pure True
+
+async_ ::
+  Scope ->
+  (Context -> (forall x. IO x -> IO x) -> IO a) ->
+  IO ()
+async_ scope@Scope {context, runningVar} action = do
+  uninterruptibleMask \restore -> do
+    _asyncBeforeForking scope
+    parentThreadId <- myThreadId
+    childThreadId <-
+      forkIO do
+        result <- try (action context restore)
+        _asyncWithResult context parentThreadId result
+        childThreadId <- myThreadId
+        _asyncAfterRunning scope childThreadId \running ->
+          writeTVar runningVar $! Set.delete childThreadId running
+    _asyncAfterForking scope childThreadId
+
+_asyncBeforeForking :: Scope -> IO ()
+_asyncBeforeForking Scope{closedVar, startingVar} = do
+  atomically do
+    readTVar closedVar >>= \case
+      False -> modifyTVar' startingVar (+ 1)
+      True -> throwSTM (ErrorCall "ki: scope closed")
+
+_asyncAfterForking :: Scope -> ThreadId -> IO ()
+_asyncAfterForking Scope{startingVar, runningVar} childThreadId =
+  atomically do
+    modifyTVar' startingVar (subtract 1)
+    modifyTVar' runningVar (Set.insert childThreadId)
+
+_asyncWithResult :: Context -> ThreadId -> Either SomeException a -> IO ()
+_asyncWithResult context parentThreadId result =
+  whenLeft result \exception -> do
+    whenM
+      (shouldPropagateException context exception)
+      (throwTo parentThreadId (AsyncThreadFailed exception))
+
+_asyncAfterRunning :: Scope -> ThreadId -> (Set ThreadId -> STM ()) -> IO ()
+_asyncAfterRunning Scope{runningVar} childThreadId action =
+  atomically do
+    running <- readTVar runningVar
+    if Set.member childThreadId running
+      then action running
+      else retry
 
 cancel :: Scope -> IO ()
 cancel Scope {context} = do
@@ -170,6 +188,18 @@ wait Scope {runningVar, startingVar} = do
 
 --------------------------------------------------------------------------------
 -- Misc. utils
+
+shouldPropagateException :: Context -> SomeException -> IO Bool
+shouldPropagateException context exception =
+  case fromException exception of
+    Just ThreadKilled -> pure False
+    Just _ -> pure True
+    Nothing ->
+      case fromException exception of
+        Just (Cancelled_ token) -> do
+          token' <- Ki.Context.cancelled context
+          pure (token' /= Just token)
+        Nothing -> pure True
 
 blockUntilTVar :: TVar a -> (a -> Bool) -> STM ()
 blockUntilTVar var f = do

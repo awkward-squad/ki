@@ -27,7 +27,6 @@ module Ki.Indef
   )
 where
 
-import Data.Functor (void)
 import Ki.Indef.Context (Cancelled (..), Context, background)
 import qualified Ki.Indef.Context as Ki.Context
 import Ki.Indef.Scope (Scope, cancel, scoped)
@@ -65,7 +64,7 @@ async scope action =
 
 async_ :: Scope -> (Context -> IO a) -> IO ()
 async_ scope action =
-  void (async scope action)
+  Scope.async_ scope \context restore -> restore (action context)
 
 asyncWithUnmask ::
   Scope ->
@@ -78,5 +77,5 @@ asyncWithUnmask_ ::
   Scope ->
   (Context -> (forall x. IO x -> IO x) -> IO a) ->
   IO ()
-asyncWithUnmask_ scope f =
-  void (asyncWithUnmask scope f)
+asyncWithUnmask_ scope action =
+  Scope.async_ scope \context restore -> restore (action context unsafeUnmask)
