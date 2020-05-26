@@ -15,7 +15,7 @@ module Ki.Sig.Base
     Ki.Sig.Base.forkIO,
     modifyTVar',
     myThreadId,
-    newEmptyTMVar,
+    newEmptyTMVarIO,
     Ki.Sig.Base.newTVar,
     Ki.Sig.Base.newUnique,
     putTMVar,
@@ -61,9 +61,9 @@ modifyTVar' var f = do
   x <- readTVar var
   writeTVar var $! f x
 
-newEmptyTMVar :: forall a. String -> STM (TMVar a)
-newEmptyTMVar _ =
-  coerce @(STM (TVar (Maybe a))) (GHC.Conc.newTVar Nothing)
+newEmptyTMVarIO :: forall a. String -> IO (TMVar a)
+newEmptyTMVarIO _ =
+  coerce @(IO (TVar (Maybe a))) (GHC.Conc.newTVarIO Nothing)
 
 newTVar :: String -> a -> STM (TVar a)
 newTVar _ =

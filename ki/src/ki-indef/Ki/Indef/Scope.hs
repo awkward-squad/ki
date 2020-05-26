@@ -22,7 +22,7 @@ import Ki.Indef.Context (CancelToken (..), Cancelled (..), Context)
 import qualified Ki.Indef.Context as Ki.Context
 import Ki.Indef.Thread (AsyncThreadFailed (..), Thread (Thread), timeout)
 import qualified Ki.Indef.Thread as Thread
-import Ki.Sig (IO, STM, TVar, ThreadId, atomically, forkIO, modifyTVar', myThreadId, newEmptyTMVar, newTVar, newUnique, putTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, unsafeUnmask, writeTVar)
+import Ki.Sig (IO, STM, TVar, ThreadId, atomically, forkIO, modifyTVar', myThreadId, newEmptyTMVarIO, newTVar, newUnique, putTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, unsafeUnmask, writeTVar)
 import Prelude hiding (IO)
 
 -- import Ki.Internal.Debug
@@ -49,7 +49,7 @@ async Scope {context, closedVar, runningVar, startingVar} action = do
         True -> throwSTM (ErrorCall "ki: scope closed")
 
     parentThreadId <- myThreadId
-    resultVar <- atomically (newEmptyTMVar "result")
+    resultVar <- newEmptyTMVarIO "result"
 
     childThreadId <-
       forkIO do

@@ -42,9 +42,9 @@ myThreadId :: IO ThreadId
 myThreadId =
   Conc.myThreadId
 
-newEmptyTMVar :: String -> STM (TMVar a)
-newEmptyTMVar =
-  Conc.newEmptyTMVarN
+newEmptyTMVarIO :: String -> IO (TMVar a)
+newEmptyTMVarIO =
+  Conc.atomically . Conc.newEmptyTMVarN
 
 newTVar :: String -> a -> STM (TVar a)
 newTVar name =
