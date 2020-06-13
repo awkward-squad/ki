@@ -29,6 +29,7 @@ flag build-tests
 common component
   default-extensions:
     BlockArguments
+    ConstraintKinds
     DeriveAnyClass
     DeriveDataTypeable
     DeriveFunctor
@@ -37,6 +38,7 @@ common component
     DuplicateRecordFields
     ExistentialQuantification
     GeneralizedNewtypeDeriving
+    ImplicitParams
     LambdaCase
     NamedFieldPuns
     RankNTypes

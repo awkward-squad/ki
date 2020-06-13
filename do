@@ -15,9 +15,6 @@ case "$@" in
   "test ki")
     exec cabal run ki:test:tests --constraint "ki +build-tests" --disable-optimization --enable-tests
     ;;
-  "build ki-mtl")
-    exec cabal build ki-mtl --constraint "ki +build-tests" --disable-optimization --enable-tests
-    ;;
   "upload ki candidate")
     cabal sdist ki
     cabal haddock ki --haddock-for-hackage
