@@ -12,13 +12,13 @@ module Ki.Indef
     await,
     awaitFor,
     awaitSTM,
-    background,
     cancel,
     cancelled,
     cancelledSTM,
     fork,
     forkWithUnmask,
     kill,
+    run,
     scoped,
     timeout,
     wait,
@@ -27,9 +27,9 @@ module Ki.Indef
   )
 where
 
-import Ki.Indef.Context (Cancelled (..), Context, background)
+import Ki.Indef.Context (Cancelled (..))
 import qualified Ki.Indef.Context as Ki.Context
-import Ki.Indef.Scope (Scope, cancel, scoped)
+import Ki.Indef.Scope (Context, Scope, cancel, run, scoped)
 import qualified Ki.Indef.Scope as Scope
 import Ki.Indef.Seconds (Seconds)
 import Ki.Indef.Thread (Thread, await, awaitFor, awaitSTM, kill, timeout)
@@ -38,32 +38,29 @@ import Prelude hiding (IO)
 
 -- import Ki.Internal.Debug
 
-async :: Scope -> (Context -> IO a) -> IO (Thread a)
+async :: Scope -> (Context => IO a) -> IO (Thread a)
 async scope action =
-  Scope.async scope \context restore -> restore (action context)
+  Scope.async scope \restore -> restore action
 
-asyncWithUnmask ::
-  Scope ->
-  (Context -> (forall x. IO x -> IO x) -> IO a) ->
-  IO (Thread a)
+asyncWithUnmask :: Scope -> (Context => (forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
 asyncWithUnmask scope action =
-  Scope.async scope \context restore -> restore (action context unsafeUnmask)
+  Scope.async scope \restore -> restore (action unsafeUnmask)
 
-cancelled :: Context -> IO (Maybe (IO a))
+cancelled :: Context => IO (Maybe (IO a))
 cancelled =
-  (fmap . fmap) (throwIO . Cancelled_) . Ki.Context.cancelled
+  (fmap . fmap) (throwIO . Cancelled_) (Ki.Context.cancelled ?context)
 
-cancelledSTM :: Context -> STM (Maybe (IO a))
+cancelledSTM :: Context => STM (Maybe (IO a))
 cancelledSTM =
-  (fmap . fmap) (throwIO . Cancelled_) . Ki.Context.cancelledSTM
+  (fmap . fmap) (throwIO . Cancelled_) (Ki.Context.cancelledSTM ?context)
 
-fork :: Scope -> (Context -> IO ()) -> IO ()
+fork :: Scope -> (Context => IO ()) -> IO ()
 fork scope action =
-  Scope.fork scope \context restore -> restore (action context)
+  Scope.fork scope \restore -> restore action
 
-forkWithUnmask :: Scope -> (Context -> (forall x. IO x -> IO x) -> IO ()) -> IO ()
+forkWithUnmask :: Scope -> (Context => (forall x. IO x -> IO x) -> IO ()) -> IO ()
 forkWithUnmask scope action =
-  Scope.fork scope \context restore -> restore (action context unsafeUnmask)
+  Scope.fork scope \restore -> restore (action unsafeUnmask)
 
 wait :: Scope -> IO ()
 wait =

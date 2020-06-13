@@ -2,10 +2,12 @@
 {-# LANGUAGE TypeApplications #-}
 
 module Ki.Indef.Scope
-  ( Scope,
+  ( Context,
+    Scope,
     async,
-    fork,
     cancel,
+    fork,
+    run,
     scoped,
     timeout,
     wait,
@@ -19,7 +21,7 @@ import Data.Foldable (for_)
 import qualified Data.Monoid as Monoid
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Ki.Indef.Context (CancelToken (..), Cancelled (..), Context)
+import Ki.Indef.Context (CancelToken (..), Cancelled (..))
 import qualified Ki.Indef.Context as Ki.Context
 import Ki.Indef.Thread (AsyncThreadFailed (..), Thread (Thread), timeout)
 import qualified Ki.Indef.Thread as Thread
@@ -29,7 +31,7 @@ import Prelude hiding (IO)
 -- import Ki.Internal.Debug
 
 data Scope = Scope
-  { context :: Context,
+  { context :: Ki.Context.Context,
     -- | Whether this scope is closed
     -- Invariant: if closed, no threads are starting
     closedVar :: TVar Bool,
@@ -38,7 +40,10 @@ data Scope = Scope
     startingVar :: TVar Int
   }
 
-async :: forall a. Scope -> (Context -> (forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
+type Context =
+  ?context :: Ki.Context.Context
+
+async :: forall a. Scope -> (Context => (forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
 async scope@Scope {context} action = do
   uninterruptibleMask \restore -> do
     resultVar <- newEmptyTMVarIO "result"
@@ -51,7 +56,7 @@ async scope@Scope {context} action = do
   where
     theThread :: (forall x. IO x -> IO x) -> TMVar (Either SomeException a) -> IO ()
     theThread restore resultVar = do
-      result <- try (action context restore)
+      result <- try (let ?context = context in action restore)
       childThreadId <- myThreadId
       atomically do
         deleteRunning scope childThreadId
@@ -62,7 +67,7 @@ cancel Scope {context} = do
   token <- newUnique
   atomically (Ki.Context.cancel context (CancelToken token))
 
-fork :: Scope -> (Context -> (forall x. IO x -> IO x) -> IO a) -> IO ()
+fork :: Scope -> (Context => (forall x. IO x -> IO x) -> IO a) -> IO ()
 fork scope@Scope {context} action = do
   uninterruptibleMask \restore -> do
     parentThreadId <- myThreadId
@@ -74,7 +79,7 @@ fork scope@Scope {context} action = do
   where
     theThread :: (forall x. IO x -> IO x) -> ThreadId -> IO ()
     theThread restore parentThreadId = do
-      result <- try (action context restore)
+      result <- try (let ?context = context in action restore)
       whenLeft result \exception ->
         whenM
           (shouldPropagateException context exception)
@@ -82,8 +87,12 @@ fork scope@Scope {context} action = do
       childThreadId <- myThreadId
       atomically (deleteRunning scope childThreadId)
 
-scoped :: Context -> (Scope -> IO a) -> IO a
-scoped parentContext f = do
+run :: (Context => a) -> a
+run action =
+  let ?context = Ki.Context.background in action
+
+scoped :: Context => (Scope -> IO a) -> IO a
+scoped f = do
   uninterruptibleMask \restore -> do
     scope <- new
     result <- restore (try (f scope))
@@ -100,7 +109,7 @@ scoped parentContext f = do
     new :: IO Scope
     new =
       atomically do
-        context <- Ki.Context.derive parentContext
+        context <- Ki.Context.derive ?context
         closedVar <- newTVar "closed" False
         runningVar <- newTVar "running" Set.empty
         startingVar <- newTVar "starting" 0
@@ -179,7 +188,7 @@ blockUntilNoneStarting Scope {startingVar} =
 --------------------------------------------------------------------------------
 -- Misc. utils
 
-shouldPropagateException :: Context -> SomeException -> IO Bool
+shouldPropagateException :: Ki.Context.Context -> SomeException -> IO Bool
 shouldPropagateException context exception =
   case fromException exception of
     Just ThreadKilled -> pure False
