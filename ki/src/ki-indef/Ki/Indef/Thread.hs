@@ -20,7 +20,7 @@ import Data.Functor (($>), void)
 import GHC.Generics (Generic)
 import Ki.Indef.Seconds (Seconds)
 import qualified Ki.Indef.Seconds as Seconds
-import Ki.Sig (IO, STM, TMVar, ThreadId, atomically, readTMVar, registerDelay, throwSTM, throwTo)
+import Ki.Sig (IO, STM, TMVar, ThreadId, atomically, readTMVar, registerDelay, throwTo)
 import Prelude hiding (IO)
 
 data Thread a
@@ -37,17 +37,15 @@ instance Ord (Thread a) where
   compare (Thread id1 _) (Thread id2 _) =
     compare id1 id2
 
-await :: Thread a -> IO a
+await :: Thread a -> IO (Either SomeException a)
 await =
   atomically . awaitSTM
 
-awaitSTM :: Thread a -> STM a
+awaitSTM :: Thread a -> STM (Either SomeException a)
 awaitSTM (Thread _threadId resultVar) =
-  readTMVar resultVar >>= \case
-    Left exception -> throwSTM exception
-    Right result -> pure result
+  readTMVar resultVar
 
-awaitFor :: Thread a -> Seconds -> IO (Maybe a)
+awaitFor :: Thread a -> Seconds -> IO (Maybe (Either SomeException a))
 awaitFor thread seconds =
   timeout seconds (pure . Just <$> awaitSTM thread) (pure Nothing)
 

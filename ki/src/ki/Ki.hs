@@ -43,6 +43,7 @@ module Ki
   )
 where
 
+import Control.Exception (SomeException)
 import Data.Coerce (coerce)
 import Data.Data (Data)
 import GHC.Conc (STM)
@@ -138,11 +139,7 @@ asyncWithUnmask :: Scope -> (Context -> (forall x. IO x -> IO x) -> IO a) -> IO 
 asyncWithUnmask = _asyncWithUnmask
 {-# INLINE asyncWithUnmask #-}
 
-_asyncWithUnmask ::
-  forall a.
-  Scope ->
-  (Context -> (forall x. IO x -> IO x) -> IO a) ->
-  IO (Thread a)
+_asyncWithUnmask :: forall a. Scope -> (Context -> (forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
 _asyncWithUnmask scope k =
   coerce
     @(IO (K.Thread a))
@@ -150,16 +147,12 @@ _asyncWithUnmask scope k =
 {-# INLINE _asyncWithUnmask #-}
 
 -- | Wait for a __thread__ to finish.
---
--- /Throws/:
---
---   * The exception that the __thread__ threw, if any.
-await :: Thread a -> IO a
+await :: Thread a -> IO (Either SomeException a)
 await = _await
 {-# INLINE await #-}
 
-_await :: forall a. Thread a -> IO a
-_await = coerce @(K.Thread a -> IO a) K.await
+_await :: forall a. Thread a -> IO (Either SomeException a)
+_await = coerce @(K.Thread a -> IO (Either SomeException a)) K.await
 {-# INLINE _await #-}
 
 -- | Variant of 'await' that gives up after the given number of seconds elapses.
@@ -168,12 +161,12 @@ _await = coerce @(K.Thread a -> IO a) K.await
 -- 'awaitFor' thread seconds =
 --   'timeout' seconds (pure . Just \<$\> 'awaitSTM' thread) (pure Nothing)
 -- @
-awaitFor :: Thread a -> Seconds -> IO (Maybe a)
+awaitFor :: Thread a -> Seconds -> IO (Maybe (Either SomeException a))
 awaitFor = _awaitFor
 {-# INLINE awaitFor #-}
 
-_awaitFor :: forall a. Thread a -> Seconds -> IO (Maybe a)
-_awaitFor = coerce @(K.Thread a -> K.Seconds -> IO (Maybe a)) K.awaitFor
+_awaitFor :: forall a. Thread a -> Seconds -> IO (Maybe (Either SomeException a))
+_awaitFor = coerce @(K.Thread a -> K.Seconds -> IO (Maybe (Either SomeException a))) K.awaitFor
 {-# INLINE _awaitFor #-}
 
 -- | @STM@ variant of 'await'.
@@ -181,12 +174,12 @@ _awaitFor = coerce @(K.Thread a -> K.Seconds -> IO (Maybe a)) K.awaitFor
 -- /Throws/:
 --
 --   * The exception that the __thread__ threw, if any.
-awaitSTM :: Thread a -> STM a
+awaitSTM :: Thread a -> STM (Either SomeException a)
 awaitSTM = _awaitSTM
 {-# INLINE awaitSTM #-}
 
-_awaitSTM :: forall a. Thread a -> STM a
-_awaitSTM = coerce @(K.Thread a -> STM a) K.awaitSTM
+_awaitSTM :: forall a. Thread a -> STM (Either SomeException a)
+_awaitSTM = coerce @(K.Thread a -> STM (Either SomeException a)) K.awaitSTM
 {-# INLINE _awaitSTM #-}
 
 -- | The background __context__.

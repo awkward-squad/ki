@@ -40,6 +40,7 @@ module Ki.Mtl
   )
 where
 
+import Control.Exception (SomeException)
 import Control.Monad.IO.Unlift
 import Control.Monad.Reader
 import Data.Generics.Product.Typed (HasType (getTyped, setTyped))
@@ -74,11 +75,7 @@ asyncWithUnmask scope k =
       unlift (local (setTyped context) (k \m -> liftIO (unmask (unlift m))))
 
 -- | Wait for a __thread__ to finish.
---
--- /Throws/:
---
---   * The exception that the __thread__ threw, if any.
-await :: MonadIO m => Thread a -> m a
+await :: MonadIO m => Thread a -> m (Either SomeException a)
 await =
   liftIO . Ki.await
 
@@ -88,7 +85,7 @@ await =
 -- 'awaitFor' thread seconds =
 --   'timeout' seconds (pure . Just \<$\> 'awaitSTM' thread) (pure Nothing)
 -- @
-awaitFor :: MonadIO m => Thread a -> Seconds -> m (Maybe a)
+awaitFor :: MonadIO m => Thread a -> Seconds -> m (Maybe (Either SomeException a))
 awaitFor thread seconds =
   liftIO (Ki.awaitFor thread seconds)
 
