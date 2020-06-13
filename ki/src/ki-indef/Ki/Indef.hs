@@ -17,8 +17,8 @@ module Ki.Indef
     cancelledSTM,
     fork,
     forkWithUnmask,
+    global,
     kill,
-    run,
     scoped,
     timeout,
     wait,
@@ -29,7 +29,7 @@ where
 
 import Ki.Indef.Context (Cancelled (..))
 import qualified Ki.Indef.Context as Ki.Context
-import Ki.Indef.Scope (Context, Scope, cancel, run, scoped)
+import Ki.Indef.Scope (Context, Scope, cancel, global, scoped)
 import qualified Ki.Indef.Scope as Scope
 import Ki.Indef.Seconds (Seconds)
 import Ki.Indef.Thread (Thread, await, awaitFor, awaitSTM, kill, timeout)

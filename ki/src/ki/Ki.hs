@@ -10,7 +10,7 @@
 module Ki
   ( -- * Context
     Context,
-    run,
+    global,
     cancelled,
     cancelledSTM,
 
@@ -66,9 +66,9 @@ pattern Cancelled <- K.Cancelled_ _
 --
 -- === Usage summary
 --
---   * A __context__ is /introduced by/ 'run', 'async', and 'fork'.
---   * A __context__ is /queried by/ 'cancelled'.
---   * A __context__ is /manipulated by/ 'cancel'.
+--   * A __context__ is introduced by 'global', 'async', and 'fork'.
+--   * A __context__ is queried by 'cancelled'.
+--   * A __context__ is manipulated by 'cancel'.
 type Context
   = K.Context
 
@@ -90,9 +90,9 @@ type Context
 --
 -- === Usage summary
 --
---   * A __scope__ is /introduced by/ 'scoped'.
---   * A __scope__ is /queried by/ 'wait'.
---   * A __scope__ is /manipulated by/ 'cancel'.
+--   * A __scope__ is introduced by 'scoped'.
+--   * A __scope__ is queried by 'wait'.
+--   * A __scope__ is manipulated by 'cancel'.
 newtype Scope
   = Scope K.Scope
 
@@ -105,9 +105,9 @@ newtype Seconds
 --
 -- === Usage summary
 --
---   * A __thread__ is /introduced by/ 'async'.
---   * A __thread__ is /queried by/ 'await'.
---   * A __thread__ is /manipulated by/ 'kill'.
+--   * A __thread__ is introduced by 'async' and 'fork'.
+--   * A __thread__ is queried by 'await'.
+--   * A __thread__ is manipulated by 'kill'.
 newtype Thread a
   = Thread (K.Thread a)
   deriving stock (Generic)
@@ -174,7 +174,7 @@ cancel = coerce K.cancel
 -- Sometimes, a __thread__ may terminate with a value after observing a cancellation request.
 --
 -- @
--- 'cancelled' context >>= \\case
+-- 'cancelled' >>= \\case
 --   Nothing -> continue
 --   Just _capitulate -> do
 --     cleanup
@@ -184,7 +184,7 @@ cancel = coerce K.cancel
 -- Other times, it may be unable to, so it should call the provided action.
 --
 -- @
--- 'cancelled' context >>= \\case
+-- 'cancelled' >>= \\case
 --   Nothing -> continue
 --   Just capitulate -> do
 --     cleanup
@@ -202,12 +202,12 @@ _cancelledSTM = coerce @(STM (Maybe (IO a))) K.cancelledSTM
 
 -- | Variant of 'async' that does not return a handle to the __thread__.
 --
--- If the forked __thread__ throws an /unexpected/ exception, the exception is propagated up the call tree to the
+-- If the forked __thread__ throws an unexpected exception, the exception is propagated up the call tree to the
 -- __thread__ that opened its __scope__.
 --
--- There is one /expected/ exceptions a __thread__ may throw that will not be propagated up the call tree:
+-- There is one expected exception the __thread__ may throw that will not be propagated up the call tree:
 --
---   * 'Cancelled', as when a __thread__ voluntarily capitulates after observing a /cancellation/ request.
+--   * 'Cancelled', as when the __thread__ voluntarily capitulates after observing a /cancellation/ request.
 --
 -- /Throws/:
 --
@@ -237,8 +237,8 @@ _kill = coerce @(K.Thread a -> IO ()) K.kill
 -- | Run an action in the global __context__.
 --
 -- You should only call this function if there is not already a __context__ in scope, as in @main@.
-run :: (Context => IO a) -> IO a
-run = K.run
+global :: (Context => IO a) -> IO a
+global = K.global
 
 -- | Perform an action with a new __scope__, then /close/ the __scope__.
 --

@@ -7,7 +7,7 @@ module Ki.Indef.Scope
     async,
     cancel,
     fork,
-    run,
+    global,
     scoped,
     timeout,
     wait,
@@ -87,8 +87,8 @@ fork scope@Scope {context} action = do
       childThreadId <- myThreadId
       atomically (deleteRunning scope childThreadId)
 
-run :: (Context => a) -> a
-run action =
+global :: (Context => a) -> a
+global action =
   let ?context = Ki.Context.background in action
 
 scoped :: Context => (Scope -> IO a) -> IO a

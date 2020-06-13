@@ -211,7 +211,7 @@ runTest p q t =
         DejaFu.defaultMemType
     )
     (DejaFu.representative (DejaFu.alwaysTrue (either p q)))
-    (run t)
+    (global t)
 
 returns :: Eq a => a -> (Context => P a) -> IO (DejaFu.Result a)
 returns expected =
