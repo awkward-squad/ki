@@ -26,9 +26,9 @@ module Ki
     -- * Thread
     Thread,
     async,
-    async_,
     asyncWithUnmask,
-    asyncWithUnmask_,
+    fork,
+    forkWithUnmask,
     await,
     awaitSTM,
     awaitFor,
@@ -49,68 +49,52 @@ import GHC.Conc (STM)
 import GHC.Generics (Generic)
 import qualified Ki.Indef as K
 
--- | A 'Cancelled' exception is thrown when a __thread__ voluntarily capitulates
--- after observing its __context__ is /cancelled/.
+-- | A 'Cancelled' exception is thrown when a __thread__ voluntarily capitulates after observing its __context__ is
+-- /cancelled/.
 pattern Cancelled :: K.Cancelled
 pattern Cancelled <- K.Cancelled_ _
 
 {-# COMPLETE Cancelled #-}
 
--- | A __context__ models a program's call tree, and is used as a mechanism to
--- propagate /cancellation requests/ to every __thread__ forked within a
--- __scope__.
+-- | A __context__ models a program's call tree, and is used as a mechanism to propagate /cancellation requests/ to
+-- every __thread__ forked within a __scope__.
 --
--- Every __thread__ is provided its own __context__, which is derived from its
--- __scope__, and should replace any other __context__ variable that may be in
--- scope.
+-- Every __thread__ is provided its own __context__, which is derived from its __scope__, and should replace any other
+-- __context__ variable that may be in scope.
 --
--- A __thread__ can query whether its __context__ has been /cancelled/, which is
--- a suggestion to perform a graceful termination.
+-- A __thread__ can query whether its __context__ has been /cancelled/, which is a suggestion to perform a graceful
+-- termination.
 --
 -- === Usage summary
 --
---   * A __context__ is /introduced by/ 'background' and 'async'.
+--   * A __context__ is /introduced by/ 'background', 'async', and 'fork'.
 --   * A __context__ is /queried by/ 'cancelled'.
---   * A __context__ is /manipulated by/ 'async' and 'cancel'.
+--   * A __context__ is /manipulated by/ 'cancel'.
 newtype Context
   = Context K.Context
   deriving stock (Generic)
 
--- | A __scope__ delimits the lifetime of all __threads__ forked within it. A
--- __thread__ cannot outlive its __scope__.
+-- | A __scope__ delimits the lifetime of all __threads__ forked within it. A __thread__ cannot outlive its __scope__.
 --
--- If a __thread__ forked within a __scope__ throws an /unexpected/ exception,
--- it is propagated up the call tree to the __thread__ that opened the
--- __scope__.
---
--- There are two /expected/ exceptions a __thread__ may throw that will not be
--- propagated up the call tree:
---
---   * 'ThreadKilled', as when killing a __thread__ with 'kill'.
---   * 'Cancelled', as when a __thread__ voluntarily capitulates after observing
---     a /cancellation/ request.
---
--- When a __scope__ is /closed/, all remaining __threads__ forked within it are
--- killed.
+-- When a __scope__ is /closed/, all remaining __threads__ forked within it are killed.
 --
 -- The basic usage of a __scope__ is as follows.
 --
 -- @
 -- 'scoped' context \\scope -> do
---   'async_' scope worker1
---   'async_' scope worker2
+--   'fork' scope worker1
+--   'fork' scope worker2
 --   'wait' scope
 -- @
 --
--- A __scope__ can be passed into functions or shared amongst __threads__, but
--- this is generally not advised, as it takes the "structure" out of "structured
--- concurrency".
+-- A __scope__ can be passed into functions or shared amongst __threads__, but this is generally not advised, as it
+-- takes the "structure" out of "structured concurrency".
 --
 -- === Usage summary
 --
 --   * A __scope__ is /introduced by/ 'scoped'.
 --   * A __scope__ is /queried by/ 'wait'.
---   * A __scope__ is /manipulated by/ 'async' and 'cancel'.
+--   * A __scope__ is /manipulated by/ 'cancel'.
 newtype Scope
   = Scope K.Scope
 
@@ -131,12 +115,12 @@ newtype Thread a
   deriving stock (Generic)
   deriving newtype (Eq, Ord)
 
--- | Fork a __thread__ within a __scope__. The derived __context__ should
--- replace the usage of any other __context__ in scope.
+-- | Fork a __thread__ within a __scope__. The derived __context__ should replace the usage of any other __context__ in
+-- scope.
 --
 -- /Throws/:
 --
---   * Calls 'error' the __scope__ is /closed/.
+--   * Calls 'error' if the __scope__ is /closed/.
 async :: Scope -> (Context -> IO a) -> IO (Thread a)
 async = _async
 {-# INLINE async #-}
@@ -145,29 +129,12 @@ _async :: forall a. Scope -> (Context -> IO a) -> IO (Thread a)
 _async = coerce @(K.Scope -> (K.Context -> IO a) -> IO (K.Thread a)) K.async
 {-# INLINE _async #-}
 
--- | Fire-and-forget variant of 'async'.
+-- | Variant of 'async' that provides the __thread__ a function that unmasks asynchronous exceptions.
 --
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-async_ :: Scope -> (Context -> IO a) -> IO ()
-async_ = _async_
-{-# INLINE async_ #-}
-
-_async_ :: forall a. Scope -> (Context -> IO a) -> IO ()
-_async_ = coerce @(K.Scope -> (K.Context -> IO a) -> IO ()) K.async_
-{-# INLINE _async_ #-}
-
--- | Variant of 'async' that provides the __thread__ a function that unmasks
--- asynchronous exceptions.
---
--- /Throws/:
---
---   * Calls 'error' if the __scope__ is /closed/.
-asyncWithUnmask ::
-  Scope ->
-  (Context -> (forall x. IO x -> IO x) -> IO a) ->
-  IO (Thread a)
+asyncWithUnmask :: Scope -> (Context -> (forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
 asyncWithUnmask = _asyncWithUnmask
 {-# INLINE asyncWithUnmask #-}
 
@@ -181,18 +148,6 @@ _asyncWithUnmask scope k =
     @(IO (K.Thread a))
     (K.asyncWithUnmask (coerce scope) \context -> k (coerce context))
 {-# INLINE _asyncWithUnmask #-}
-
--- | Fire-and-forget variant of 'asyncWithUnmask'.
---
--- /Throws/:
---
---   * Calls 'error' if the __scope__ is /closed/.
-asyncWithUnmask_ ::
-  Scope ->
-  (Context -> (forall x. IO x -> IO x) -> IO a) ->
-  IO ()
-asyncWithUnmask_ scope k =
-  K.asyncWithUnmask_ (coerce scope) \context -> k (coerce context)
 
 -- | Wait for a __thread__ to finish.
 --
@@ -236,8 +191,8 @@ _awaitSTM = coerce @(K.Thread a -> STM a) K.awaitSTM
 
 -- | The background __context__.
 --
--- You should only use this when another __context__ isn't available, as when
--- creating a top-level __scope__ from the main thread.
+-- You should only use this when another __context__ isn't available, as when creating a top-level __scope__ from the
+-- main thread.
 --
 -- The background __context__ cannot be /cancelled/.
 background :: Context
@@ -251,15 +206,13 @@ cancel = coerce K.cancel
 
 -- | Return whether a __context__ is /cancelled/.
 --
--- __Threads__ running in a /cancelled/ __context__ should terminate as soon as
--- possible. The returned action may be used to honor the /cancellation/ request
--- in case the __thread__ is unable or unwilling to terminate normally with a
+-- __Threads__ running in a /cancelled/ __context__ should terminate as soon as possible. The returned action may be
+-- used to honor the /cancellation/ request in case the __thread__ is unable or unwilling to terminate normally with a
 -- value.
 --
 -- ==== __Examples__
 --
--- Sometimes, a __thread__ may terminate with a value after observing a
--- cancellation request.
+-- Sometimes, a __thread__ may terminate with a value after observing a cancellation request.
 --
 -- @
 -- 'cancelled' context >>= \\case
@@ -295,6 +248,32 @@ _cancelledSTM :: forall a. Context -> STM (Maybe (IO a))
 _cancelledSTM = coerce @(K.Context -> STM (Maybe (IO a))) K.cancelledSTM
 {-# INLINE _cancelledSTM #-}
 
+-- | Variant of 'async' that does not return a handle to the __thread__.
+--
+-- If the forked __thread__ throws an /unexpected/ exception, the exception is propagated up the call tree to the
+-- __thread__ that opened its __scope__.
+--
+-- There is one /expected/ exceptions a __thread__ may throw that will not be propagated up the call tree:
+--
+--   * 'Cancelled', as when a __thread__ voluntarily capitulates after observing a /cancellation/ request.
+--
+-- /Throws/:
+--
+--   * Calls 'error' if the __scope__ is /closed/.
+fork :: Scope -> (Context -> IO ()) -> IO ()
+fork = coerce @(K.Scope -> (K.Context -> IO ()) -> IO ()) K.fork
+{-# INLINE fork #-}
+
+-- | Variant of 'fork' that provides the __thread__ a function that unmasks asynchronous exceptions.
+--
+-- /Throws/:
+--
+--   * Calls 'error' if the __scope__ is /closed/.
+forkWithUnmask :: Scope -> (Context -> (forall x. IO x -> IO x) -> IO ()) -> IO ()
+forkWithUnmask scope k =
+  K.forkWithUnmask (coerce scope) \context -> k (coerce context)
+{-# INLINE forkWithUnmask #-}
+
 -- | Kill a __thread__ wait for it to finish.
 --
 -- /Throws/:
@@ -312,15 +291,14 @@ _kill = coerce @(K.Thread a -> IO ()) K.kill
 --
 -- /Throws/:
 --
---   * The first exception a __thread__ forked within the __scope__ throws, if
---     any.
+--   * The first exception a __thread__ forked with 'fork' throws, if any.
 --
 -- ==== __Examples__
 --
 -- @
 -- 'scoped' context \\scope -> do
---   'async_' scope worker1
---   'async_' scope worker2
+--   'fork' scope worker1
+--   'fork' scope worker2
 --   'wait' scope
 -- @
 scoped :: Context -> (Scope -> IO a) -> IO a
@@ -331,8 +309,7 @@ _scoped :: forall a. Context -> (Scope -> IO a) -> IO a
 _scoped = coerce @(K.Context -> (K.Scope -> IO a) -> IO a) K.scoped
 {-# INLINE _scoped #-}
 
--- | Wait for an @STM@ action to return, and return the @IO@ action contained
--- within.
+-- | Wait for an @STM@ action to return, and return the @IO@ action contained within.
 --
 -- If the given number of seconds elapses, return the given @IO@ action instead.
 timeout :: Seconds -> STM (IO a) -> IO a -> IO a

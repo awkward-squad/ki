@@ -23,9 +23,9 @@ module Ki.Mtl
     -- * Thread
     Thread,
     async,
-    async_,
     asyncWithUnmask,
-    asyncWithUnmask_,
+    fork,
+    forkWithUnmask,
     await,
     awaitFor,
     awaitSTM,
@@ -62,53 +62,22 @@ async scope k =
     Ki.async scope \context ->
       unlift (local (setTyped context) k)
 
--- | Fire-and-forget variant of 'async'.
+-- | Variant of 'async' that provides the __thread__ a function that unmasks asynchronous exceptions.
 --
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-async_ :: MonadKi r m => Scope -> m a -> m ()
-async_ scope k =
-  withRunInIO \unlift ->
-    Ki.async_ scope \context ->
-      unlift (local (setTyped context) k)
-
--- | Variant of 'async' that provides the __thread__ a function that unmasks
--- asynchronous exceptions.
---
--- /Throws/:
---
---   * Calls 'error' if the __scope__ is /closed/.
-asyncWithUnmask ::
-  MonadKi r m =>
-  Scope ->
-  ((forall x. m x -> m x) -> m a) ->
-  m (Thread a)
+asyncWithUnmask :: MonadKi r m => Scope -> ((forall x. m x -> m x) -> m a) -> m (Thread a)
 asyncWithUnmask scope k =
   withRunInIO \unlift ->
     Ki.asyncWithUnmask scope \context unmask ->
-      unlift (local (setTyped context) (k \m -> liftIO (unmask (unlift m))))
-
--- | Fire-and-forget variant of 'asyncWithUnmask'.
---
--- /Throws/:
---
---   * Calls 'error' if the __scope__ is /closed/.
-asyncWithUnmask_ ::
-  MonadKi r m =>
-  Scope ->
-  ((forall x. m x -> m x) -> m a) ->
-  m ()
-asyncWithUnmask_ scope k =
-  withRunInIO \unlift ->
-    Ki.asyncWithUnmask_ scope \context unmask ->
       unlift (local (setTyped context) (k \m -> liftIO (unmask (unlift m))))
 
 -- | Wait for a __thread__ to finish.
 --
 -- /Throws/:
 --
---   * The exception the __thread__ threw, if any.
+--   * The exception that the __thread__ threw, if any.
 await :: MonadIO m => Thread a -> m a
 await =
   liftIO . Ki.await
@@ -130,15 +99,13 @@ cancel =
 
 -- | Return whether a __context__ is /cancelled/.
 --
--- __Threads__ running in a /cancelled/ __context__ should terminate as soon as
--- possible. The returned action may be used to honor the /cancellation/ request
--- in case the __thread__ is unable or unwilling to terminate normally with a
+-- __Threads__ running in a /cancelled/ __context__ should terminate as soon as possible. The returned action may be
+-- used to honor the /cancellation/ request in case the __thread__ is unable or unwilling to terminate normally with a
 -- value.
 --
 -- ==== __Examples__
 --
--- Sometimes, a __thread__ may terminate with a value after observing a
--- cancellation request.
+-- Sometimes, a __thread__ may terminate with a value after observing a cancellation request.
 --
 -- @
 -- 'cancelled' >>= \\case
@@ -168,6 +135,35 @@ cancelledSTM = do
   context <- askContext
   pure ((fmap . fmap) liftIO (Ki.cancelledSTM context))
 
+-- | Variant of 'async' that does not return a handle to the __thread__.
+--
+-- If the forked __thread__ throws an /unexpected/ exception, the exception is propagated up the call tree to the
+-- __thread__ that opened its __scope__.
+--
+-- There is one /expected/ exceptions a __thread__ may throw that will not be propagated up the call tree:
+--
+--   * 'Cancelled', as when a __thread__ voluntarily capitulates after observing a /cancellation/ request.
+--
+-- /Throws/:
+--
+--   * Calls 'error' if the __scope__ is /closed/.
+fork :: MonadKi r m => Scope -> m () -> m ()
+fork scope k =
+  withRunInIO \unlift ->
+    Ki.fork scope \context ->
+      unlift (local (setTyped context) k)
+
+-- | Variant of 'fork' that provides the __thread__ a function that unmasks asynchronous exceptions.
+--
+-- /Throws/:
+--
+--   * Calls 'error' if the __scope__ is /closed/.
+forkWithUnmask :: MonadKi r m => Scope -> ((forall x. m x -> m x) -> m ()) -> m ()
+forkWithUnmask scope k =
+  withRunInIO \unlift ->
+    Ki.forkWithUnmask scope \context unmask ->
+      unlift (local (setTyped context) (k \m -> liftIO (unmask (unlift m))))
+
 -- | Kill a __thread__ wait for it to finish.
 --
 -- /Throws/:
@@ -181,14 +177,14 @@ kill =
 --
 -- /Throws/:
 --
---   * The first exception a __thread__ throws, if any.
+--   * The first exception a __thread__ forked with 'fork' throws, if any.
 --
 -- ==== __Examples__
 --
 -- @
 -- 'scoped' \\scope -> do
---   'async_' scope worker1
---   'async_' scope worker2
+--   'fork' scope worker1
+--   'fork' scope worker2
 --   'wait' scope
 -- @
 scoped :: MonadKi r m => (Scope -> m a) -> m a

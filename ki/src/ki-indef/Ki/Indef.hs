@@ -57,11 +57,11 @@ cancelledSTM :: Context -> STM (Maybe (IO a))
 cancelledSTM =
   (fmap . fmap) (throwIO . Cancelled_) . Ki.Context.cancelledSTM
 
-fork :: Scope -> (Context -> IO a) -> IO ()
+fork :: Scope -> (Context -> IO ()) -> IO ()
 fork scope action =
   Scope.fork scope \context restore -> restore (action context)
 
-forkWithUnmask :: Scope -> (Context -> (forall x. IO x -> IO x) -> IO a) -> IO ()
+forkWithUnmask :: Scope -> (Context -> (forall x. IO x -> IO x) -> IO ()) -> IO ()
 forkWithUnmask scope action =
   Scope.fork scope \context restore -> restore (action context unsafeUnmask)
 
