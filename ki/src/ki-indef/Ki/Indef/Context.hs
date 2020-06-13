@@ -34,10 +34,8 @@ data Ctx
   | CtxCancelled CancelToken
 
 data OpenCtx = OpenCtx
-  { -- | The next id to assign to a child context. The child needs a unique
-    -- identifier so it can delete itself from our "cancel children" map if it's
-    -- cancelled independently. Word wrap-around seems ok; that's a *lot* of
-    -- contexts.
+  { -- | The next id to assign to a child context. The child needs a unique identifier so it can delete itself from our
+    -- "cancel children" map if it's cancelled independently. Word wrap-around seems ok; that's a *lot* of contexts.
     nextId :: Word32,
     children :: Map Word32 (TVar Ctx),
     onCancel :: STM ()
@@ -74,16 +72,7 @@ cancelled_ contextVar =
 
 new :: STM () -> STM (TVar Ctx)
 new onCancel =
-  newTVar "context" context
-  where
-    context :: Ctx
-    context =
-      CtxOpen
-        OpenCtx
-          { nextId = 0,
-            children = Map.empty,
-            onCancel
-          }
+  newTVar "context" (CtxOpen OpenCtx {nextId = 0, children = Map.empty, onCancel})
 
 -- Derive a child context from a parent context.
 --
@@ -102,26 +91,15 @@ derive_ parentVar =
   readTVar parentVar >>= \case
     CtxOpen OpenCtx {nextId = childId, children, onCancel} -> do
       child <- new (deleteChildFromParent childId)
-      writeTVar parentVar
-        $! CtxOpen
-          OpenCtx
-            { nextId = childId + 1,
-              children = Map.insert childId child children,
-              onCancel
-            }
+      let children' = Map.insert childId child children
+      writeTVar parentVar $! CtxOpen OpenCtx {nextId = childId + 1, children = children', onCancel}
       pure child
     CtxCancelled _ -> pure parentVar -- ok to reuse
   where
     deleteChildFromParent :: Word32 -> STM ()
     deleteChildFromParent childId =
       readTVar parentVar >>= \case
-        CtxOpen ctx@OpenCtx {children} ->
-          writeTVar parentVar
-            $! CtxOpen
-              ctx
-                { children =
-                    Map.delete childId children
-                }
+        CtxOpen ctx@OpenCtx {children} -> writeTVar parentVar $! CtxOpen ctx {children = Map.delete childId children}
         CtxCancelled _ -> pure ()
 
 cancel :: Context -> CancelToken -> STM ()

@@ -9,7 +9,7 @@
 
 module Main (main) where
 
-import Control.Concurrent.Classy hiding (wait)
+import Control.Concurrent.Classy hiding (fork, wait)
 import Control.Exception (AsyncException (ThreadKilled), Exception (fromException), MaskingState (..), SomeAsyncException, SomeException, pattern ErrorCall)
 import Control.Monad
 import Data.Foldable
@@ -40,23 +40,25 @@ main = do
 
   test "cancellation propagates to all descendants" . returns () $ do
     scoped background \scope1 -> do
-      async_ scope1 \context1 -> do
+      fork scope1 \context1 -> do
         scoped context1 \scope2 ->
           async scope2 blockUntilCancelled >>= await
       cancel scope1
 
   todo "cancelled child context removes parent's ref to it"
 
-  test "wait waits for all threads" . returns True $ do
-    ref <- newIORef False
+  test "`wait` waits for all threads" . returns 3 $ do
+    ref <- newIORef (0 :: Int)
     scoped background \scope -> do
-      async_ scope \_ -> writeIORef ref True
+      fork scope \_ -> atomicModifyIORef ref (\n -> (n + 1, ()))
+      fork scope \_ -> atomicModifyIORef ref (\n -> (n + 1, ()))
+      fork scope \_ -> atomicModifyIORef ref (\n -> (n + 1, ()))
       wait scope
     readIORef ref
 
   test "using a closed scope throws an exception" . throws (ErrorCall "ki: scope closed") $ do
     scope <- scoped background pure
-    async_ scope \_ -> pure ()
+    fork scope \_ -> pure ()
 
   test "thread can be awaited" . returns True $ do
     ref <- newIORef False
@@ -83,12 +85,15 @@ main = do
       await thread
       kill thread
 
-  test "failed thread throws async exception first" . returns True $ do
+  test "`fork` propagates exceptions" . returns True $ do
     scoped background \scope ->
       mask \restore -> do
-        thread <- async scope \_ -> throw A
-        restore (False <$ await thread) `catch` \ex ->
+        fork scope \_ -> throw A
+        restore (False <$ block) `catch` \ex ->
           pure (isAsyncException ex)
+
+  test "`async` doesn't propagates exceptions" . returns () $ do
+    scoped background \scope -> void (async scope \_ -> throw A)
 
   test "failed thread throws exception when awaited" . throws ThreadKilled $ do
     thread <- scoped background \scope -> async scope \_ -> block
@@ -117,42 +122,42 @@ main = do
     ref <- newIORef False
     scoped background \scope -> do
       thread <- async scope \_ -> block
-      async_ scope \_ -> writeIORef ref True
+      fork scope \_ -> writeIORef ref True
       kill thread
       wait scope
     readIORef ref
 
   test "scope re-throws exceptions from threads" . throws A $ do
     scoped background \scope -> do
-      async_ scope \_ -> () <$ throw A
+      fork scope \_ -> () <$ throw A
       wait scope
 
   test "scope closes when it fails" . returns () $ do
     ignoring @A do
       scoped background \scope -> do
-        async_ scope \_ -> block
+        fork scope \_ -> block
         void (throw A)
 
   test "scope closes when thread fails" . returns () $ do
     ignoring @A do
       scoped background \scope -> do
-        async_ scope \_ -> block
-        async_ scope \_ -> void (throw A)
+        fork scope \_ -> block
+        fork scope \_ -> void (throw A)
         wait scope
 
   test "thread waiting on its own scope blocks" . deadlocks $ do
     scoped background \scope -> do
-      async_ scope \_ -> wait scope
+      fork scope \_ -> wait scope
       wait scope
 
   test "thread waiting on its own scope allows async exceptions" . returns () $ do
     scoped background \scope -> do
-      async_ scope \_ -> wait scope
+      fork scope \_ -> wait scope
 
   test "Cancelled exception doesn't propagate" . returns () $ do
     scoped background \scope -> do
       cancel scope
-      async_ scope \context ->
+      fork scope \context ->
         cancelled context >>= \case
           Nothing -> throw A
           Just capitulate -> capitulate
@@ -190,8 +195,8 @@ runTest p q =
     ( DejaFu.fromWayAndMemType
         ( DejaFu.systematically
             DejaFu.Bounds
-              { DejaFu.boundPreemp = Just 20,
-                DejaFu.boundFair = Just 10
+              { DejaFu.boundPreemp = Just 2,
+                DejaFu.boundFair = Just 5
               }
         )
         DejaFu.defaultMemType
@@ -270,9 +275,9 @@ prettyThreadAction = \case
     "takeMVar " ++ prettyMVarId n ++ " (waking "
       ++ intercalate ", " (map prettyThreadId ts)
       ++ ")"
-  DejaFu.ThrowTo n success ->
-    "throwTo " ++ prettyThreadId n
-      ++ if success then " (killed)" else " (didn't kill)"
+  DejaFu.Throw True -> "throw (thread died)"
+  DejaFu.Throw False -> "throw (thread still alive)"
+  DejaFu.ThrowTo n success -> "throwTo " ++ prettyThreadId n ++ if success then " (killed it)" else " (didn't kill it)"
   action -> show action
 
 prettyIORefId :: DejaFu.IORefId -> String

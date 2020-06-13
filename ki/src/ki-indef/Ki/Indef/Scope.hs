@@ -4,7 +4,7 @@
 module Ki.Indef.Scope
   ( Scope,
     async,
-    async_,
+    fork,
     cancel,
     scoped,
     timeout,
@@ -16,14 +16,14 @@ import Control.Exception (AsyncException (ThreadKilled), Exception (fromExceptio
 import Control.Monad (unless)
 import Data.Coerce (coerce)
 import Data.Foldable (for_)
-import qualified Data.Semigroup as Semigroup
+import qualified Data.Monoid as Monoid
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Ki.Indef.Context (CancelToken (..), Cancelled (..), Context)
 import qualified Ki.Indef.Context as Ki.Context
 import Ki.Indef.Thread (AsyncThreadFailed (..), Thread (Thread), timeout)
 import qualified Ki.Indef.Thread as Thread
-import Ki.Sig (IO, STM, TVar, ThreadId, atomically, forkIO, modifyTVar', myThreadId, newEmptyTMVarIO, newTVar, newUnique, putTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, unsafeUnmask, writeTVar)
+import Ki.Sig (IO, STM, TMVar, TVar, ThreadId, atomically, forkIO, modifyTVar', myThreadId, newEmptyTMVarIO, newTVar, newUnique, putTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, unsafeUnmask, writeTVar)
 import Prelude hiding (IO)
 
 -- import Ki.Internal.Debug
@@ -38,75 +38,49 @@ data Scope = Scope
     startingVar :: TVar Int
   }
 
-async ::
-  Scope ->
-  (Context -> (forall x. IO x -> IO x) -> IO a) ->
-  IO (Thread a)
-async scope@Scope {context, runningVar} action = do
+async :: forall a. Scope -> (Context -> (forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
+async scope@Scope {context} action = do
   uninterruptibleMask \restore -> do
-    _asyncBeforeForking scope
-    parentThreadId <- myThreadId
     resultVar <- newEmptyTMVarIO "result"
-    childThreadId <-
-      forkIO do
-        result <- try (action context restore)
-        _asyncWithResult context parentThreadId result
-        childThreadId <- myThreadId
-        _asyncAfterRunning scope childThreadId \running -> do
-          putTMVar resultVar result
-          writeTVar runningVar $! Set.delete childThreadId running
-    _asyncAfterForking scope childThreadId
-    pure (Thread childThreadId resultVar)
-
-async_ ::
-  Scope ->
-  (Context -> (forall x. IO x -> IO x) -> IO a) ->
-  IO ()
-async_ scope@Scope {context, runningVar} action = do
-  uninterruptibleMask \restore -> do
-    _asyncBeforeForking scope
-    parentThreadId <- myThreadId
-    childThreadId <-
-      forkIO do
-        result <- try (action context restore)
-        _asyncWithResult context parentThreadId result
-        childThreadId <- myThreadId
-        _asyncAfterRunning scope childThreadId \running ->
-          writeTVar runningVar $! Set.delete childThreadId running
-    _asyncAfterForking scope childThreadId
-
-_asyncBeforeForking :: Scope -> IO ()
-_asyncBeforeForking Scope{closedVar, startingVar} = do
-  atomically do
-    readTVar closedVar >>= \case
-      False -> modifyTVar' startingVar (+ 1)
-      True -> throwSTM (ErrorCall "ki: scope closed")
-
-_asyncAfterForking :: Scope -> ThreadId -> IO ()
-_asyncAfterForking Scope{startingVar, runningVar} childThreadId =
-  atomically do
-    modifyTVar' startingVar (subtract 1)
-    modifyTVar' runningVar (Set.insert childThreadId)
-
-_asyncWithResult :: Context -> ThreadId -> Either SomeException a -> IO ()
-_asyncWithResult context parentThreadId result =
-  whenLeft result \exception -> do
-    whenM
-      (shouldPropagateException context exception)
-      (throwTo parentThreadId (AsyncThreadFailed exception))
-
-_asyncAfterRunning :: Scope -> ThreadId -> (Set ThreadId -> STM ()) -> IO ()
-_asyncAfterRunning Scope{runningVar} childThreadId action =
-  atomically do
-    running <- readTVar runningVar
-    if Set.member childThreadId running
-      then action running
-      else retry
+    atomically (incrementStarting scope)
+    childThreadId <- forkIO (theThread restore resultVar)
+    atomically do
+      decrementStarting scope
+      insertRunning scope childThreadId
+      pure (Thread childThreadId resultVar)
+  where
+    theThread :: (forall x. IO x -> IO x) -> TMVar (Either SomeException a) -> IO ()
+    theThread restore resultVar = do
+      result <- try (action context restore)
+      childThreadId <- myThreadId
+      atomically do
+        deleteRunning scope childThreadId
+        putTMVar resultVar result
 
 cancel :: Scope -> IO ()
 cancel Scope {context} = do
   token <- newUnique
   atomically (Ki.Context.cancel context (CancelToken token))
+
+fork :: Scope -> (Context -> (forall x. IO x -> IO x) -> IO a) -> IO ()
+fork scope@Scope {context} action = do
+  uninterruptibleMask \restore -> do
+    parentThreadId <- myThreadId
+    atomically (incrementStarting scope)
+    childThreadId <- forkIO (theThread restore parentThreadId)
+    atomically do
+      decrementStarting scope
+      insertRunning scope childThreadId
+  where
+    theThread :: (forall x. IO x -> IO x) -> ThreadId -> IO ()
+    theThread restore parentThreadId = do
+      result <- try (action context restore)
+      whenLeft result \exception ->
+        whenM
+          (shouldPropagateException context exception)
+          (throwTo parentThreadId (AsyncThreadFailed exception))
+      childThreadId <- myThreadId
+      atomically (deleteRunning scope childThreadId)
 
 scoped :: Context -> (Scope -> IO a) -> IO a
 scoped parentContext f = do
@@ -130,13 +104,7 @@ scoped parentContext f = do
         closedVar <- newTVar "closed" False
         runningVar <- newTVar "running" Set.empty
         startingVar <- newTVar "starting" 0
-        pure
-          Scope
-            { context,
-              closedVar,
-              runningVar,
-              startingVar
-            }
+        pure Scope {context, closedVar, runningVar, startingVar}
 
     -- Close a scope, kill all of the running threads, and return the first
     -- async exception delivered to us while doing so, if any.
@@ -145,29 +113,21 @@ scoped parentContext f = do
     --   * The set of threads doesn't include us
     --   * We're uninterruptibly masked
     closeScope :: Scope -> IO (Maybe SomeException)
-    closeScope Scope {closedVar, runningVar, startingVar} = do
+    closeScope scope@Scope {closedVar, runningVar} = do
       threads <-
         atomically do
-          blockUntilTVar startingVar (== 0)
+          blockUntilNoneStarting scope
           writeTVar closedVar True
           readTVar runningVar
       exception <- killThreads (Set.toList threads)
-      atomically (blockUntilTVar runningVar Set.null)
-      pure
-        ( coerce
-            @(Maybe (Semigroup.First SomeException))
-            @(Maybe SomeException)
-            exception
-        )
+      atomically (blockUntilNoneRunning scope)
+      pure (coerce @(Monoid.First SomeException) @(Maybe SomeException) exception)
       where
-        killThreads :: [ThreadId] -> IO (Maybe (Semigroup.First SomeException))
+        killThreads :: [ThreadId] -> IO (Monoid.First SomeException)
         killThreads =
-          loop Nothing
+          loop mempty
           where
-            loop ::
-              Maybe (Semigroup.First SomeException) ->
-              [ThreadId] ->
-              IO (Maybe (Semigroup.First SomeException))
+            loop :: Monoid.First SomeException -> [ThreadId] -> IO (Monoid.First SomeException)
             loop acc = \case
               [] -> pure acc
               threadId : threadIds ->
@@ -175,15 +135,45 @@ scoped parentContext f = do
                 -- that is concurrently trying to throw an exception to us with
                 -- exceptions masked.
                 try (unsafeUnmask (throwTo threadId ThreadKilled)) >>= \case
-                  Left exception ->
-                    loop
-                      (acc <> Just (Semigroup.First exception))
-                      (threadId : threadIds) -- don't drop thread we didn't kill
+                  -- don't drop thread we didn't kill
+                  Left exception -> loop (acc <> pure exception) (threadId : threadIds)
                   Right () -> loop acc threadIds
 
 wait :: Scope -> STM ()
-wait Scope {runningVar, startingVar} = do
+wait scope = do
+  blockUntilNoneRunning scope
+  blockUntilNoneStarting scope
+
+--------------------------------------------------------------------------------
+-- Scope helpers
+
+incrementStarting :: Scope -> STM ()
+incrementStarting Scope {closedVar, startingVar} =
+  readTVar closedVar >>= \case
+    False -> modifyTVar' startingVar (+ 1)
+    True -> throwSTM (ErrorCall "ki: scope closed")
+
+decrementStarting :: Scope -> STM ()
+decrementStarting Scope {startingVar} =
+  modifyTVar' startingVar (subtract 1)
+
+insertRunning :: Scope -> ThreadId -> STM ()
+insertRunning Scope {runningVar} threadId =
+  modifyTVar' runningVar (Set.insert threadId)
+
+deleteRunning :: Scope -> ThreadId -> STM ()
+deleteRunning Scope {runningVar} threadId = do
+  running <- readTVar runningVar
+  case Set.splitMember threadId running of
+    (xs, True, ys) -> writeTVar runningVar $! Set.union xs ys
+    _ -> retry
+
+blockUntilNoneRunning :: Scope -> STM ()
+blockUntilNoneRunning Scope {runningVar} =
   blockUntilTVar runningVar Set.null
+
+blockUntilNoneStarting :: Scope -> STM ()
+blockUntilNoneStarting Scope {startingVar} =
   blockUntilTVar startingVar (== 0)
 
 --------------------------------------------------------------------------------
@@ -196,9 +186,7 @@ shouldPropagateException context exception =
     Just _ -> pure True
     Nothing ->
       case fromException exception of
-        Just (Cancelled_ token) -> do
-          token' <- Ki.Context.cancelled context
-          pure (token' /= Just token)
+        Just (Cancelled_ token) -> (/= Just token) <$> Ki.Context.cancelled context
         Nothing -> pure True
 
 blockUntilTVar :: TVar a -> (a -> Bool) -> STM ()

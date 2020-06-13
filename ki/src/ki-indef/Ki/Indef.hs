@@ -9,8 +9,6 @@ module Ki.Indef
     Thread,
     async,
     asyncWithUnmask,
-    asyncWithUnmask_,
-    async_,
     await,
     awaitFor,
     awaitSTM,
@@ -18,6 +16,8 @@ module Ki.Indef
     cancel,
     cancelled,
     cancelledSTM,
+    fork,
+    forkWithUnmask,
     kill,
     scoped,
     timeout,
@@ -38,6 +38,33 @@ import Prelude hiding (IO)
 
 -- import Ki.Internal.Debug
 
+async :: Scope -> (Context -> IO a) -> IO (Thread a)
+async scope action =
+  Scope.async scope \context restore -> restore (action context)
+
+asyncWithUnmask ::
+  Scope ->
+  (Context -> (forall x. IO x -> IO x) -> IO a) ->
+  IO (Thread a)
+asyncWithUnmask scope action =
+  Scope.async scope \context restore -> restore (action context unsafeUnmask)
+
+cancelled :: Context -> IO (Maybe (IO a))
+cancelled =
+  (fmap . fmap) (throwIO . Cancelled_) . Ki.Context.cancelled
+
+cancelledSTM :: Context -> STM (Maybe (IO a))
+cancelledSTM =
+  (fmap . fmap) (throwIO . Cancelled_) . Ki.Context.cancelledSTM
+
+fork :: Scope -> (Context -> IO a) -> IO ()
+fork scope action =
+  Scope.fork scope \context restore -> restore (action context)
+
+forkWithUnmask :: Scope -> (Context -> (forall x. IO x -> IO x) -> IO a) -> IO ()
+forkWithUnmask scope action =
+  Scope.fork scope \context restore -> restore (action context unsafeUnmask)
+
 wait :: Scope -> IO ()
 wait =
   atomically . Scope.wait
@@ -49,33 +76,3 @@ waitFor scope seconds =
 waitSTM :: Scope -> STM ()
 waitSTM =
   Scope.wait
-
-cancelled :: Context -> IO (Maybe (IO a))
-cancelled =
-  (fmap . fmap) (throwIO . Cancelled_) . Ki.Context.cancelled
-
-cancelledSTM :: Context -> STM (Maybe (IO a))
-cancelledSTM =
-  (fmap . fmap) (throwIO . Cancelled_) . Ki.Context.cancelledSTM
-
-async :: Scope -> (Context -> IO a) -> IO (Thread a)
-async scope action =
-  Scope.async scope \context restore -> restore (action context)
-
-async_ :: Scope -> (Context -> IO a) -> IO ()
-async_ scope action =
-  Scope.async_ scope \context restore -> restore (action context)
-
-asyncWithUnmask ::
-  Scope ->
-  (Context -> (forall x. IO x -> IO x) -> IO a) ->
-  IO (Thread a)
-asyncWithUnmask scope action =
-  Scope.async scope \context restore -> restore (action context unsafeUnmask)
-
-asyncWithUnmask_ ::
-  Scope ->
-  (Context -> (forall x. IO x -> IO x) -> IO a) ->
-  IO ()
-asyncWithUnmask_ scope action =
-  Scope.async_ scope \context restore -> restore (action context unsafeUnmask)
