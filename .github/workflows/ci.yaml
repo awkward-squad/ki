@@ -13,45 +13,40 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        ghc: ["8.10", "8.8", "8.6"]
+        ghc: ["8.10.1", "8.8.3", "8.6.5"]
         include:
           - os: macOS-latest
-            ghc: "8.10"
-          - os: windows-latest
-            ghc: "8.10"
+            ghc: "8.10.1"
 
     steps:
       - uses: actions/checkout@v2
         name: Checkout
 
       - uses: actions/cache@v2
-        name: Cache GHC on MacOS
-        if: matrix.os == 'macOS-latest'
+        id: cache-cabal
+        name: Cache cabal packages and store
         with:
           path: |
-            ~/.ghcup/bin
-            ~/.ghcup/ghc
-          key: ${{ runner.os }}-${{ matrix.ghc }}-ghc
-
-      - uses: actions/setup-haskell@v1.1
-        id: setup-haskell
-        name: Setup
-        with:
-          ghc-version: ${{ matrix.ghc }}
-
-      - uses: actions/cache@v2
-        name: Cache cabal store
-        with:
-          path: ${{ steps.setup-haskell.outputs.cabal-store }}
-          key: ${{ runner.os }}-${{ matrix.ghc }}-cabal-store-${{ hashFiles('cabal.project') }}-${{ hashFiles('**/*.cabal') }}
+            ~/.cabal/packages/hackage.haskell.org/
+            ~/.cabal/store
+          key: ${{ runner.os }}-${{ matrix.ghc }}-cabal-${{ hashFiles('cabal.project') }}-${{ hashFiles('cabal.project.freeze') }}
+          restore-keys: ${{ runner.os }}-${{ matrix.ghc }}-cabal-
 
       - uses: actions/cache@v2
         name: Cache build directory
         with:
           path: dist-newstyle
           key: ${{ runner.os }}-${{ matrix.ghc }}-dist-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.ghc }}-dist-
+          restore-keys: ${{ runner.os }}-${{ matrix.ghc }}-dist-
+
+      - name: Set path
+        run: |
+          echo "::add-path::/opt/cabal/3.2/bin"
+          echo "::add-path::/opt/ghc/${{ matrix.ghc }}/bin"
+
+      - name: cabal update
+        if: steps.cache-cabal.outputs.cache-hit != 'true'
+        run: cabal update
 
       - name: Build ki-indef
         run: cabal build ki:lib:ki-indef --constraint "ki +build-tests" --disable-optimization --enable-tests
