@@ -98,8 +98,7 @@ library ki-impl-dejafu
   build-depends:
     base,
     concurrency ^>= 1.11.0.0,
-    dejafu ^>= 2.3.0.0,
-    stm
+    dejafu ^>= 2.3.0.0
   exposed-modules: Ki.Sig.Dejafu
   hs-source-dirs: src/ki-impl-dejafu
   if flag(build-tests)

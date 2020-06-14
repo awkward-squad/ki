@@ -13,49 +13,54 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        ghc: ["latest", "8.8", "8.6"]
+        ghc: ["8.10", "8.8", "8.6"]
         include:
           - os: macOS-latest
-            ghc: "8.10.1"
+            ghc: "8.10"
           - os: windows-latest
-            ghc: latest
+            ghc: "8.10"
+
     steps:
       - uses: actions/checkout@v2
-        name: checkout
-      - uses: actions/cache@v1
-        name: cache ~/.ghcup/bin
+        name: Checkout
+
+      - uses: actions/cache@v2
+        name: Cache GHC on MacOS
         if: matrix.os == 'macOS-latest'
         with:
-          path: ~/.ghcup/bin
-          key: ${{ runner.os }}-${{ matrix.ghc }}-ghcup-bin
-      - uses: actions/cache@v1
-        name: cache ~/.ghcup/ghc
-        if: matrix.os == 'macOS-latest'
-        with:
-          path: ~/.ghcup/ghc
-          key: ${{ runner.os }}-${{ matrix.ghc }}-ghcup-ghc2
+          path: |
+            ~/.ghcup/bin
+            ~/.ghcup/ghc
+          key: ${{ runner.os }}-${{ matrix.ghc }}-ghc
+
       - uses: actions/setup-haskell@v1.1
         id: setup-haskell
-        name: setup
+        name: Setup
         with:
           ghc-version: ${{ matrix.ghc }}
-      - uses: actions/cache@v1
-        name: cache ~/.cabal/store
+
+      - uses: actions/cache@v2
+        name: Cache cabal store
         with:
           path: ${{ steps.setup-haskell.outputs.cabal-store }}
-          key: ${{ runner.os }}-${{ matrix.ghc }}-cabal-store-${{ hashFiles('**/*.cabal') }}
-          restore-keys: |
-            ${{ runner.os }}-${{ matrix.ghc }}-cabal-store-
-      - uses: actions/cache@v1
-        name: cache dist-newstyle
+          key: ${{ runner.os }}-${{ matrix.ghc }}-cabal-store-${{ hashFiles('cabal.project') }}-${{ hashFiles('**/*.cabal') }}
+
+      - uses: actions/cache@v2
+        name: Cache build directory
         with:
           path: dist-newstyle
           key: ${{ runner.os }}-${{ matrix.ghc }}-dist-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.ghc }}-dist-
-      - name: build ki
-        run: ./do build ki
-      - name: test ki
-        run: ./do test ki
-      - name: build ki-mtl
-        run: ./do build ki-mtl
+
+      - name: Build ki-indef
+        run: cabal build ki:lib:ki-indef --constraint "ki +build-tests" --disable-optimization --enable-tests
+
+      - name: Build ki
+        run: cabal build ki:lib:ki --constraint "ki +build-tests" --disable-optimization --enable-tests
+
+      - name: Build tests
+        run: cabal build ki:test:tests --constraint "ki +build-tests" --disable-optimization --enable-tests
+
+      - name: Run tests
+        run: cabal run ki:test:tests --constraint "ki +build-tests" --disable-optimization --enable-tests
