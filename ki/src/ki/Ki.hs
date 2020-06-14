@@ -79,7 +79,7 @@ type Context
 -- The basic usage of a __scope__ is as follows.
 --
 -- @
--- 'scoped' context \\scope -> do
+-- 'scoped' \\scope -> do
 --   'fork' scope worker1
 --   'fork' scope worker2
 --   'wait' scope

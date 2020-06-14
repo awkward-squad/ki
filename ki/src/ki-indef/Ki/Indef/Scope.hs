@@ -67,7 +67,7 @@ cancel Scope {context} = do
   token <- newUnique
   atomically (Ki.Context.cancel context (CancelToken token))
 
-fork :: Scope -> (Context => (forall x. IO x -> IO x) -> IO a) -> IO ()
+fork :: Scope -> (Context => (forall x. IO x -> IO x) -> IO ()) -> IO ()
 fork scope@Scope {context} action = do
   uninterruptibleMask \restore -> do
     parentThreadId <- myThreadId
