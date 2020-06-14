@@ -20,14 +20,14 @@ import Data.Functor (($>), void)
 import GHC.Generics (Generic)
 import Ki.Indef.Seconds (Seconds)
 import qualified Ki.Indef.Seconds as Seconds
-import Ki.Sig (IO, STM, TMVar, ThreadId, atomically, readTMVar, registerDelay, throwTo)
+import Ki.Sig (IO, STM, ThreadId, atomically, registerDelay, throwTo)
 import Prelude hiding (IO)
 
-data Thread a
-  = Thread
-      !ThreadId
-      !(TMVar (Either SomeException a))
-  deriving stock (Generic)
+data Thread a = Thread
+  { threadId :: !ThreadId,
+    action :: !(STM (Either SomeException a))
+  }
+  deriving stock (Functor, Generic)
 
 instance Eq (Thread a) where
   Thread id1 _ == Thread id2 _ =
@@ -42,17 +42,17 @@ await =
   atomically . awaitSTM
 
 awaitSTM :: Thread a -> STM (Either SomeException a)
-awaitSTM (Thread _threadId resultVar) =
-  readTMVar resultVar
+awaitSTM Thread {action} =
+  action
 
 awaitFor :: Thread a -> Seconds -> IO (Maybe (Either SomeException a))
 awaitFor thread seconds =
   timeout seconds (pure . Just <$> awaitSTM thread) (pure Nothing)
 
 kill :: Thread a -> IO ()
-kill (Thread threadId resultVar) = do
-  throwTo threadId ThreadKilled
-  void (atomically (readTMVar resultVar))
+kill thread = do
+  throwTo (threadId thread) ThreadKilled
+  void (await thread)
 
 newtype AsyncThreadFailed
   = AsyncThreadFailed SomeException

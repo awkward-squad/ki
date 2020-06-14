@@ -25,7 +25,7 @@ import Ki.Indef.Context (CancelToken (..), Cancelled (..))
 import qualified Ki.Indef.Context as Ki.Context
 import Ki.Indef.Thread (AsyncThreadFailed (..), Thread (Thread), timeout)
 import qualified Ki.Indef.Thread as Thread
-import Ki.Sig (IO, STM, TMVar, TVar, ThreadId, atomically, forkIO, modifyTVar', myThreadId, newEmptyTMVarIO, newTVar, newUnique, putTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, unsafeUnmask, writeTVar)
+import Ki.Sig (IO, STM, TMVar, TVar, ThreadId, atomically, forkIO, modifyTVar', myThreadId, newEmptyTMVarIO, newTVar, newUnique, putTMVar, readTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, unsafeUnmask, writeTVar)
 import Prelude hiding (IO)
 
 -- import Ki.Internal.Debug
@@ -52,7 +52,7 @@ async scope@Scope {context} action = do
     atomically do
       decrementStarting scope
       insertRunning scope childThreadId
-      pure (Thread childThreadId resultVar)
+      pure (Thread childThreadId (readTMVar resultVar))
   where
     theThread :: (forall x. IO x -> IO x) -> TMVar (Either SomeException a) -> IO ()
     theThread restore resultVar = do
