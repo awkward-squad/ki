@@ -87,7 +87,7 @@ fork scope@Scope {context} action = do
       childThreadId <- myThreadId
       atomically (deleteRunning scope childThreadId)
 
-global :: (Context => a) -> a
+global :: (Context => IO a) -> IO a
 global action =
   let ?context = Ki.Context.background in action
 

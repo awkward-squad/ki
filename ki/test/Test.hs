@@ -24,153 +24,174 @@ import qualified Test.DejaFu.Types as DejaFu
 import Text.Printf (printf)
 
 main :: IO ()
-main = run do
-  test "background context isn't cancelled" . returns False $ do
-    isJust <$> cancelled
+main = do
+  test "background context isn't cancelled" do
+    returns False do
+      isJust <$> cancelled
 
-  test "new context isn't cancelled" . returns False $ do
-    scoped \scope -> async scope cancelled >>= fmap isRightJust . await
+  test "new context isn't cancelled" do
+    returns False do
+      scoped scopeIsCancelled
 
-  test "context derives cancelled from parent" . returns (False, True) $ do
-    scoped \scope -> do
-      c1 <- async scope cancelled >>= fmap isRightJust . await
-      cancel scope
-      c2 <- async scope cancelled >>= fmap isRightJust . await
-      pure (c1, c2)
+  test "context derives cancelled from parent" do
+    returns (False, True) do
+      scoped \scope -> do
+        c1 <- scopeIsCancelled scope
+        cancel scope
+        c2 <- scopeIsCancelled scope
+        pure (c1, c2)
 
-  test "cancellation propagates to all descendants" . returns () $ do
-    scoped \scope1 -> do
-      fork scope1 do
-        scoped \scope2 -> do
-          fork scope2 blockUntilCancelled
-          wait scope2
-      cancel scope1
-      wait scope1
+  test "cancellation propagates to all descendants" do
+    returns () do
+      scoped \scope1 -> do
+        fork scope1 do
+          scoped \scope2 -> do
+            fork scope2 blockUntilCancelled
+            wait scope2
+        cancel scope1
+        wait scope1
 
   todo "cancelled child context removes parent's ref to it"
 
-  test "`wait` waits for all threads" . returns 3 $ do
-    ref <- newIORef (0 :: Int)
-    scoped \scope -> do
-      fork scope (atomicModifyIORef ref (\n -> (n + 1, ())))
-      fork scope (atomicModifyIORef ref (\n -> (n + 1, ())))
-      fork scope (atomicModifyIORef ref (\n -> (n + 1, ())))
-      wait scope
-    readIORef ref
+  test "`wait` waits for all threads" do
+    returns 3 do
+      ref <- newIORef (0 :: Int)
+      scoped \scope -> do
+        let bump = fork scope (atomicModifyIORef ref (\n -> (n + 1, ())))
+        bump >> bump >> bump
+        wait scope
+      readIORef ref
 
-  test "using a closed scope throws" . throws (ErrorCall "ki: scope closed") $ do
-    scope <- scoped pure
-    fork scope (pure ())
+  test "using a closed scope throws" do
+    throws (ErrorCall "ki: scope closed") do
+      scope <- scoped pure
+      fork scope (pure ())
 
-  test "thread can be awaited" . returns True $ do
-    ref <- newIORef False
-    scoped \scope -> do
-      thread <- async scope (writeIORef ref True)
-      _ <- await thread
-      pure ()
-    readIORef ref
+  test "thread can be awaited" do
+    returns True do
+      ref <- newIORef False
+      scoped \scope -> do
+        thread <- async scope (writeIORef ref True)
+        _ <- await thread
+        pure ()
+      readIORef ref
 
-  test "thread can be awaited after its scope closes" . returns True $ do
-    thread <- scoped \scope -> do
-      thread <- async scope (pure ())
-      wait scope
-      pure thread
-    either (const False) (const True) <$> await thread
+  test "thread can be awaited after its scope closes" do
+    returns True do
+      thread <- scoped \scope -> do
+        thread <- async scope (pure ())
+        wait scope
+        pure thread
+      either (const False) (const True) <$> await thread
 
-  test "thread can be killed" . returns () $ do
-    scoped \scope -> do
-      thread <- async scope block
-      kill thread
+  test "thread can be killed" do
+    returns () do
+      scoped \scope -> do
+        thread <- async scope block
+        kill thread
 
-  test "thread can be killed after it's finished" . returns () $ do
-    scoped \scope -> do
-      thread <- async scope (pure ())
-      _ <- await thread
-      kill thread
+  test "thread can be killed after it's finished" do
+    returns () do
+      scoped \scope -> do
+        thread <- async scope (pure ())
+        _ <- await thread
+        kill thread
 
-  test "`fork` propagates exceptions" . returns True $ do
-    scoped \scope ->
-      mask \restore -> do
-        fork scope (throw A)
-        restore (False <$ block) `catch` \ex ->
-          pure (isAsyncException ex)
+  test "`fork` propagates exceptions" do
+    returns True do
+      scoped \scope ->
+        mask \restore -> do
+          fork scope (throw A)
+          restore (False <$ block) `catch` \ex ->
+            pure (isAsyncException ex)
 
-  -- test "`async` doesn't propagates exceptions" . returns () $ do
-  --   scoped \scope -> void (async scope \_ -> throw A)
+  -- -- test "`async` doesn't propagates exceptions" . returns () $ do
+  -- --   scoped \scope -> void (async scope \_ -> throw A)
 
-  test "`await` returns Left if thread throws" . returns True $ do
-    scoped \scope -> do
-      thread <- async scope (throw A)
-      isLeft <$> await thread
+  test "`await` returns Left if thread throws" do
+    returns True do
+      scoped \scope -> do
+        thread <- async scope (throw A)
+        isLeft <$> await thread
 
-  test "`async` inherits masking state" . returns (Unmasked, MaskedInterruptible, MaskedUninterruptible) $ do
-    scoped \scope -> do
-      thread1 <- async scope getMaskingState
-      thread2 <- mask_ (async scope getMaskingState)
-      thread3 <- uninterruptibleMask_ (async scope getMaskingState)
-      (,,)
-        <$> (either throw pure =<< await thread1)
-        <*> (either throw pure =<< await thread2)
-        <*> (either throw pure =<< await thread3)
+  test "`async` inherits masking state" do
+    returns (Unmasked, MaskedInterruptible, MaskedUninterruptible) do
+      scoped \scope -> do
+        thread1 <- async scope getMaskingState
+        thread2 <- mask_ (async scope getMaskingState)
+        thread3 <- uninterruptibleMask_ (async scope getMaskingState)
+        (,,)
+          <$> (either throw pure =<< await thread1)
+          <*> (either throw pure =<< await thread2)
+          <*> (either throw pure =<< await thread3)
 
-  test "`asyncWithUnmask` inherits masking state" . returns (Unmasked, MaskedInterruptible, MaskedUninterruptible) $ do
-    scoped \scope -> do
-      thread1 <- asyncWithUnmask scope \_ -> getMaskingState
-      thread2 <- mask_ (asyncWithUnmask scope \_ -> getMaskingState)
-      thread3 <- uninterruptibleMask_ (asyncWithUnmask scope \_ -> getMaskingState)
-      (,,)
-        <$> (either throw pure =<< await thread1)
-        <*> (either throw pure =<< await thread2)
-        <*> (either throw pure =<< await thread3)
+  test "`asyncWithUnmask` inherits masking state" do
+    returns (Unmasked, MaskedInterruptible, MaskedUninterruptible) do
+      scoped \scope -> do
+        thread1 <- asyncWithUnmask scope \_ -> getMaskingState
+        thread2 <- mask_ (asyncWithUnmask scope \_ -> getMaskingState)
+        thread3 <- uninterruptibleMask_ (asyncWithUnmask scope \_ -> getMaskingState)
+        (,,)
+          <$> (either throw pure =<< await thread1)
+          <*> (either throw pure =<< await thread2)
+          <*> (either throw pure =<< await thread3)
 
-  test "`asyncWithUnmask` provides an unmasking function" . returns Unmasked $ do
-    scoped \scope -> do
-      thread <- mask_ (asyncWithUnmask scope \unmask -> unmask getMaskingState)
-      either throw pure =<< await thread
+  test "`asyncWithUnmask` provides an unmasking function" do
+    returns Unmasked do
+      scoped \scope -> do
+        thread <- mask_ (asyncWithUnmask scope \unmask -> unmask getMaskingState)
+        either throw pure =<< await thread
 
   todo "`forkWithUnmask` inherits masking state"
 
   todo "`forkWithUnmask` provides an unmasking function"
 
-  test "`scoped` re-throws from `fork`" . throws A $ do
-    scoped \scope -> do
-      fork scope (() <$ throw A)
-      wait scope
-
-  test "`scoped` kills threads when it throws" . returns () $ do
-    ignoring @A do
+  test "`scoped` re-throws from `fork`" do
+    throws A do
       scoped \scope -> do
-        var <- newEmptyMVar
-        uninterruptibleMask_ do
-          forkWithUnmask scope \unmask -> do
-            putMVar var ()
-            unmask block
-        takeMVar var
-        void (throw A)
-
-  test "`scoped` kills threads when `fork` throws" . returns () $ do
-    ignoring @A do
-      scoped \scope -> do
-        fork scope block
-        fork scope (void (throw A))
+        fork scope (() <$ throw A)
         wait scope
 
-  test "thread waiting on its own scope deadlocks" . deadlocks $ do
-    scoped \scope -> do
-      fork scope (wait scope)
-      wait scope
+  test "`scoped` kills threads when it throws" do
+    returns () do
+      ignoring @A do
+        scoped \scope -> do
+          var <- newEmptyMVar
+          uninterruptibleMask_ do
+            forkWithUnmask scope \unmask -> do
+              putMVar var ()
+              unmask block
+          takeMVar var
+          void (throw A)
 
-  test "thread waiting on its own scope allows async exceptions" . returns () $ do
-    scoped \scope -> fork scope (wait scope)
+  test "`scoped` kills threads when `fork` throws" do
+    returns () do
+      ignoring @A do
+        scoped \scope -> do
+          fork scope block
+          fork scope (void (throw A))
+          wait scope
 
-  test "`fork` doesn't propagate `Cancelled`" . returns () $ do
-    scoped \scope -> do
-      cancel scope
-      fork scope do
-        cancelled >>= \case
-          Nothing -> throw A
-          Just capitulate -> capitulate
-      wait scope
+  test "thread waiting on its own scope deadlocks" do
+    deadlocks do
+      scoped \scope -> do
+        fork scope (wait scope)
+        wait scope
+
+  test "thread waiting on its own scope allows async exceptions" do
+    returns () do
+      scoped \scope ->
+        fork scope (wait scope)
+
+  test "`fork` doesn't propagate `Cancelled`" do
+    returns () do
+      scoped \scope -> do
+        cancel scope
+        fork scope do
+          cancelled >>= \case
+            Nothing -> throw A
+            Just capitulate -> capitulate
+        wait scope
 
 type P =
   DejaFu.Program DejaFu.Basic IO
@@ -226,7 +247,7 @@ throws expected =
     )
     (const False)
 
-deadlocks :: Eq a => P a -> IO (DejaFu.Result a)
+deadlocks :: Eq a => (Context => P a) -> IO (DejaFu.Result a)
 deadlocks =
   runTest
     ( \case
@@ -306,6 +327,12 @@ data A
   = A
   deriving stock (Eq, Show)
   deriving anyclass (Exception)
+
+scopeIsCancelled :: Scope -> P Bool
+scopeIsCancelled scope = do
+  thread <- async scope cancelled
+  result <- await thread
+  pure (isRightJust result)
 
 blockUntilCancelled :: Context => P ()
 blockUntilCancelled =
