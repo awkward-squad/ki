@@ -3,6 +3,15 @@
 set -e
 
 case "$@" in
+  "build")
+    exec cabal build ki --constraint "ki +build-tests" --disable-optimization --enable-tests
+    ;;
+  "build experiments/fork.hs")
+    exec cabal exec -- ghc --make -O2 -threaded -rtsopts -package ki experiments/fork.hs
+    ;;
+  "clean")
+    exec cabal clean
+    ;;
   "dev")
     exec ghcid -c 'cabal repl ki:lib:ki-indef' --restart ki/ki.cabal
     ;;
@@ -14,17 +23,12 @@ case "$@" in
         -W \
         --restart ki/ki.cabal
     ;;
-  "build experiments/fork.hs")
-    exec cabal exec -- ghc --make -O2 -threaded -rtsopts -package ki experiments/fork.hs
-    ;;
-  "build")
-    exec cabal build ki --constraint "ki +build-tests" --disable-optimization --enable-tests
-    ;;
   "freeze")
     exec cabal freeze --constraint "ki +build-tests" --enable-tests
     ;;
   "test")
-    exec cabal run ki:test:tests --constraint "ki +build-tests" --disable-optimization --enable-tests
+    cabal run ki:test:tests --constraint "ki +build-tests" --disable-optimization --enable-tests
+    cabal exec -- ghci -package ki -pgmL markdown-unlit tutorial/*.lhs < /dev/null
     ;;
   "upload candidate")
     cabal sdist ki

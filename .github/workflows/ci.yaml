@@ -24,16 +24,17 @@ jobs:
 
       - uses: actions/cache@v2
         id: cache-cabal
-        name: Cache cabal packages and store
+        name: Cache dependencies
         with:
           path: |
+            ~/.cabal/config
             ~/.cabal/packages/hackage.haskell.org/
             ~/.cabal/store
           key: ${{ runner.os }}-${{ matrix.ghc }}-cabal-${{ hashFiles('cabal.project') }}-${{ hashFiles('cabal.project.freeze') }}
           restore-keys: ${{ runner.os }}-${{ matrix.ghc }}-cabal-
 
       - uses: actions/cache@v2
-        name: Cache build directory
+        name: Cache build
         with:
           path: dist-newstyle
           key: ${{ runner.os }}-${{ matrix.ghc }}-dist-${{ github.sha }}
@@ -59,3 +60,8 @@ jobs:
 
       - name: Run tests
         run: cabal run ki:test:tests --constraint "ki +build-tests" --disable-optimization --enable-tests
+
+      - name: Typecheck tutorials
+        run: |
+          cabal install markdown-unlit
+          cabal exec -- ghci -package ki -pgmL ~/.cabal/bin/markdown-unlit tutorial/*.lhs < /dev/null

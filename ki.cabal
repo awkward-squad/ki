@@ -59,6 +59,12 @@ common component
       -Wno-missing-safe-haskell-mode
       -Wno-prepositive-qualified-module
 
+common tutorial
+  import: component
+  build-depends: base, ki,
+  build-tool-depends: markdown-unlit:markdown-unlit
+  ghc-options: -pgmL markdown-unlit -rtsopts -threaded
+
 library
   import: component
   -- build-depends: ki-impl-base, ki-indef
@@ -114,7 +120,7 @@ test-suite tests
     dejafu,
     ki-impl-dejafu,
     ki-indef,
-  ghc-options: -threaded -with-rtsopts=-N1
+  ghc-options: -rtsopts -threaded
   hs-source-dirs: test
   main-is: Test.hs
   mixins: ki-indef (Ki.Indef as Ki) requires (Ki.Sig as Ki.Sig.Dejafu)
