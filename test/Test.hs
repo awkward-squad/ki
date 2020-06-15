@@ -29,36 +29,62 @@ main = do
     returns False do
       isJust <$> cancelled
 
-  test "new context isn't cancelled" do
+  test "scope doesn't start out cancelled" do
     returns False do
-      scoped scopeIsCancelled
+      scoped \_ ->
+        isJust <$> cancelled
 
-  test "context derives cancelled from parent" do
-    returns (False, True) do
+  test "`cancel` cancels scope" do
+    returns True do
       scoped \scope -> do
-        c1 <- scopeIsCancelled scope
         cancel scope
-        c2 <- scopeIsCancelled scope
-        pure (c1, c2)
+        isJust <$> cancelled
 
-  test "cancellation propagates to all descendants" do
-    returns () do
+  test "`cancel` cancels inner scope" do
+    returns True do
       scoped \scope1 -> do
-        fork scope1 do
-          scoped \scope2 -> do
-            fork scope2 blockUntilCancelled
-            wait scope2
+        scoped \scope2 -> do
+          cancel scope1
+          isJust <$> cancelled
+
+  test "`cancel` cancels inner thread" do
+    returns True do
+      scoped \scope1 -> do
+        thread <-
+          async scope1 do
+            cancel scope1
+            isJust <$> cancelled
+        await' thread
+
+  test "inner scope inherits cancellation" do
+    returns True do
+      scoped \scope1 -> do
         cancel scope1
-        wait scope1
+        scoped \_ ->
+          isJust <$> cancelled
+
+  test "inner thread inherits cancellation" do
+    returns True do
+      scoped \scope -> do
+        cancel scope
+        thread <- async scope cancelled
+        isJust <$> await' thread
 
   todo "cancelled child context removes parent's ref to it"
 
-  test "`wait` waits for all threads" do
-    returns 3 do
-      ref <- newIORef (0 :: Int)
+  test "`wait` waits for `fork`" do
+    returns True do
+      ref <- newIORef False
       scoped \scope -> do
-        let bump = fork scope (atomicModifyIORef ref (\n -> (n + 1, ())))
-        bump >> bump >> bump
+        fork scope (writeIORef ref True)
+        wait scope
+      readIORef ref
+
+  test "`wait` waits for `async`" do
+    returns True do
+      ref <- newIORef False
+      scoped \scope -> do
+        _ <- async scope (writeIORef ref True)
         wait scope
       readIORef ref
 
@@ -67,14 +93,17 @@ main = do
       scope <- scoped pure
       fork scope (pure ())
 
-  test "thread can be awaited" do
+  test "`await` waits" do
     returns True do
-      ref <- newIORef False
       scoped \scope -> do
-        thread <- async scope (writeIORef ref True)
-        _ <- await thread
-        pure ()
-      readIORef ref
+        thread <- async scope (pure ())
+        isRight <$> await thread
+
+  test "`await` waits for exception" do
+    returns True do
+      scoped \scope -> do
+        thread <- async scope (throw A)
+        isLeft <$> await thread
 
   test "thread can be awaited after its scope closes" do
     returns True do
@@ -82,7 +111,7 @@ main = do
         thread <- async scope (pure ())
         wait scope
         pure thread
-      either (const False) (const True) <$> await thread
+      isRight <$> await thread
 
   test "thread can be killed" do
     returns () do
@@ -98,15 +127,22 @@ main = do
         kill thread
 
   test "`fork` propagates exceptions" do
-    returns True do
-      scoped \scope ->
-        mask \restore -> do
-          fork scope (throw A)
-          restore (False <$ block) `catch` \ex ->
-            pure (isAsyncException ex)
+    throws A do
+      scoped \scope -> do
+        fork scope (throw A)
+        wait scope
 
-  -- -- test "`async` doesn't propagates exceptions" . returns () $ do
-  -- --   scoped \scope -> void (async scope \_ -> throw A)
+  -- I think this fails because of https://github.com/barrucadu/dejafu/issues/324
+  _failingTest "`async` doesn't propagates exceptions" do
+    returns () do
+      scoped \scope ->
+        void (async scope (throw A))
+
+  -- I think this deadlocks because of https://github.com/barrucadu/dejafu/issues/324
+  -- Still, we want to assert either it succeeds or throws A
+  --
+  --   scoped \scope -> do
+  --     fork scope (throw A)
 
   test "`await` returns Left if thread throws" do
     returns True do
@@ -210,9 +246,21 @@ test name action = do
     prettyPrintTrace value trace
   unless (DejaFu._pass result) exitFailure
 
+_failingTest :: String -> IO (DejaFu.Result a) -> IO ()
+_failingTest name action = do
+  time0 <- getMonotonicTime
+  result <- action
+  time1 <- getMonotonicTime
+  printf
+    "[%s] %4.0fms %s\n"
+    (if DejaFu._pass result then " " else "x")
+    ((time1 - time0) * 1000)
+    name
+  when (DejaFu._pass result) exitFailure
+
 todo :: String -> IO ()
 todo =
-  printf "[ ] %4.0fms %s\n" (0 :: Float)
+  printf "[-] %4.0fms %s\n" (0 :: Float)
 
 runTest ::
   Eq a =>
@@ -328,11 +376,9 @@ data A
   deriving stock (Eq, Show)
   deriving anyclass (Exception)
 
-scopeIsCancelled :: Scope -> P Bool
-scopeIsCancelled scope = do
-  thread <- async scope cancelled
-  result <- await thread
-  pure (isRightJust result)
+await' :: Thread a -> P a
+await' =
+  await >=> either throw pure
 
 blockUntilCancelled :: Context => P ()
 blockUntilCancelled =
@@ -345,9 +391,9 @@ isLeft :: Either a b -> Bool
 isLeft =
   either (const True) (const False)
 
-isRightJust :: Either a (Maybe b) -> Bool
-isRightJust =
-  either (const False) isJust
+isRight :: Either a b -> Bool
+isRight =
+  either (const False) (const True)
 
 -- finally :: P a -> P b -> P a
 -- finally action after =

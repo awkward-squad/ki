@@ -254,11 +254,8 @@ global = K.global
 --   'fork' scope worker2
 --   'wait' scope
 -- @
-scoped :: Context => (Scope -> IO a) -> IO a
-scoped = _scoped
-
-_scoped :: forall a. Context => (Scope -> IO a) -> IO a
-_scoped = coerce @((K.Scope -> IO a) -> IO a) K.scoped
+scoped :: Context => (Context => Scope -> IO a) -> IO a
+scoped action = K.scoped \scope -> action (coerce scope)
 
 -- | Wait for an @STM@ action to return, and return the @IO@ action contained within.
 --

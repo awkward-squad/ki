@@ -91,11 +91,11 @@ global :: (Context => IO a) -> IO a
 global action =
   let ?context = Ki.Context.background in action
 
-scoped :: Context => (Scope -> IO a) -> IO a
+scoped :: Context => (Context => Scope -> IO a) -> IO a
 scoped f = do
   uninterruptibleMask \restore -> do
-    scope <- new
-    result <- restore (try (f scope))
+    scope@Scope{context} <- new
+    result <- let ?context = context in try (restore (f scope))
     closeScopeException <- closeScope scope
     case result of
       -- If the callback failed, we don't care if we were thrown an async
@@ -103,7 +103,7 @@ scoped f = do
       Left exception -> throwIO (Thread.unwrapAsyncThreadFailed exception)
       -- Otherwise, throw that exception (if it exists)
       Right value -> do
-        for_ @Maybe closeScopeException throwIO
+        for_ @Maybe closeScopeException (throwIO . Thread.unwrapAsyncThreadFailed)
         pure value
   where
     new :: IO Scope

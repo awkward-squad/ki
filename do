@@ -13,7 +13,7 @@ case "$@" in
     exec cabal clean
     ;;
   "dev")
-    exec ghcid -c 'cabal repl ki:lib:ki-indef' --restart ki/ki.cabal
+    exec ghcid -c 'cabal repl ki:lib:ki-indef' --restart ki.cabal
     ;;
   "dev tests")
     exec \
@@ -21,7 +21,7 @@ case "$@" in
         -c 'cabal repl ki:test:tests --constraint "ki +build-tests" --disable-optimization' \
         -T ':main' \
         -W \
-        --restart ki/ki.cabal
+        --restart ki.cabal
     ;;
   "freeze")
     exec cabal freeze --constraint "ki +build-tests" --enable-tests
