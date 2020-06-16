@@ -56,19 +56,13 @@ pattern Cancelled <- K.Cancelled_ _
 
 {-# COMPLETE Cancelled #-}
 
--- | A __context__ models a program's call tree, and is used as a mechanism to propagate /cancellation requests/ to
+-- | A __context__ models a program's call tree, and is used as a mechanism to propagate /cancellation/ requests to
 -- every __thread__ forked within a __scope__.
 --
 -- Every __thread__ is provided its own __context__, which is derived from its __scope__.
 --
 -- A __thread__ can query whether its __context__ has been /cancelled/, which is a suggestion to perform a graceful
 -- termination.
---
--- === Usage summary
---
---   * A __context__ is introduced by 'global', 'async', and 'fork'.
---   * A __context__ is queried by 'cancelled'.
---   * A __context__ is manipulated by 'cancel'.
 type Context
   = K.Context
 
@@ -87,12 +81,6 @@ type Context
 --
 -- A __scope__ can be passed into functions or shared amongst __threads__, but this is generally not advised, as it
 -- takes the "structure" out of "structured concurrency".
---
--- === Usage summary
---
---   * A __scope__ is introduced by 'scoped'.
---   * A __scope__ is queried by 'wait'.
---   * A __scope__ is manipulated by 'cancel'.
 newtype Scope
   = Scope K.Scope
 
@@ -102,12 +90,6 @@ newtype Seconds
   deriving newtype (Enum, Eq, Fractional, Num, Ord, Read, Real, RealFrac, Show)
 
 -- | A running __thread__.
---
--- === Usage summary
---
---   * A __thread__ is introduced by 'async' and 'fork'.
---   * A __thread__ is queried by 'await'.
---   * A __thread__ is manipulated by 'kill'.
 newtype Thread a
   = Thread (K.Thread a)
   deriving stock (Generic)
@@ -134,7 +116,7 @@ await :: Thread a -> IO (Either SomeException a)
 await = _await
 
 _await :: forall a. Thread a -> IO (Either SomeException a)
-_await = coerce @(K.Thread a -> IO (Either SomeException a)) K.await
+_await = coerce (K.await @a)
 
 -- | Variant of 'await' that gives up after the given number of seconds elapses.
 --
@@ -146,7 +128,7 @@ awaitFor :: Thread a -> Seconds -> IO (Maybe (Either SomeException a))
 awaitFor = _awaitFor
 
 _awaitFor :: forall a. Thread a -> Seconds -> IO (Maybe (Either SomeException a))
-_awaitFor = coerce @(K.Thread a -> K.Seconds -> IO (Maybe (Either SomeException a))) K.awaitFor
+_awaitFor = coerce (K.awaitFor @a)
 
 -- | @STM@ variant of 'await'.
 --
@@ -157,7 +139,7 @@ awaitSTM :: Thread a -> STM (Either SomeException a)
 awaitSTM = _awaitSTM
 
 _awaitSTM :: forall a. Thread a -> STM (Either SomeException a)
-_awaitSTM = coerce @(K.Thread a -> STM (Either SomeException a)) K.awaitSTM
+_awaitSTM = coerce (K.awaitSTM @a)
 
 -- | /Cancel/ all __contexts__ derived from a __scope__.
 cancel :: Scope -> IO ()
@@ -171,7 +153,7 @@ cancel = coerce K.cancel
 --
 -- ==== __Examples__
 --
--- Sometimes, a __thread__ may terminate with a value after observing a cancellation request.
+-- Sometimes, a __thread__ may terminate with a value after observing a /cancellation/ request.
 --
 -- @
 -- 'cancelled' >>= \\case
@@ -195,15 +177,12 @@ cancelled = K.cancelled
 
 -- | @STM@ variant of 'cancelled'.
 cancelledSTM :: Context => STM (Maybe (IO a))
-cancelledSTM = _cancelledSTM
-
-_cancelledSTM :: forall a. Context => STM (Maybe (IO a))
-_cancelledSTM = coerce @(STM (Maybe (IO a))) K.cancelledSTM
+cancelledSTM = K.cancelledSTM
 
 -- | Variant of 'async' that does not return a handle to the __thread__.
 --
--- If the forked __thread__ throws an unexpected exception, the exception is propagated up the call tree to the
--- __thread__ that opened its __scope__.
+-- If the __thread__ throws an unexpected exception, the exception is propagated up the call tree to the __thread__ that
+-- opened its __scope__.
 --
 -- There is one expected exception the __thread__ may throw that will not be propagated up the call tree:
 --
@@ -232,7 +211,7 @@ kill :: Thread a -> IO ()
 kill = _kill
 
 _kill :: forall a. Thread a -> IO ()
-_kill = coerce @(K.Thread a -> IO ()) K.kill
+_kill = coerce (K.kill @a)
 
 -- | Run an action in the global __context__.
 --
@@ -264,7 +243,7 @@ timeout :: Seconds -> STM (IO a) -> IO a -> IO a
 timeout = _timeout
 
 _timeout :: forall a. Seconds -> STM (IO a) -> IO a -> IO a
-_timeout = coerce @(K.Seconds -> STM (IO a) -> IO a -> IO a) K.timeout
+_timeout = coerce (K.timeout @a)
 
 -- | Variant of 'wait' that gives up after the given number of seconds elapses.
 --

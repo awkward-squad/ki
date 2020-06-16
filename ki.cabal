@@ -71,7 +71,7 @@ library
     base >= 4.12.0.0 && < 4.15,
     ki-impl-base,
     ki-indef
-  exposed-modules: Ki
+  exposed-modules: Ki, Ki.Lite
   hs-source-dirs: src/ki
   mixins: ki-indef (Ki.Indef) requires (Ki.Sig as Ki.Sig.Base)
 
