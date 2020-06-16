@@ -10,7 +10,7 @@
 module Main (main) where
 
 import Control.Concurrent.Classy hiding (fork, forkWithUnmask, wait)
-import Control.Exception (Exception (fromException), MaskingState (..), SomeAsyncException, SomeException, pattern ErrorCall)
+import Control.Exception (Exception (fromException), MaskingState (..), pattern ErrorCall)
 import Control.Monad
 import Data.Foldable
 import Data.Function
@@ -43,7 +43,7 @@ main = do
   test "`cancel` cancels inner scope" do
     returns True do
       scoped \scope1 -> do
-        scoped \scope2 -> do
+        scoped \_ -> do
           cancel scope1
           isJust <$> cancelled
 
@@ -312,10 +312,6 @@ ignoring :: forall e. Exception e => P () -> P ()
 ignoring action =
   catch @_ @e action \_ -> pure ()
 
-isAsyncException :: SomeException -> Bool
-isAsyncException =
-  isJust . fromException @SomeAsyncException
-
 prettyPrintTrace :: Show a => Either DejaFu.Condition a -> DejaFu.Trace -> IO ()
 prettyPrintTrace value trace = do
   print value
@@ -379,13 +375,6 @@ data A
 await' :: Thread a -> P a
 await' =
   await >=> either throw pure
-
-blockUntilCancelled :: Context => P ()
-blockUntilCancelled =
-  atomically do
-    cancelledSTM >>= \case
-      Nothing -> retry
-      Just _ -> pure ()
 
 isLeft :: Either a b -> Bool
 isLeft =

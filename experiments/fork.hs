@@ -23,7 +23,7 @@ import Text.Read (readMaybe)
 -- async ~ 8.49us
 
 main :: IO ()
-main = do
+main = Ki.global do
   (readMaybe -> Just n) : funcs <- getArgs
 
   when ("forkIO" `elem` funcs) do
@@ -38,18 +38,18 @@ main = do
     putMVar var ()
 
   when ("scoped" `elem` funcs) do
-    ((), us) <- timed (replicateM_ n (Ki.scoped Ki.background \_ -> pure ()))
+    ((), us) <- timed (replicateM_ n (Ki.scoped \_ -> pure ()))
     printf "scoped ~ %0.2fus\n" (us / fromIntegral n)
 
   when ("async" `elem` funcs) do
-    Ki.scoped Ki.background \scope -> do
-      ((), us) <- timed (replicateM_ n (Ki.async scope \_ -> pure ()))
+    Ki.scoped \scope -> do
+      ((), us) <- timed (replicateM_ n (Ki.async scope (pure ())))
       printf "async ~ %0.2fus\n" (us / fromIntegral n)
 
-  when ("async_" `elem` funcs) do
-    Ki.scoped Ki.background \scope -> do
-      ((), us) <- timed (replicateM_ n (Ki.async_ scope \_ -> pure ()))
-      printf "async_ ~ %0.2fus\n" (us / fromIntegral n)
+  when ("fork" `elem` funcs) do
+    Ki.scoped \scope -> do
+      ((), us) <- timed (replicateM_ n (Ki.fork scope (pure ())))
+      printf "fork ~ %0.2fus\n" (us / fromIntegral n)
 
 timed :: IO a -> IO (a, Double)
 timed action = do

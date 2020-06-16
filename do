@@ -4,7 +4,7 @@ set -e
 
 case "$@" in
   "build")
-    exec cabal build ki --constraint "ki +build-tests" --disable-optimization --enable-tests
+    exec cabal build --constraint "ki +build-tests" --disable-optimization --enable-tests
     ;;
   "build experiments/fork.hs")
     exec cabal exec -- ghc --make -O2 -threaded -rtsopts -package ki experiments/fork.hs
@@ -23,6 +23,9 @@ case "$@" in
         -W \
         --restart ki.cabal
     ;;
+  "docs")
+    exec cabal haddock --haddock-hyperlink-source --haddock-quickjump
+    ;;
   "freeze")
     exec cabal freeze --constraint "ki +build-tests" --enable-tests
     ;;
@@ -31,8 +34,8 @@ case "$@" in
     cabal exec -- ghci -package ki -pgmL markdown-unlit tutorial/*.lhs < /dev/null
     ;;
   "upload candidate")
-    cabal sdist ki
-    cabal haddock ki --haddock-for-hackage
+    cabal sdist
+    cabal haddock --haddock-for-hackage
     cabal upload -u $HACKAGE_USERNAME -p $HACKAGE_PASSWORD dist-newstyle/sdist/ki-0.tar.gz
     cabal upload -u $HACKAGE_USERNAME -p $HACKAGE_PASSWORD -d dist-newstyle/ki-0-docs.tar.gz
     ;;
