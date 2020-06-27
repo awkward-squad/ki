@@ -52,13 +52,20 @@ data Cancelled
   deriving stock (Eq, Show)
   deriving anyclass (Exception)
 
-new :: STM Context
+new :: IO Context
 new =
-  newWith (pure ())
+  coerce @(IO (TVar E)) (newTVarIO (R (Context_ {nextId, children, onCancel})))
+  where
+    nextId = 0 :: Int
+    children = IntMap.empty :: IntMap Context
+    onCancel = pure () :: STM ()
 
 newWith :: STM () -> STM Context
 newWith onCancel =
-  coerce @(STM (TVar E)) (newTVar (R (Context_ {nextId = 0, children = IntMap.empty, onCancel})))
+  coerce @(STM (TVar E)) (newTVar (R (Context_ {nextId, children, onCancel})))
+  where
+    nextId = 0 :: Int
+    children = IntMap.empty :: IntMap Context
 
 derive :: Context -> STM Context
 derive (Context parentVar) =

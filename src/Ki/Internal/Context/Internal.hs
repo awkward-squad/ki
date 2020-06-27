@@ -1,7 +1,7 @@
 module Ki.Internal.Context.Internal
   ( -- * Context
     Context,
-    background,
+    dummy,
     new,
     derive,
     cancel,
@@ -37,16 +37,16 @@ data Context = Context
   }
   deriving stock (Generic)
 
-background :: Context
-background =
+dummy :: Context
+dummy =
   Context
     { cancel = const (pure ()),
       cancelled = pure Nothing,
-      derive = pure background
+      derive = pure dummy
     }
 
 -- | Create a new context without a parent.
-new :: STM Context
+new :: IO Context
 new =
   f <$> Internal.new
   where

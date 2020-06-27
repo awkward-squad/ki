@@ -115,8 +115,9 @@ fork scope@Scope {context} action = do
       atomically (deleteRunning scope childThreadId)
 
 global :: (Context => IO a) -> IO a
-global action =
-  let ?context = Context.background in action
+global action = do
+  context <- Context.new
+  let ?context = context in action
 
 inScope :: Scope -> (Context => IO a) -> IO a
 inScope Scope {context} action =

@@ -1,7 +1,7 @@
 module Ki.Internal.Context
   ( -- * Context
     Context,
-    background,
+    dummy,
     new,
     derive,
     cancel,
@@ -11,7 +11,7 @@ module Ki.Internal.Context
   )
 where
 
-import Ki.Internal.Context.Internal (CancelToken (..), Cancelled (..), background, cancel, cancelled, derive, new)
+import Ki.Internal.Context.Internal (CancelToken (..), Cancelled (..), cancel, cancelled, derive, dummy, new)
 import qualified Ki.Internal.Context.Internal as Internal
 
 type Context =

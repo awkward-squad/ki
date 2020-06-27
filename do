@@ -31,7 +31,7 @@ case "$@" in
     ;;
   "test")
     cabal run ki:test:tests --constraint "ki +test" --disable-optimization --enable-tests
-    cabal exec -- ghci -package ki -pgmL markdown-unlit tutorial/*.lhs < /dev/null
+    # cabal exec -- ghci -package ki -pgmL markdown-unlit tutorial/*.lhs < /dev/null
     ;;
   "upload candidate")
     cabal sdist
