@@ -3,9 +3,10 @@ module Ki.Internal.Debug
   )
 where
 
-import Ki.Internal.Concurrency
+import Control.Concurrent
 import Ki.Internal.Prelude
 import System.IO.Unsafe (unsafePerformIO)
+import Prelude (IO)
 
 debug :: Monad m => String -> m ()
 debug message =

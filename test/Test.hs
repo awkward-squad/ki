@@ -22,6 +22,7 @@ import System.Exit
 import qualified Test.DejaFu as DejaFu
 import qualified Test.DejaFu.Types as DejaFu
 import Text.Printf (printf)
+import Prelude
 
 main :: IO ()
 main = do

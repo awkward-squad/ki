@@ -46,15 +46,18 @@ data Scope = Scope
     -- | Whether this scope is closed
     -- Invariant: if closed, no threads are starting
     closedVar :: TVar Bool,
+    -- | The set of threads that are currently running
     runningVar :: TVar (Set ThreadId),
-    -- | The number of threads that are just about to start
+    -- | The number of threads that are guaranteed to be just about to start. If this number is non-zero, and that's
+    -- problematic (e.g. if we're about to cancel this scope), we always respect it and wait for it to drop to zero
+    -- before proceeding.
     startingVar :: TVar Int
   }
 
 async :: forall a. Scope -> (Context => (forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
 async scope@Scope {context} action = do
+  resultVar <- newEmptyTMVarIO
   uninterruptibleMask \restore -> do
-    resultVar <- newEmptyTMVarIO
     atomically (incrementStarting scope)
     childThreadId <- forkIO (theThread restore resultVar)
     atomically do
@@ -76,6 +79,23 @@ cancel Scope {context} = do
   n <- uniqueInt
   atomically (Context.cancel context (CancelToken n))
 
+-- | Close a scope, kill all of the running threads, and return the first
+-- async exception delivered to us while doing so, if any.
+--
+-- Preconditions:
+--   * The set of threads doesn't include us
+--   * We're uninterruptibly masked
+close :: Scope -> IO (Maybe SomeException)
+close scope@Scope {closedVar, runningVar} = do
+  threads <-
+    atomically do
+      blockUntilNoneStarting scope
+      writeTVar closedVar True
+      readTVar runningVar
+  exception <- killThreads (Set.toList threads)
+  atomically (blockUntilNoneRunning scope)
+  pure (Monoid.getFirst exception)
+
 fork :: Scope -> (Context => (forall x. IO x -> IO x) -> IO ()) -> IO ()
 fork scope@Scope {context} action = do
   uninterruptibleMask \restore -> do
@@ -96,12 +116,21 @@ fork scope@Scope {context} action = do
       childThreadId <- myThreadId
       atomically (deleteRunning scope childThreadId)
 
--- | Wait for an @STM@ action to return, and return the @IO@ action contained within.
---
--- If the given number of seconds elapses, return the given @IO@ action instead.
 global :: (Context => IO a) -> IO a
 global action =
   let ?context = Context.background in action
+
+inScope :: Scope -> (Context => IO a) -> IO a
+inScope Scope {context} action =
+  let ?context = context in action
+
+new :: Context => IO Scope
+new = do
+  context <- atomically (Context.derive ?context)
+  closedVar <- newTVarIO False
+  runningVar <- newTVarIO Set.empty
+  startingVar <- newTVarIO 0
+  pure Scope {context, closedVar, runningVar, startingVar}
 
 -- | Perform an action with a new __scope__, then /close/ the __scope__.
 --
@@ -119,59 +148,17 @@ global action =
 -- @
 scoped :: Context => (Context => Scope -> IO a) -> IO a
 scoped f = do
+  scope <- new
   uninterruptibleMask \restore -> do
-    scope@Scope {context} <- new
-    result <- let ?context = context in try (restore (f scope))
-    closeScopeException <- closeScope scope
+    result <- inScope scope (try (restore (f scope)))
+    closeScopeException <- close scope
     case result of
-      -- If the callback failed, we don't care if we were thrown an async
-      -- exception while closing the scope
+      -- If the callback failed, we don't care if we were thrown an async exception while closing the scope
       Left exception -> throwIO (Thread.unwrapAsyncThreadFailed exception)
       -- Otherwise, throw that exception (if it exists)
       Right value -> do
         for_ @Maybe closeScopeException (throwIO . Thread.unwrapAsyncThreadFailed)
         pure value
-  where
-    new :: IO Scope
-    new = do
-      context <- atomically (Context.derive ?context)
-      closedVar <- newTVarIO False
-      runningVar <- newTVarIO Set.empty
-      startingVar <- newTVarIO 0
-      pure Scope {context, closedVar, runningVar, startingVar}
-
-    -- Close a scope, kill all of the running threads, and return the first
-    -- async exception delivered to us while doing so, if any.
-    --
-    -- Preconditions:
-    --   * The set of threads doesn't include us
-    --   * We're uninterruptibly masked
-    closeScope :: Scope -> IO (Maybe SomeException)
-    closeScope scope@Scope {closedVar, runningVar} = do
-      threads <-
-        atomically do
-          blockUntilNoneStarting scope
-          writeTVar closedVar True
-          readTVar runningVar
-      exception <- killThreads (Set.toList threads)
-      atomically (blockUntilNoneRunning scope)
-      pure (coerce @(Monoid.First SomeException) @(Maybe SomeException) exception)
-      where
-        killThreads :: [ThreadId] -> IO (Monoid.First SomeException)
-        killThreads =
-          loop mempty
-          where
-            loop :: Monoid.First SomeException -> [ThreadId] -> IO (Monoid.First SomeException)
-            loop acc = \case
-              [] -> pure acc
-              threadId : threadIds ->
-                -- We unmask because we don't want to deadlock with a thread
-                -- that is concurrently trying to throw an exception to us with
-                -- exceptions masked.
-                try (unsafeUnmask (throwTo threadId ThreadKilled)) >>= \case
-                  -- don't drop thread we didn't kill
-                  Left exception -> loop (acc <> pure exception) (threadId : threadIds)
-                  Right () -> loop acc threadIds
 
 wait :: Scope -> STM ()
 wait scope = do
@@ -212,6 +199,22 @@ blockUntilNoneStarting Scope {startingVar} =
 
 --------------------------------------------------------------------------------
 -- Misc. utils
+
+killThreads :: [ThreadId] -> IO (Monoid.First SomeException)
+killThreads =
+  loop mempty
+  where
+    loop :: Monoid.First SomeException -> [ThreadId] -> IO (Monoid.First SomeException)
+    loop acc = \case
+      [] -> pure acc
+      threadId : threadIds ->
+        -- We unmask because we don't want to deadlock with a thread
+        -- that is concurrently trying to throw an exception to us with
+        -- exceptions masked.
+        try (unsafeUnmask (throwTo threadId ThreadKilled)) >>= \case
+          -- don't drop thread we didn't kill
+          Left exception -> loop (acc <> pure exception) (threadId : threadIds)
+          Right () -> loop acc threadIds
 
 shouldPropagateException :: Ki.Internal.Context.Internal.Context -> SomeException -> IO Bool
 shouldPropagateException context exception =

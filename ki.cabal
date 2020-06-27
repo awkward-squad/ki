@@ -57,6 +57,10 @@ common component
       -Wno-missing-safe-haskell-mode
       -Wno-prepositive-qualified-module
 
+flag test
+  default: False
+  manual: True
+
 library
   import: component
   build-depends:
@@ -78,13 +82,19 @@ library
     Ki.Internal.Debug
     Ki.Internal.Prelude
     Ki.Internal.Scope
+  if flag(test)
+    build-depends:
+      concurrency ^>= 1.11.0.0,
+      dejafu ^>= 2.3.0.0,
+    cpp-options: -DTEST
 
 test-suite tests
   import: component
   build-depends:
     base,
-    concurrency ^>= 1.11.0.0,
-    dejafu ^>= 2.3.0.0,
+    concurrency,
+    dejafu,
+    ki,
   ghc-options: -rtsopts -threaded
   hs-source-dirs: test
   main-is: Test.hs
