@@ -73,6 +73,7 @@ library
     Ki.Indef.Seconds
     Ki.Indef.Thread
     Ki.Internal.Concurrency
+    Ki.Internal.Context.Internal
     Ki.Internal.Debug
     Ki.Internal.Prelude
 
