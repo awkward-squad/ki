@@ -3,13 +3,11 @@
 module Ki.Internal.Context.Internal
   ( -- * Context
     Context,
-    empty,
+    new,
     derive,
-
-    -- * Cancellation
     cancel,
-    CancelToken (..),
     cancelled,
+    CancelToken (..),
     Cancelled (..),
   )
 where
@@ -41,16 +39,9 @@ data Cancelled
   deriving stock (Eq, Show)
   deriving anyclass (Exception)
 
-empty :: STM (TVar Context)
-empty =
-  newTVar
-    ( Context
-        OpenContext
-          { nextId = 0,
-            children = Map.empty,
-            onCancel = pure ()
-          }
-    )
+new :: STM (TVar Context)
+new =
+  newTVar (Context OpenContext {nextId = 0, children = Map.empty, onCancel = pure ()})
 
 derive :: TVar Context -> STM (TVar Context)
 derive parentVar =
@@ -77,12 +68,6 @@ derive parentVar =
           writeTVar parentVar $! Context ctx {children = Map.delete childId children}
         ContextCancelled _ -> pure ()
 
-cancelled :: TVar Context -> STM (Maybe CancelToken)
-cancelled contextVar =
-  readTVar contextVar <&> \case
-    Context _ -> Nothing
-    ContextCancelled token -> Just token
-
 cancel :: TVar Context -> CancelToken -> STM ()
 cancel contextVar token =
   readTVar contextVar >>= \case
@@ -99,3 +84,9 @@ cancel_ token contextVar =
       writeTVar contextVar (ContextCancelled token)
       for_ (Map.elems children) (cancel_ token)
     ContextCancelled _ -> pure ()
+
+cancelled :: TVar Context -> STM (Maybe CancelToken)
+cancelled contextVar =
+  readTVar contextVar <&> \case
+    Context _ -> Nothing
+    ContextCancelled token -> Just token

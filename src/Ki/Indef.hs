@@ -85,12 +85,12 @@ asyncWithUnmask scope action =
 -- @
 cancelled :: Context => IO (Maybe (IO a))
 cancelled =
-  (fmap . fmap) (throwIO . Cancelled_) (Ki.Context.cancelled ?context)
+  (fmap . fmap) (throwIO . Cancelled_) (atomically (Ki.Context.cancelled ?context))
 
 -- | @STM@ variant of 'cancelled'.
 cancelledSTM :: Context => STM (Maybe (IO a))
 cancelledSTM =
-  (fmap . fmap) (throwIO . Cancelled_) (Ki.Context.cancelledSTM ?context)
+  (fmap . fmap) (throwIO . Cancelled_) (Ki.Context.cancelled ?context)
 
 -- | Variant of 'async' that does not return a handle to the __thread__.
 --
