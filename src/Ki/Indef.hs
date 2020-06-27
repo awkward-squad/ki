@@ -27,16 +27,14 @@ module Ki.Indef
   )
 where
 
-import Ki.Indef.Scope (Context, Scope, cancel, global, scoped)
-import qualified Ki.Indef.Scope as Scope
 import Ki.Indef.Seconds (Seconds)
 import Ki.Indef.Thread (Thread, await, awaitFor, awaitSTM, kill, timeout)
 import Ki.Internal.Concurrency
-import qualified Ki.Internal.Context as Ki.Context
-import Ki.Internal.Context (Cancelled (..))
+import qualified Ki.Internal.Context as Context
+import Ki.Internal.Context (Cancelled (..), Context)
 import Ki.Internal.Prelude
-
--- import Ki.Internal.Debug
+import Ki.Internal.Scope (Scope, cancel, global, scoped)
+import qualified Ki.Internal.Scope as Scope
 
 -- | Fork a __thread__ within a __scope__.
 --
@@ -85,12 +83,12 @@ asyncWithUnmask scope action =
 -- @
 cancelled :: Context => IO (Maybe (IO a))
 cancelled =
-  (fmap . fmap) (throwIO . Cancelled_) (atomically (Ki.Context.cancelled ?context))
+  (fmap . fmap) (throwIO . Cancelled_) (atomically (Context.cancelled ?context))
 
 -- | @STM@ variant of 'cancelled'.
 cancelledSTM :: Context => STM (Maybe (IO a))
 cancelledSTM =
-  (fmap . fmap) (throwIO . Cancelled_) (Ki.Context.cancelled ?context)
+  (fmap . fmap) (throwIO . Cancelled_) (Context.cancelled ?context)
 
 -- | Variant of 'async' that does not return a handle to the __thread__.
 --

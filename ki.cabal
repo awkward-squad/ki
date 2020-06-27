@@ -69,14 +69,15 @@ library
     Ki.Lite,
   hs-source-dirs: src
   other-modules:
-    Ki.Indef.Scope
     Ki.Indef.Seconds
     Ki.Indef.Thread
     Ki.Internal.Concurrency
     Ki.Internal.Context
     Ki.Internal.Context.Internal
+    Ki.Internal.Context.Internal.Internal
     Ki.Internal.Debug
     Ki.Internal.Prelude
+    Ki.Internal.Scope
 
 test-suite tests
   import: component

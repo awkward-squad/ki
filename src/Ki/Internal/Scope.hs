@@ -1,9 +1,8 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Ki.Indef.Scope
-  ( Context,
-    Scope,
+module Ki.Internal.Scope
+  ( Scope,
     async,
     cancel,
     fork,
@@ -20,8 +19,9 @@ import qualified Data.Set as Set
 import Ki.Indef.Thread (AsyncThreadFailed (..), Thread (Thread), timeout)
 import qualified Ki.Indef.Thread as Thread
 import Ki.Internal.Concurrency
-import Ki.Internal.Context (CancelToken (..), Cancelled (..))
-import qualified Ki.Internal.Context as Ki.Context
+import Ki.Internal.Context (CancelToken (..), Cancelled (..), Context)
+import qualified Ki.Internal.Context as Context
+import qualified Ki.Internal.Context.Internal
 import Ki.Internal.Prelude
 
 -- import Ki.Internal.Debug
@@ -42,7 +42,7 @@ import Ki.Internal.Prelude
 -- A __scope__ can be passed into functions or shared amongst __threads__, but this is generally not advised, as it
 -- takes the "structure" out of "structured concurrency".
 data Scope = Scope
-  { context :: Ki.Context.Context,
+  { context :: Ki.Internal.Context.Internal.Context,
     -- | Whether this scope is closed
     -- Invariant: if closed, no threads are starting
     closedVar :: TVar Bool,
@@ -50,9 +50,6 @@ data Scope = Scope
     -- | The number of threads that are just about to start
     startingVar :: TVar Int
   }
-
-type Context =
-  ?context :: Ki.Context.Context
 
 async :: forall a. Scope -> (Context => (forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
 async scope@Scope {context} action = do
@@ -77,7 +74,7 @@ async scope@Scope {context} action = do
 cancel :: Scope -> IO ()
 cancel Scope {context} = do
   n <- uniqueInt
-  atomically (Ki.Context.cancel context (CancelToken n))
+  atomically (Context.cancel context (CancelToken n))
 
 fork :: Scope -> (Context => (forall x. IO x -> IO x) -> IO ()) -> IO ()
 fork scope@Scope {context} action = do
@@ -104,7 +101,7 @@ fork scope@Scope {context} action = do
 -- If the given number of seconds elapses, return the given @IO@ action instead.
 global :: (Context => IO a) -> IO a
 global action =
-  let ?context = Ki.Context.background in action
+  let ?context = Context.background in action
 
 -- | Perform an action with a new __scope__, then /close/ the __scope__.
 --
@@ -137,7 +134,7 @@ scoped f = do
   where
     new :: IO Scope
     new = do
-      context <- atomically (Ki.Context.derive ?context)
+      context <- atomically (Context.derive ?context)
       closedVar <- newTVarIO False
       runningVar <- newTVarIO Set.empty
       startingVar <- newTVarIO 0
@@ -216,29 +213,17 @@ blockUntilNoneStarting Scope {startingVar} =
 --------------------------------------------------------------------------------
 -- Misc. utils
 
-shouldPropagateException :: Ki.Context.Context -> SomeException -> IO Bool
+shouldPropagateException :: Ki.Internal.Context.Internal.Context -> SomeException -> IO Bool
 shouldPropagateException context exception =
   case fromException exception of
     Just ThreadKilled -> pure False
     Just _ -> pure True
     Nothing ->
       case fromException exception of
-        Just (Cancelled_ token) -> (/= Just token) <$> atomically (Ki.Context.cancelled context)
+        Just (Cancelled_ token) -> (/= Just token) <$> atomically (Context.cancelled context)
         Nothing -> pure True
 
 blockUntilTVar :: TVar a -> (a -> Bool) -> STM ()
 blockUntilTVar var f = do
   value <- readTVar var
   unless (f value) retry
-
-whenLeft :: Applicative m => Either a b -> (a -> m ()) -> m ()
-whenLeft x f =
-  case x of
-    Left y -> f y
-    Right _ -> pure ()
-
-whenM :: Monad m => m Bool -> m () -> m ()
-whenM x y =
-  x >>= \case
-    False -> pure ()
-    True -> y
