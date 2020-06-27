@@ -132,8 +132,7 @@ main = do
         fork scope (throw A)
         wait scope
 
-  -- I think this fails because of https://github.com/barrucadu/dejafu/issues/324
-  _failingTest "`async` doesn't propagates exceptions" do
+  test "`async` doesn't propagate exceptions" do
     returns () do
       scoped \scope ->
         void (async scope (throw A))
@@ -350,9 +349,9 @@ prettyThreadAction = \case
     "takeMVar " ++ prettyMVarId n ++ " (waking "
       ++ intercalate ", " (map prettyThreadId ts)
       ++ ")"
-  DejaFu.Throw True -> "throw (thread died)"
-  DejaFu.Throw False -> "throw (thread still alive)"
-  DejaFu.ThrowTo n success -> "throwTo " ++ prettyThreadId n ++ if success then " (killed it)" else " (didn't kill it)"
+  DejaFu.Throw _ True -> "throw (thread died)"
+  DejaFu.Throw _ False -> "throw (thread still alive)"
+  DejaFu.ThrowTo n _ success -> "throwTo " ++ prettyThreadId n ++ if success then " (killed it)" else " (didn't kill it)"
   action -> show action
 
 prettyIORefId :: DejaFu.IORefId -> String
