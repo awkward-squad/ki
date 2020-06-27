@@ -1,4 +1,4 @@
-module Ki.Indef.Seconds
+module Ki.Internal.Seconds
   ( Seconds (..),
     toMicros,
   )

@@ -35,7 +35,7 @@ module Ki.Internal.Concurrency
   )
 where
 
--- #ifdef TEST
+#ifdef TEST
 
 import Control.Concurrent.Classy (atomically, catch, fork, modifyTVar', myThreadId, newEmptyTMVar, newMVar, newTVar, putTMVar, readTMVar, readTVar, retry, throw, throwSTM, uninterruptibleMask, unsafeUnmask, withMVar, writeTVar)
 import qualified Control.Concurrent.Classy
@@ -92,51 +92,50 @@ uniqueInt :: IO Int
 uniqueInt =
   pure 0
 
--- #else
+#else
 
--- import Control.Concurrent
--- import Control.Concurrent.STM
--- import Control.Exception
--- import Control.Monad (unless)
--- import Data.Atomics.Counter
--- import Data.Unique
--- import GHC.Conc (ThreadId (ThreadId))
--- #if defined(mingw32_HOST_OS)
--- import GHC.Conc.Windows
--- #else
--- import GHC.Event
--- #endif
--- import GHC.Exts (fork#)
--- import GHC.IO
--- import Prelude
+import Control.Concurrent
+import Control.Concurrent.STM
+import Control.Exception
+import Control.Monad (unless)
+import Data.Atomics.Counter
+import GHC.Conc (ThreadId (ThreadId))
+#if defined(mingw32_HOST_OS)
+import GHC.Conc.Windows
+#else
+import GHC.Event
+#endif
+import GHC.Exts (fork#)
+import GHC.IO
+import Prelude
 
--- forkIO :: IO () -> IO ThreadId
--- forkIO action =
---   IO \s ->
---     case fork# action s of
---       (# s1, tid #) -> (# s1, ThreadId tid #)
+forkIO :: IO () -> IO ThreadId
+forkIO action =
+  IO \s ->
+    case fork# action s of
+      (# s1, tid #) -> (# s1, ThreadId tid #)
 
--- #if defined(mingw32_HOST_OS)
--- registerDelay :: Int -> IO (STM (), IO ())
--- registerDelay micros = do
---   var <- GHC.Conc.Windows.registerDelay micros
---   pure (readTVar var >>= \b -> unless b retry, pure ()) -- no unregister on Windows =P
--- #else
--- registerDelay :: Int -> IO (STM (), IO ())
--- registerDelay micros = do
---   var <- newTVarIO False
---   manager <- getSystemTimerManager
---   key <- registerTimeout manager micros (atomically (writeTVar var True))
---   pure (readTVar var >>= \b -> unless b retry, unregisterTimeout manager key)
--- #endif
+#if defined(mingw32_HOST_OS)
+registerDelay :: Int -> IO (STM (), IO ())
+registerDelay micros = do
+  var <- GHC.Conc.Windows.registerDelay micros
+  pure (readTVar var >>= \b -> unless b retry, pure ()) -- no unregister on Windows =P
+#else
+registerDelay :: Int -> IO (STM (), IO ())
+registerDelay micros = do
+  var <- newTVarIO False
+  manager <- getSystemTimerManager
+  key <- registerTimeout manager micros (atomically (writeTVar var True))
+  pure (readTVar var >>= \b -> unless b retry, unregisterTimeout manager key)
+#endif
 
--- uniqueInt :: IO Int
--- uniqueInt =
---   incrCounter 1 counter
+uniqueInt :: IO Int
+uniqueInt =
+  incrCounter 1 counter
 
--- counter :: AtomicCounter
--- counter =
---   unsafePerformIO (newCounter 0)
--- {-# NOINLINE counter #-}
+counter :: AtomicCounter
+counter =
+  unsafePerformIO (newCounter 0)
+{-# NOINLINE counter #-}
 
--- #endif
+#endif

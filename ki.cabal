@@ -64,7 +64,6 @@ flag test
 library
   import: component
   build-depends:
-    atomic-primops,
     base >= 4.12.0.0 && < 4.15,
     containers,
     stm,
@@ -73,8 +72,6 @@ library
     Ki.Lite,
   hs-source-dirs: src
   other-modules:
-    Ki.Indef.Seconds
-    Ki.Indef.Thread
     Ki.Internal.Concurrency
     Ki.Internal.Context
     Ki.Internal.Context.Internal
@@ -82,11 +79,16 @@ library
     Ki.Internal.Debug
     Ki.Internal.Prelude
     Ki.Internal.Scope
+    Ki.Internal.Seconds
+    Ki.Internal.Thread
   if flag(test)
     build-depends:
       concurrency ^>= 1.11.0.0,
       dejafu ^>= 2.3.0.0,
     cpp-options: -DTEST
+  else
+    build-depends:
+      atomic-primops,
 
 test-suite tests
   import: component

@@ -16,15 +16,13 @@ where
 import Control.Exception (AsyncException (ThreadKilled), Exception (fromException), pattern ErrorCall)
 import qualified Data.Monoid as Monoid
 import qualified Data.Set as Set
-import Ki.Indef.Thread (AsyncThreadFailed (..), Thread (Thread), timeout)
-import qualified Ki.Indef.Thread as Thread
 import Ki.Internal.Concurrency
 import Ki.Internal.Context (CancelToken (..), Cancelled (..), Context)
 import qualified Ki.Internal.Context as Context
 import qualified Ki.Internal.Context.Internal
 import Ki.Internal.Prelude
-
--- import Ki.Internal.Debug
+import Ki.Internal.Thread (AsyncThreadFailed (..), Thread (Thread), timeout)
+import qualified Ki.Internal.Thread as Thread
 
 -- | A __scope__ delimits the lifetime of all __threads__ forked within it. A __thread__ cannot outlive its __scope__.
 --
