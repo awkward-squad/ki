@@ -30,7 +30,7 @@ jobs:
             ~/.cabal/config
             ~/.cabal/packages/hackage.haskell.org/
             ~/.cabal/store
-          key: ${{ runner.os }}-${{ matrix.ghc }}-cabal-${{ hashFiles('cabal.project') }}-${{ hashFiles('cabal.project.freeze') }}
+          key: ${{ runner.os }}-${{ matrix.ghc }}-cabal-${{ hashFiles('cabal.project') }}
           restore-keys: ${{ runner.os }}-${{ matrix.ghc }}-cabal-
 
       - uses: actions/cache@v2
@@ -49,19 +49,16 @@ jobs:
         if: steps.cache-cabal.outputs.cache-hit != 'true'
         run: cabal update
 
-      - name: Build ki-indef
-        run: cabal build ki:lib:ki-indef --constraint "ki +build-tests" --disable-optimization --enable-tests
-
-      - name: Build ki
-        run: cabal build ki:lib:ki --constraint "ki +build-tests" --disable-optimization --enable-tests
-
-      - name: Build tests
-        run: cabal build ki:test:tests --constraint "ki +build-tests" --disable-optimization --enable-tests
-
-      - name: Run tests
-        run: cabal run ki:test:tests --constraint "ki +build-tests" --disable-optimization --enable-tests
+      - name: Build
+        run: cabal build ki:lib:ki --disable-optimization
 
       - name: Typecheck tutorials
         run: |
           cabal install markdown-unlit
           cabal exec -- ghci -package ki -pgmL ~/.cabal/bin/markdown-unlit tutorial/*.lhs < /dev/null
+
+      - name: Build tests
+        run: cabal build ki:test:tests --constraint "ki +test" --disable-optimization --enable-tests
+
+      - name: Run tests
+        run: cabal run ki:test:tests --constraint "ki +test" --disable-optimization --enable-tests

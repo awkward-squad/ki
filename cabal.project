@@ -3,6 +3,6 @@ index-state: 2020-05-25T00:00:00Z
 
 source-repository-package
   type: git
-  location: git@github.com:barrucadu/dejafu.git
+  location: https://github.com/barrucadu/dejafu.git
   tag: 44d0af0c9f8092f290f73ce2cfbbb9b8e76594a9
   subdir: dejafu
