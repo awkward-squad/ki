@@ -25,6 +25,7 @@ where
 
 import Ki (Scope, Seconds, Thread, await, awaitFor, awaitSTM, kill, timeout, wait, waitFor, waitSTM)
 import qualified Ki
+import Ki.Internal.Concurrency
 
 -- | Fork a __thread__ within a __scope__.
 --

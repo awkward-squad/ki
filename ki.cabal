@@ -22,10 +22,6 @@ source-repository head
   type: git
   location: https://github.com/mitchellwrosen/ki.git
 
-flag build-tests
-  default: False
-  manual: True
-
 common component
   default-extensions:
     BlockArguments
@@ -41,6 +37,7 @@ common component
     ImplicitParams
     LambdaCase
     NamedFieldPuns
+    NoImplicitPrelude
     RankNTypes
     RoleAnnotations
     ScopedTypeVariables
@@ -59,70 +56,33 @@ common component
       -Wno-missing-safe-haskell-mode
       -Wno-prepositive-qualified-module
 
-common tutorial
-  import: component
-  build-depends: base, ki,
-  build-tool-depends: markdown-unlit:markdown-unlit
-  ghc-options: -pgmL markdown-unlit -rtsopts -threaded
-
 library
   import: component
   build-depends:
+    atomic-primops,
     base >= 4.12.0.0 && < 4.15,
-    ki-impl-base,
-    ki-indef
-  exposed-modules: Ki, Ki.Lite
-  hs-source-dirs: src/ki
-  mixins: ki-indef (Ki.Indef) requires (Ki.Sig as Ki.Sig.Base)
-
-library ki-indef
-  import: component
-  build-depends:
-    base,
     containers,
-  exposed-modules: Ki.Indef
-  hs-source-dirs: src/ki-indef
+    stm,
+  exposed-modules:
+    Ki,
+    Ki.Lite,
+  hs-source-dirs: src
   other-modules:
     Ki.Indef.Context
     Ki.Indef.Scope
     Ki.Indef.Seconds
     Ki.Indef.Thread
+    Ki.Internal.Concurrency
     Ki.Internal.Debug
-  signatures: Ki.Sig
-
-library ki-impl-base
-  import: component
-  build-depends: base
-  exposed-modules: Ki.Sig.Base
-  hs-source-dirs: src/ki-impl-base
-
-library ki-impl-dejafu
-  import: component
-  build-depends:
-    base,
-    concurrency ^>= 1.11.0.0,
-    dejafu ^>= 2.3.0.0
-  exposed-modules: Ki.Sig.Dejafu
-  hs-source-dirs: src/ki-impl-dejafu
-  if flag(build-tests)
-    buildable: True
-  else
-    buildable: False
+    Ki.Internal.Prelude
 
 test-suite tests
   import: component
   build-depends:
     base,
-    concurrency,
-    dejafu,
-    ki-impl-dejafu,
-    ki-indef,
+    concurrency ^>= 1.11.0.0,
+    dejafu ^>= 2.3.0.0,
   ghc-options: -rtsopts -threaded
   hs-source-dirs: test
   main-is: Test.hs
-  mixins: ki-indef (Ki.Indef as Ki) requires (Ki.Sig as Ki.Sig.Dejafu)
   type: exitcode-stdio-1.0
-  if flag(build-tests)
-    buildable: True
-  else
-    buildable: False

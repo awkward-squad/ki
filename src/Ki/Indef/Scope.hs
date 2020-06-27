@@ -14,22 +14,33 @@ module Ki.Indef.Scope
   )
 where
 
-import Control.Exception (AsyncException (ThreadKilled), Exception (fromException), SomeException, pattern ErrorCall)
-import Control.Monad (unless)
-import Data.Coerce (coerce)
-import Data.Foldable (for_)
+import Control.Exception (AsyncException (ThreadKilled), Exception (fromException), pattern ErrorCall)
 import qualified Data.Monoid as Monoid
-import Data.Set (Set)
 import qualified Data.Set as Set
 import Ki.Indef.Context (CancelToken (..), Cancelled (..))
 import qualified Ki.Indef.Context as Ki.Context
 import Ki.Indef.Thread (AsyncThreadFailed (..), Thread (Thread), timeout)
 import qualified Ki.Indef.Thread as Thread
-import Ki.Sig (IO, STM, TMVar, TVar, ThreadId, atomically, forkIO, modifyTVar', myThreadId, newEmptyTMVarIO, newTVar, newUnique, putTMVar, readTMVar, readTVar, retry, throwIO, throwSTM, throwTo, try, uninterruptibleMask, unsafeUnmask, writeTVar)
-import Prelude hiding (IO)
+import Ki.Internal.Concurrency
+import Ki.Internal.Prelude
 
 -- import Ki.Internal.Debug
 
+-- | A __scope__ delimits the lifetime of all __threads__ forked within it. A __thread__ cannot outlive its __scope__.
+--
+-- When a __scope__ is /closed/, all remaining __threads__ forked within it are killed.
+--
+-- The basic usage of a __scope__ is as follows.
+--
+-- @
+-- 'scoped' \\scope -> do
+--   'fork' scope worker1
+--   'fork' scope worker2
+--   'wait' scope
+-- @
+--
+-- A __scope__ can be passed into functions or shared amongst __threads__, but this is generally not advised, as it
+-- takes the "structure" out of "structured concurrency".
 data Scope = Scope
   { context :: Ki.Context.Context,
     -- | Whether this scope is closed
@@ -46,7 +57,7 @@ type Context =
 async :: forall a. Scope -> (Context => (forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
 async scope@Scope {context} action = do
   uninterruptibleMask \restore -> do
-    resultVar <- newEmptyTMVarIO "result"
+    resultVar <- newEmptyTMVarIO
     atomically (incrementStarting scope)
     childThreadId <- forkIO (theThread restore resultVar)
     atomically do
@@ -62,10 +73,11 @@ async scope@Scope {context} action = do
         deleteRunning scope childThreadId
         putTMVar resultVar result
 
+-- | /Cancel/ all __contexts__ derived from a __scope__.
 cancel :: Scope -> IO ()
 cancel Scope {context} = do
-  token <- newUnique
-  atomically (Ki.Context.cancel context (CancelToken token))
+  n <- uniqueInt
+  atomically (Ki.Context.cancel context (CancelToken n))
 
 fork :: Scope -> (Context => (forall x. IO x -> IO x) -> IO ()) -> IO ()
 fork scope@Scope {context} action = do
@@ -87,14 +99,31 @@ fork scope@Scope {context} action = do
       childThreadId <- myThreadId
       atomically (deleteRunning scope childThreadId)
 
+-- | Wait for an @STM@ action to return, and return the @IO@ action contained within.
+--
+-- If the given number of seconds elapses, return the given @IO@ action instead.
 global :: (Context => IO a) -> IO a
 global action =
   let ?context = Ki.Context.background in action
 
+-- | Perform an action with a new __scope__, then /close/ the __scope__.
+--
+-- /Throws/:
+--
+--   * The first exception a __thread__ forked with 'fork' throws, if any.
+--
+-- ==== __Examples__
+--
+-- @
+-- 'scoped' \\scope -> do
+--   'fork' scope worker1
+--   'fork' scope worker2
+--   'wait' scope
+-- @
 scoped :: Context => (Context => Scope -> IO a) -> IO a
 scoped f = do
   uninterruptibleMask \restore -> do
-    scope@Scope{context} <- new
+    scope@Scope {context} <- new
     result <- let ?context = context in try (restore (f scope))
     closeScopeException <- closeScope scope
     case result of
@@ -107,13 +136,12 @@ scoped f = do
         pure value
   where
     new :: IO Scope
-    new =
-      atomically do
-        context <- Ki.Context.derive ?context
-        closedVar <- newTVar "closed" False
-        runningVar <- newTVar "running" Set.empty
-        startingVar <- newTVar "starting" 0
-        pure Scope {context, closedVar, runningVar, startingVar}
+    new = do
+      context <- atomically (Ki.Context.derive ?context)
+      closedVar <- newTVarIO False
+      runningVar <- newTVarIO Set.empty
+      startingVar <- newTVarIO 0
+      pure Scope {context, closedVar, runningVar, startingVar}
 
     -- Close a scope, kill all of the running threads, and return the first
     -- async exception delivered to us while doing so, if any.

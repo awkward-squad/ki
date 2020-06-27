@@ -3,7 +3,8 @@ module Ki.Internal.Debug
   )
 where
 
-import Control.Concurrent (MVar, myThreadId, newMVar, withMVar)
+import Ki.Internal.Concurrency
+import Ki.Internal.Prelude
 import System.IO.Unsafe (unsafePerformIO)
 
 debug :: Monad m => String -> m ()

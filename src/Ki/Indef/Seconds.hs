@@ -6,7 +6,7 @@ where
 
 import Data.Data (Data)
 import Data.Fixed
-import GHC.Generics (Generic)
+import Ki.Internal.Prelude
 
 newtype Seconds = Seconds (Fixed E3)
   deriving stock (Data, Generic)

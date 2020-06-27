@@ -13,16 +13,13 @@ module Ki.Indef.Thread
   )
 where
 
-import Control.Applicative ((<|>))
-import Control.Exception (AsyncException (ThreadKilled), Exception (..), SomeException, asyncExceptionFromException, asyncExceptionToException)
-import Control.Monad (join)
-import Data.Functor (($>), void)
-import GHC.Generics (Generic)
+import Control.Exception (AsyncException (ThreadKilled), Exception (..), asyncExceptionFromException, asyncExceptionToException)
 import Ki.Indef.Seconds (Seconds)
 import qualified Ki.Indef.Seconds as Seconds
-import Ki.Sig (IO, STM, ThreadId, atomically, registerDelay, throwTo)
-import Prelude hiding (IO)
+import Ki.Internal.Concurrency
+import Ki.Internal.Prelude
 
+-- | A running __thread__.
 data Thread a = Thread
   { threadId :: !ThreadId,
     action :: !(STM (Either SomeException a))
@@ -37,18 +34,35 @@ instance Ord (Thread a) where
   compare (Thread id1 _) (Thread id2 _) =
     compare id1 id2
 
+-- | Wait for a __thread__ to finish.
 await :: Thread a -> IO (Either SomeException a)
 await =
   atomically . awaitSTM
 
+-- | @STM@ variant of 'await'.
+--
+-- /Throws/:
+--
+--   * The exception that the __thread__ threw, if any.
 awaitSTM :: Thread a -> STM (Either SomeException a)
 awaitSTM Thread {action} =
   action
 
+-- | Variant of 'await' that gives up after the given number of seconds elapses.
+--
+-- @
+-- 'awaitFor' thread seconds =
+--   'timeout' seconds (pure . Just \<$\> 'awaitSTM' thread) (pure Nothing)
+-- @
 awaitFor :: Thread a -> Seconds -> IO (Maybe (Either SomeException a))
 awaitFor thread seconds =
   timeout seconds (pure . Just <$> awaitSTM thread) (pure Nothing)
 
+-- | Kill a __thread__ wait for it to finish.
+--
+-- /Throws/:
+--
+--   * 'ThreadKilled' if a __thread__ attempts to kill itself.
 kill :: Thread a -> IO ()
 kill thread = do
   throwTo (threadId thread) ThreadKilled
@@ -70,6 +84,9 @@ unwrapAsyncThreadFailed ex =
 
 -- Misc. utils
 
+-- | Wait for an @STM@ action to return, and return the @IO@ action contained within.
+--
+-- If the given number of seconds elapses, return the given @IO@ action instead.
 timeout :: Seconds -> STM (IO a) -> IO a -> IO a
 timeout seconds action fallback = do
   (delay, unregister) <- registerDelay (Seconds.toMicros seconds)

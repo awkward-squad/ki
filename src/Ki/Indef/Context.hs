@@ -1,29 +1,31 @@
 {-# LANGUAGE StrictData #-}
 
 module Ki.Indef.Context
-  ( Context,
+  ( -- * Context
+    Context,
     background,
+    derive,
+
+    -- * Cancellation
+    cancel,
     CancelToken (..),
     cancelled,
     cancelledSTM,
     Cancelled (..),
-
-    -- * Internal API
-    derive,
-    cancel,
   )
 where
 
-import Control.Exception (Exception)
-import Data.Foldable (for_)
-import Data.Functor ((<&>))
-import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Word (Word32)
-import GHC.Generics (Generic)
-import Ki.Sig (IO, STM, TVar, atomically, newTVar, readTVar, writeTVar)
-import Prelude hiding (IO)
+import Ki.Internal.Concurrency
+import Ki.Internal.Prelude
 
+-- | A __context__ models a program's call tree, and is used as a mechanism to propagate /cancellation/ requests to
+-- every __thread__ forked within a __scope__.
+--
+-- Every __thread__ is provided its own __context__, which is derived from its __scope__.
+--
+-- A __thread__ can query whether its __context__ has been /cancelled/, which is a suggestion to perform a graceful
+-- termination.
 data Context
   = Background
   | Context (TVar Ctx)
@@ -42,9 +44,11 @@ data OpenCtx = OpenCtx
   }
 
 newtype CancelToken
-  = CancelToken Integer
+  = CancelToken Int
   deriving stock (Eq, Show)
 
+-- | A 'Cancelled' exception is thrown when a __thread__ voluntarily capitulates after observing its __context__ is
+-- /cancelled/.
 data Cancelled
   = Cancelled_ CancelToken
   deriving stock (Eq, Show)
@@ -54,27 +58,11 @@ background :: Context
 background =
   Background
 
-cancelled :: Context -> IO (Maybe CancelToken)
-cancelled = \case
-  Background -> pure Nothing
-  Context contextVar -> atomically (cancelled_ contextVar)
-
-cancelledSTM :: Context -> STM (Maybe CancelToken)
-cancelledSTM = \case
-  Background -> pure Nothing
-  Context contextVar -> cancelled_ contextVar
-
-cancelled_ :: TVar Ctx -> STM (Maybe CancelToken)
-cancelled_ contextVar =
-  readTVar contextVar <&> \case
-    CtxOpen _ -> Nothing
-    CtxCancelled token -> Just token
-
 new :: STM () -> STM (TVar Ctx)
 new onCancel =
-  newTVar "context" (CtxOpen OpenCtx {nextId = 0, children = Map.empty, onCancel})
+  newTVar (CtxOpen OpenCtx {nextId = 0, children = Map.empty, onCancel})
 
--- Derive a child context from a parent context.
+-- | Derive a child context from a parent context.
 --
 --   * If the parent is already cancelled, so is the child.
 --   * If the parent isn't already canceled, the child registers itself with the
@@ -102,22 +90,38 @@ derive_ parentVar =
         CtxOpen ctx@OpenCtx {children} -> writeTVar parentVar $! CtxOpen ctx {children = Map.delete childId children}
         CtxCancelled _ -> pure ()
 
+cancelled :: Context -> IO (Maybe CancelToken)
+cancelled = \case
+  Background -> pure Nothing
+  Context contextVar -> atomically (cancelled_ contextVar)
+
+cancelledSTM :: Context -> STM (Maybe CancelToken)
+cancelledSTM = \case
+  Background -> pure Nothing
+  Context contextVar -> cancelled_ contextVar
+
+cancelled_ :: TVar Ctx -> STM (Maybe CancelToken)
+cancelled_ contextVar =
+  readTVar contextVar <&> \case
+    CtxOpen _ -> Nothing
+    CtxCancelled token -> Just token
+
 cancel :: Context -> CancelToken -> STM ()
-cancel context unique =
+cancel context token =
   case context of
     Background -> pure ()
     Context contextVar -> do
       readTVar contextVar >>= \case
         CtxOpen OpenCtx {children, onCancel} -> do
-          writeTVar contextVar (CtxCancelled unique)
-          for_ (Map.elems children) (cancel_ unique)
+          writeTVar contextVar (CtxCancelled token)
+          for_ (Map.elems children) (cancel_ token)
           onCancel
         CtxCancelled _ -> pure ()
 
 cancel_ :: CancelToken -> TVar Ctx -> STM ()
-cancel_ unique contextVar =
+cancel_ token contextVar =
   readTVar contextVar >>= \case
     CtxOpen OpenCtx {children} -> do
-      writeTVar contextVar (CtxCancelled unique)
-      for_ (Map.elems children) (cancel_ unique)
+      writeTVar contextVar (CtxCancelled token)
+      for_ (Map.elems children) (cancel_ token)
     CtxCancelled _ -> pure ()
