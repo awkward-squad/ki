@@ -8,7 +8,6 @@ module Ki.Internal.Scope
     fork,
     global,
     scoped,
-    timeout,
     wait,
   )
 where
@@ -21,7 +20,7 @@ import Ki.Internal.Context (CancelToken (..), Cancelled (..), Context)
 import qualified Ki.Internal.Context as Context
 import qualified Ki.Internal.Context.Internal
 import Ki.Internal.Prelude
-import Ki.Internal.Thread (AsyncThreadFailed (..), Thread (Thread), timeout)
+import Ki.Internal.Thread (AsyncThreadFailed (..), Thread (Thread))
 import qualified Ki.Internal.Thread as Thread
 
 -- | A __scope__ delimits the lifetime of all __threads__ forked within it. A __thread__ cannot outlive its __scope__.

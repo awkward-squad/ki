@@ -19,11 +19,11 @@ module Ki.Lite
 
     -- * Miscellaneous
     Seconds,
-    timeout,
+    timeoutSTM,
   )
 where
 
-import Ki (Scope, Seconds, Thread, await, awaitFor, awaitSTM, kill, timeout, wait, waitFor, waitSTM)
+import Ki (Scope, Seconds, Thread, await, awaitFor, awaitSTM, kill, timeoutSTM, wait, waitFor, waitSTM)
 import qualified Ki
 import Ki.Internal.Concurrency
 

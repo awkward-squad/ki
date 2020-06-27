@@ -31,7 +31,7 @@ module Ki
 
     -- * Miscellaneous
     Seconds,
-    timeout,
+    timeoutSTM,
   )
 where
 
@@ -42,7 +42,7 @@ import Ki.Internal.Prelude
 import Ki.Internal.Scope (Scope, cancel, global, scoped)
 import qualified Ki.Internal.Scope as Scope
 import Ki.Internal.Seconds (Seconds)
-import Ki.Internal.Thread (Thread, await, awaitFor, awaitSTM, kill, timeout)
+import Ki.Internal.Thread (Thread, await, awaitFor, awaitSTM, kill, timeoutSTM)
 
 -- | A 'Cancelled' exception is thrown when a __thread__ voluntarily capitulates after observing its __context__ is
 -- /cancelled/.
@@ -143,7 +143,7 @@ wait =
 -- @
 waitFor :: Scope -> Seconds -> IO ()
 waitFor scope seconds =
-  timeout seconds (pure <$> Scope.wait scope) (pure ())
+  timeoutSTM seconds (pure <$> Scope.wait scope) (pure ())
 
 -- | @STM@ variant of 'wait'.
 waitSTM :: Scope -> STM ()

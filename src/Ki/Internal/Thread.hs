@@ -5,7 +5,7 @@ module Ki.Internal.Thread
     awaitFor,
     kill,
     --
-    timeout,
+    timeoutSTM,
 
     -- * Internal API
     AsyncThreadFailed (..),
@@ -56,7 +56,7 @@ awaitSTM Thread {action} =
 -- @
 awaitFor :: Thread a -> Seconds -> IO (Maybe (Either SomeException a))
 awaitFor thread seconds =
-  timeout seconds (pure . Just <$> awaitSTM thread) (pure Nothing)
+  timeoutSTM seconds (pure . Just <$> awaitSTM thread) (pure Nothing)
 
 -- | Kill a __thread__ wait for it to finish.
 --
@@ -87,7 +87,7 @@ unwrapAsyncThreadFailed ex =
 -- | Wait for an @STM@ action to return, and return the @IO@ action contained within.
 --
 -- If the given number of seconds elapses, return the given @IO@ action instead.
-timeout :: Seconds -> STM (IO a) -> IO a -> IO a
-timeout seconds action fallback = do
+timeoutSTM :: Seconds -> STM (IO a) -> IO a -> IO a
+timeoutSTM seconds action fallback = do
   (delay, unregister) <- registerDelay (Seconds.toMicros seconds)
   join (atomically (delay $> fallback <|> (unregister >>) <$> action))
