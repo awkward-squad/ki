@@ -27,13 +27,13 @@ module Ki.Indef
   )
 where
 
-import Ki.Indef.Context (Cancelled (..))
-import qualified Ki.Indef.Context as Ki.Context
 import Ki.Indef.Scope (Context, Scope, cancel, global, scoped)
 import qualified Ki.Indef.Scope as Scope
 import Ki.Indef.Seconds (Seconds)
 import Ki.Indef.Thread (Thread, await, awaitFor, awaitSTM, kill, timeout)
 import Ki.Internal.Concurrency
+import qualified Ki.Internal.Context as Ki.Context
+import Ki.Internal.Context (Cancelled (..))
 import Ki.Internal.Prelude
 
 -- import Ki.Internal.Debug

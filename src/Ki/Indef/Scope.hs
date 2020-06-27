@@ -17,11 +17,11 @@ where
 import Control.Exception (AsyncException (ThreadKilled), Exception (fromException), pattern ErrorCall)
 import qualified Data.Monoid as Monoid
 import qualified Data.Set as Set
-import Ki.Indef.Context (CancelToken (..), Cancelled (..))
-import qualified Ki.Indef.Context as Ki.Context
 import Ki.Indef.Thread (AsyncThreadFailed (..), Thread (Thread), timeout)
 import qualified Ki.Indef.Thread as Thread
 import Ki.Internal.Concurrency
+import Ki.Internal.Context (CancelToken (..), Cancelled (..))
+import qualified Ki.Internal.Context as Ki.Context
 import Ki.Internal.Prelude
 
 -- import Ki.Internal.Debug

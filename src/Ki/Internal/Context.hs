@@ -1,6 +1,4 @@
-{-# LANGUAGE StrictData #-}
-
-module Ki.Indef.Context
+module Ki.Internal.Context
   ( -- * Context
     Context,
     background,
@@ -47,14 +45,15 @@ background =
       derive = pure background
     }
 
+-- | Create a new context without a parent.
 new :: STM Context
 new =
   f <$> Internal.new
   where
-    f :: TVar Internal.Context -> Context
-    f contextVar =
+    f :: Internal.Context -> Context
+    f context =
       Context
-        { cancel = Internal.cancel contextVar,
-          cancelled = Internal.cancelled contextVar,
-          derive = f <$> Internal.derive contextVar
+        { cancel = Internal.cancel context,
+          cancelled = Internal.cancelled context,
+          derive = f <$> Internal.derive context
         }

@@ -1,4 +1,4 @@
-{-# LANGUAGE StrictData #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Ki.Internal.Context.Internal
   ( -- * Context
@@ -16,15 +16,18 @@ import qualified Data.Map as Map
 import Ki.Internal.Concurrency
 import Ki.Internal.Prelude
 
-data Context
-  = Context OpenContext
-  | ContextCancelled CancelToken
+newtype Context
+  = Context (TVar E)
 
-data OpenContext = OpenContext
+data E
+  = L CancelToken
+  | R Context_
+
+data Context_ = Context_
   { -- | The next id to assign to a child context. The child needs a unique identifier so it can delete itself from our
     -- "cancel children" map if it's cancelled independently. Word wrap-around seems ok; that's a *lot* of contexts.
     nextId :: Word32,
-    children :: Map Word32 (TVar Context),
+    children :: Map Word32 Context,
     onCancel :: STM ()
   }
 
@@ -39,54 +42,48 @@ data Cancelled
   deriving stock (Eq, Show)
   deriving anyclass (Exception)
 
-new :: STM (TVar Context)
+new :: STM Context
 new =
-  newTVar (Context OpenContext {nextId = 0, children = Map.empty, onCancel = pure ()})
+  newWith (pure ())
 
-derive :: TVar Context -> STM (TVar Context)
-derive parentVar =
+newWith :: STM () -> STM Context
+newWith onCancel =
+  coerce @(STM (TVar E)) (newTVar (R (Context_ {nextId = 0, children = Map.empty, onCancel})))
+
+derive :: Context -> STM Context
+derive (Context parentVar) =
   readTVar parentVar >>= \case
-    Context OpenContext {nextId = childId, children, onCancel} -> do
-      child <-
-        newTVar
-          ( Context
-              OpenContext
-                { nextId = 0,
-                  children = Map.empty,
-                  onCancel = deleteChildFromParent childId
-                }
-          )
-      let children' = Map.insert childId child children
-      writeTVar parentVar $! Context OpenContext {nextId = childId + 1, children = children', onCancel}
+    R ctx@Context_ {nextId, children} -> do
+      child <- newWith (deleteChildFromParent nextId)
+      writeTVar parentVar $! R ctx {nextId = nextId + 1, children = Map.insert nextId child children}
       pure child
-    ContextCancelled _ -> pure parentVar -- ok to reuse
+    L _ -> pure (Context parentVar) -- ok to reuse
   where
     deleteChildFromParent :: Word32 -> STM ()
     deleteChildFromParent childId =
       readTVar parentVar >>= \case
-        Context ctx@OpenContext {children} ->
-          writeTVar parentVar $! Context ctx {children = Map.delete childId children}
-        ContextCancelled _ -> pure ()
+        R ctx@Context_ {children} -> writeTVar parentVar $! R ctx {children = Map.delete childId children}
+        L _ -> pure ()
 
-cancel :: TVar Context -> CancelToken -> STM ()
-cancel contextVar token =
+cancel :: Context -> CancelToken -> STM ()
+cancel (Context contextVar) token =
   readTVar contextVar >>= \case
-    Context OpenContext {children, onCancel} -> do
-      writeTVar contextVar (ContextCancelled token)
+    R Context_ {children, onCancel} -> do
+      writeTVar contextVar (L token)
       for_ (Map.elems children) (cancel_ token)
       onCancel
-    ContextCancelled _ -> pure ()
+    L _ -> pure ()
 
-cancel_ :: CancelToken -> TVar Context -> STM ()
-cancel_ token contextVar =
+cancel_ :: CancelToken -> Context -> STM ()
+cancel_ token (Context contextVar) =
   readTVar contextVar >>= \case
-    Context OpenContext {children} -> do
-      writeTVar contextVar (ContextCancelled token)
+    R Context_ {children} -> do
+      writeTVar contextVar (L token)
       for_ (Map.elems children) (cancel_ token)
-    ContextCancelled _ -> pure ()
+    L _ -> pure ()
 
-cancelled :: TVar Context -> STM (Maybe CancelToken)
-cancelled contextVar =
+cancelled :: Context -> STM (Maybe CancelToken)
+cancelled (Context contextVar) =
   readTVar contextVar <&> \case
-    Context _ -> Nothing
-    ContextCancelled token -> Just token
+    R _ -> Nothing
+    L token -> Just token
