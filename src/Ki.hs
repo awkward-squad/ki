@@ -37,9 +37,9 @@ where
 
 import Ki.Internal.Concurrency
 import qualified Ki.Internal.Context as Context
-import Ki.Internal.Context (Context)
+import Ki.Internal.Context (Context, global)
 import Ki.Internal.Prelude
-import Ki.Internal.Scope (Scope, cancel, global, scoped)
+import Ki.Internal.Scope (Scope, cancel, scoped)
 import qualified Ki.Internal.Scope as Scope
 import Ki.Internal.Seconds (Seconds)
 import Ki.Internal.Thread (Thread, await, awaitFor, awaitSTM, kill, timeoutSTM)
