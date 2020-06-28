@@ -19,7 +19,7 @@ import Ki.Internal.Prelude
 newtype Context
   = Context (TVar E)
 
-data E
+data E -- strict either (StrictData)
   = L CancelToken
   | R Context_
 
@@ -68,19 +68,19 @@ newWith onCancel =
     children = IntMap.empty :: IntMap Context
 
 derive :: Context -> STM Context
-derive (Context parentVar) =
+derive context@(Context parentVar) =
   readTVar parentVar >>= \case
     R ctx@Context_ {nextId, children} -> do
-      child <- newWith (deleteChildFromParent nextId)
+      child <- newWith (deleteChild context nextId)
       writeTVar parentVar $! R ctx {nextId = nextId + 1, children = IntMap.insert nextId child children}
       pure child
-    L _ -> pure (Context parentVar) -- ok to reuse
-  where
-    deleteChildFromParent :: Int -> STM ()
-    deleteChildFromParent childId =
-      readTVar parentVar >>= \case
-        R ctx@Context_ {children} -> writeTVar parentVar $! R ctx {children = IntMap.delete childId children}
-        L _ -> pure ()
+    L _ -> pure context
+
+deleteChild :: Context -> Int -> STM ()
+deleteChild (Context parentVar) childId =
+  readTVar parentVar >>= \case
+    R ctx@Context_ {children} -> writeTVar parentVar $! R ctx {children = IntMap.delete childId children}
+    L _ -> pure ()
 
 cancel :: Context -> CancelToken -> STM ()
 cancel (Context contextVar) token =
@@ -99,8 +99,8 @@ cancel_ token (Context contextVar) =
       for_ (IntMap.elems children) (cancel_ token)
     L _ -> pure ()
 
-cancelled :: Context -> STM (Maybe CancelToken)
+cancelled :: Context -> STM CancelToken
 cancelled (Context contextVar) =
-  readTVar contextVar <&> \case
-    R _ -> Nothing
-    L token -> Just token
+  readTVar contextVar >>= \case
+    R _ -> retry
+    L token -> pure token

@@ -6,6 +6,7 @@ module Ki
     global,
     cancelled,
     cancelledSTM,
+    unlessCancelled,
 
     -- * Scope
     Scope,
@@ -75,8 +76,6 @@ asyncWithUnmask scope action =
 -- used to honor the /cancellation/ request in case the __thread__ is unable or unwilling to terminate normally with a
 -- value.
 --
--- ==== __Examples__
---
 -- Sometimes, a __thread__ may terminate with a value after observing a /cancellation/ request.
 --
 -- @
@@ -96,14 +95,21 @@ asyncWithUnmask scope action =
 --     cleanup
 --     capitulate
 -- @
+--
+-- But commonly, a thread has no explicit teardown phase, and can immediately honor a /cancellation/ request;
+-- 'unlessCancelled' is useful for that.
+--
+-- @
+-- 'unlessCancelled' continue
+-- @
 cancelled :: Context => IO (Maybe (IO a))
 cancelled =
-  (fmap . fmap) (throwIO . Context.Cancelled_) (atomically (Context.cancelled ?context))
+  atomically (optional cancelledSTM)
 
 -- | @STM@ variant of 'cancelled'.
-cancelledSTM :: Context => STM (Maybe (IO a))
+cancelledSTM :: Context => STM (IO a)
 cancelledSTM =
-  (fmap . fmap) (throwIO . Context.Cancelled_) (Context.cancelled ?context)
+  throwIO . Context.Cancelled_ <$> Context.cancelled ?context
 
 -- | Variant of 'async' that does not return a handle to the __thread__.
 --
@@ -129,6 +135,22 @@ fork scope action =
 forkWithUnmask :: Scope -> (Context => (forall x. IO x -> IO x) -> IO ()) -> IO ()
 forkWithUnmask scope action =
   Scope.fork scope \restore -> restore (action unsafeUnmask)
+
+-- | Variant of 'cancelled' that immediately capitulates if the current __context__ is /cancelled/.
+--
+-- @
+-- 'unlessCancelled' action =
+--   'cancelled' >>= \\case
+--     Nothing -> action
+--     Just capitulate -> capitulate
+-- @
+--
+-- /Throws/:
+--
+--   * Throws 'Cancelled' if the current __context__ is /cancelled/.
+unlessCancelled :: Context => IO a -> IO a
+unlessCancelled action =
+  cancelled >>= fromMaybe action
 
 -- | Wait until all __threads__ forked within a __scope__ finish.
 wait :: Scope -> IO ()

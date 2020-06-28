@@ -25,7 +25,7 @@ import Ki.Internal.Prelude
 -- termination.
 data Context = Context
   { cancel :: CancelToken -> STM (),
-    cancelled :: STM (Maybe CancelToken),
+    cancelled :: STM CancelToken,
     -- | Derive a child context from a parent context.
     --
     --   * If the parent is already cancelled, so is the child.
@@ -41,7 +41,7 @@ dummy :: Context
 dummy =
   Context
     { cancel = const (pure ()),
-      cancelled = pure Nothing,
+      cancelled = retry,
       derive = pure dummy
     }
 

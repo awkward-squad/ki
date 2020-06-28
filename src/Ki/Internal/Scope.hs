@@ -210,7 +210,7 @@ shouldPropagateException context exception =
     Just _ -> pure True
     Nothing ->
       case fromException exception of
-        Just (Cancelled_ token) -> (/= Just token) <$> atomically (Context.cancelled context)
+        Just (Cancelled_ token) -> atomically (((/= token) <$> Context.cancelled context) <|> pure True)
         Nothing -> pure True
 
 blockUntilTVar :: TVar a -> (a -> Bool) -> STM ()
