@@ -1,4 +1,4 @@
-module Ki.Internal.Prelude
+module Ki.Prelude
   ( whenLeft,
     whenM,
     module X,

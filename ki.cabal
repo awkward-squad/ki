@@ -106,16 +106,16 @@ library
     Ki.Lite,
   hs-source-dirs: src
   other-modules:
-    Ki.Implicit.Internal.Context
-    Ki.Implicit.Internal.Scope
-    Ki.Internal.Concurrency
-    Ki.Internal.Context.Internal
-    Ki.Internal.Context.Internal.Internal
-    Ki.Internal.Debug
-    Ki.Internal.Prelude
-    Ki.Internal.Scope.Internal
-    Ki.Internal.Seconds
-    Ki.Internal.Thread
+    Ki.Concurrency
+    Ki.Context.Internal
+    Ki.Context.Internal.Internal
+    Ki.Debug
+    Ki.Implicit.Context
+    Ki.Implicit.Scope
+    Ki.Prelude
+    Ki.Scope.Internal
+    Ki.Seconds
+    Ki.Thread
   if flag(test)
     build-depends:
       concurrency ^>= 1.11.0.0,

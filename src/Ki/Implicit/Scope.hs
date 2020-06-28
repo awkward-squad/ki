@@ -1,4 +1,4 @@
-module Ki.Implicit.Internal.Scope
+module Ki.Implicit.Scope
   ( Scope,
     async,
     cancel,
@@ -8,11 +8,11 @@ module Ki.Implicit.Internal.Scope
   )
 where
 
-import Ki.Implicit.Internal.Context (Context)
-import Ki.Internal.Concurrency
-import Ki.Internal.Scope.Internal (Scope, cancel, wait)
-import qualified Ki.Internal.Scope.Internal as Internal
-import Ki.Internal.Thread (Thread)
+import Ki.Concurrency
+import Ki.Implicit.Context (Context)
+import Ki.Scope.Internal (Scope, cancel, wait)
+import qualified Ki.Scope.Internal as Internal
+import Ki.Thread (Thread)
 
 async :: Scope -> (Context => (forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
 async scope action =

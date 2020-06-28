@@ -1,7 +1,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Ki.Internal.Context.Internal.Internal
+module Ki.Context.Internal.Internal
   ( -- * Context
     Context,
     new,
@@ -15,8 +15,8 @@ where
 
 import Control.Exception (fromException)
 import qualified Data.IntMap.Strict as IntMap
-import Ki.Internal.Concurrency
-import Ki.Internal.Prelude
+import Ki.Concurrency
+import Ki.Prelude
 
 newtype Context
   = Context (TVar E)

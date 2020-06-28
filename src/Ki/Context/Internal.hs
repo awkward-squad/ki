@@ -1,6 +1,6 @@
 {-# LANGUAGE PatternSynonyms #-}
 
-module Ki.Internal.Context.Internal
+module Ki.Context.Internal
   ( -- * Context
     Context,
     dummy,
@@ -13,10 +13,10 @@ module Ki.Internal.Context.Internal
   )
 where
 
-import Ki.Internal.Concurrency
-import Ki.Internal.Context.Internal.Internal (pattern Cancelled)
-import qualified Ki.Internal.Context.Internal.Internal as Internal
-import Ki.Internal.Prelude
+import Ki.Concurrency
+import Ki.Context.Internal.Internal (pattern Cancelled)
+import qualified Ki.Context.Internal.Internal as Internal
+import Ki.Prelude
 
 -- | A __context__ models a program's call tree, and is used as a mechanism to propagate /cancellation/ requests to
 -- every __thread__ forked within a __scope__.

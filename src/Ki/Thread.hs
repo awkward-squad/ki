@@ -1,4 +1,4 @@
-module Ki.Internal.Thread
+module Ki.Thread
   ( Thread (..),
     await,
     awaitSTM,
@@ -14,10 +14,10 @@ module Ki.Internal.Thread
 where
 
 import Control.Exception (AsyncException (ThreadKilled), Exception (..), asyncExceptionFromException, asyncExceptionToException)
-import Ki.Internal.Concurrency
-import Ki.Internal.Prelude
-import qualified Ki.Internal.Seconds as Seconds
-import Ki.Internal.Seconds (Seconds)
+import Ki.Concurrency
+import Ki.Prelude
+import qualified Ki.Seconds as Seconds
+import Ki.Seconds (Seconds)
 
 -- | A running __thread__.
 data Thread a = Thread

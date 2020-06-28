@@ -23,10 +23,10 @@ module Ki.Lite
   )
 where
 
+import Ki.Concurrency
 import Ki.Implicit (Scope, Seconds, Thread, await, awaitFor, awaitSTM, kill, timeoutSTM, wait, waitFor, waitSTM)
 import qualified Ki.Implicit
-import qualified Ki.Implicit.Internal.Context
-import Ki.Internal.Concurrency
+import qualified Ki.Implicit.Context
 
 -- | Fork a __thread__ within a __scope__.
 --
@@ -83,4 +83,4 @@ forkWithUnmask =
 -- @
 scoped :: (Scope -> IO a) -> IO a
 scoped action =
-  let ?context = Ki.Implicit.Internal.Context.dummy in Ki.Implicit.scoped action
+  let ?context = Ki.Implicit.Context.dummy in Ki.Implicit.scoped action

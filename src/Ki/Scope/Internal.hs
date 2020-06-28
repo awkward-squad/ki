@@ -1,7 +1,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Ki.Internal.Scope.Internal
+module Ki.Scope.Internal
   ( Scope,
     async,
     cancel,
@@ -15,12 +15,12 @@ where
 import Control.Exception (AsyncException (ThreadKilled), Exception (fromException), pattern ErrorCall)
 import qualified Data.Monoid as Monoid
 import qualified Data.Set as Set
-import Ki.Internal.Concurrency
-import Ki.Internal.Context.Internal (Context)
-import qualified Ki.Internal.Context.Internal as Context
-import Ki.Internal.Prelude
-import Ki.Internal.Thread (AsyncThreadFailed (..), Thread (Thread))
-import qualified Ki.Internal.Thread as Thread
+import Ki.Concurrency
+import Ki.Context.Internal (Context)
+import qualified Ki.Context.Internal as Context
+import Ki.Prelude
+import Ki.Thread (AsyncThreadFailed (..), Thread (Thread))
+import qualified Ki.Thread as Thread
 
 -- | A __scope__ delimits the lifetime of all __threads__ forked within it. A __thread__ cannot outlive its __scope__.
 --

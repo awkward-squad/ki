@@ -1,4 +1,4 @@
-module Ki.Internal.Seconds
+module Ki.Seconds
   ( Seconds (..),
     toMicros,
   )
@@ -6,7 +6,7 @@ where
 
 import Data.Data (Data)
 import Data.Fixed
-import Ki.Internal.Prelude
+import Ki.Prelude
 
 newtype Seconds = Seconds (Fixed E3)
   deriving stock (Data, Generic)

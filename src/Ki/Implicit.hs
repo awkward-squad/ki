@@ -36,14 +36,14 @@ module Ki.Implicit
   )
 where
 
-import qualified Ki.Implicit.Internal.Context
-import Ki.Implicit.Internal.Context (Context, global, pattern Cancelled)
-import qualified Ki.Implicit.Internal.Scope
-import Ki.Implicit.Internal.Scope (Scope, cancel, scoped)
-import Ki.Internal.Concurrency
-import Ki.Internal.Prelude
-import Ki.Internal.Seconds (Seconds)
-import Ki.Internal.Thread (Thread, await, awaitFor, awaitSTM, kill, timeoutSTM)
+import Ki.Concurrency
+import qualified Ki.Implicit.Context
+import Ki.Implicit.Context (Context, global, pattern Cancelled)
+import qualified Ki.Implicit.Scope
+import Ki.Implicit.Scope (Scope, cancel, scoped)
+import Ki.Prelude
+import Ki.Seconds (Seconds)
+import Ki.Thread (Thread, await, awaitFor, awaitSTM, kill, timeoutSTM)
 
 -- | Fork a __thread__ within a __scope__.
 --
@@ -52,7 +52,7 @@ import Ki.Internal.Thread (Thread, await, awaitFor, awaitSTM, kill, timeoutSTM)
 --   * Calls 'error' if the __scope__ is /closed/.
 async :: Scope -> (Context => IO a) -> IO (Thread a)
 async scope action =
-  Ki.Implicit.Internal.Scope.async scope \restore -> restore action
+  Ki.Implicit.Scope.async scope \restore -> restore action
 
 -- | Variant of 'async' that provides the __thread__ a function that unmasks asynchronous exceptions.
 --
@@ -61,7 +61,7 @@ async scope action =
 --   * Calls 'error' if the __scope__ is /closed/.
 asyncWithUnmask :: Scope -> (Context => (forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
 asyncWithUnmask scope action =
-  Ki.Implicit.Internal.Scope.async scope \restore -> restore (action unsafeUnmask)
+  Ki.Implicit.Scope.async scope \restore -> restore (action unsafeUnmask)
 
 -- | Return whether the current __context__ is /cancelled/.
 --
@@ -102,7 +102,7 @@ cancelled =
 -- | @STM@ variant of 'cancelled'.
 cancelledSTM :: Context => STM (IO a)
 cancelledSTM =
-  Ki.Implicit.Internal.Context.cancelled ?context
+  Ki.Implicit.Context.cancelled ?context
 
 -- | Variant of 'async' that does not return a handle to the __thread__.
 --
@@ -118,7 +118,7 @@ cancelledSTM =
 --   * Calls 'error' if the __scope__ is /closed/.
 fork :: Scope -> (Context => IO ()) -> IO ()
 fork scope action =
-  Ki.Implicit.Internal.Scope.fork scope \restore -> restore action
+  Ki.Implicit.Scope.fork scope \restore -> restore action
 
 -- | Variant of 'fork' that provides the __thread__ a function that unmasks asynchronous exceptions.
 --
@@ -127,7 +127,7 @@ fork scope action =
 --   * Calls 'error' if the __scope__ is /closed/.
 forkWithUnmask :: Scope -> (Context => (forall x. IO x -> IO x) -> IO ()) -> IO ()
 forkWithUnmask scope action =
-  Ki.Implicit.Internal.Scope.fork scope \restore -> restore (action unsafeUnmask)
+  Ki.Implicit.Scope.fork scope \restore -> restore (action unsafeUnmask)
 
 -- | Variant of 'cancelled' that immediately capitulates if the current __context__ is /cancelled/.
 --
@@ -148,7 +148,7 @@ unlessCancelled action =
 -- | Wait until all __threads__ forked within a __scope__ finish.
 wait :: Scope -> IO ()
 wait =
-  atomically . Ki.Implicit.Internal.Scope.wait
+  atomically . Ki.Implicit.Scope.wait
 
 -- | Variant of 'wait' that gives up after the given number of seconds elapses.
 --
@@ -158,9 +158,9 @@ wait =
 -- @
 waitFor :: Scope -> Seconds -> IO ()
 waitFor scope seconds =
-  timeoutSTM seconds (pure <$> Ki.Implicit.Internal.Scope.wait scope) (pure ())
+  timeoutSTM seconds (pure <$> Ki.Implicit.Scope.wait scope) (pure ())
 
 -- | @STM@ variant of 'wait'.
 waitSTM :: Scope -> STM ()
 waitSTM =
-  Ki.Implicit.Internal.Scope.wait
+  Ki.Implicit.Scope.wait

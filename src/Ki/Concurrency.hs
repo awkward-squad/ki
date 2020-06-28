@@ -2,7 +2,7 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
-module Ki.Internal.Concurrency
+module Ki.Concurrency
   ( IO,
     MVar,
     STM,
@@ -11,7 +11,7 @@ module Ki.Internal.Concurrency
     ThreadId,
     atomically,
     catch,
-    Ki.Internal.Concurrency.forkIO,
+    Ki.Concurrency.forkIO,
     modifyTVar',
     myThreadId,
     newEmptyTMVarIO,
@@ -21,7 +21,7 @@ module Ki.Internal.Concurrency
     putTMVar,
     readTMVar,
     readTVar,
-    Ki.Internal.Concurrency.registerDelay,
+    Ki.Concurrency.registerDelay,
     retry,
     throwIO,
     throwSTM,

@@ -1,10 +1,10 @@
-module Ki.Internal.Debug
+module Ki.Debug
   ( debug,
   )
 where
 
 import Control.Concurrent
-import Ki.Internal.Prelude
+import Ki.Prelude
 import System.IO.Unsafe (unsafePerformIO)
 import Prelude (IO)
 

@@ -1,6 +1,6 @@
 {-# LANGUAGE PatternSynonyms #-}
 
-module Ki.Implicit.Internal.Context
+module Ki.Implicit.Context
   ( -- * Context
     Context,
     dummy,
@@ -12,9 +12,9 @@ module Ki.Implicit.Internal.Context
   )
 where
 
-import Ki.Internal.Concurrency
-import Ki.Internal.Context.Internal (cancel, cancelled, derive, dummy, new, pattern Cancelled)
-import qualified Ki.Internal.Context.Internal as Internal
+import Ki.Concurrency
+import Ki.Context.Internal (cancel, cancelled, derive, dummy, new, pattern Cancelled)
+import qualified Ki.Context.Internal as Internal
 
 type Context =
   ?context :: Internal.Context
