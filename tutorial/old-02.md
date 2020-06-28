@@ -1,0 +1,58 @@
+[Previous tutorial](01.md)
+
+---
+
+# Tutorial 2
+
+In this tutorial, we'll learn about the primary abstraction in `ki`: the **scope**.
+
+Let's get our import out of the way.
+
+```haskell
+{-# LANGUAGE BlockArguments #-}
+module Tutorial02 where
+import qualified Ki.Implicit as Ki
+```
+
+Now, let's look at the type of `scoped`, which is how a **scope** gets introduced and eliminated.
+
+```haskell ignore
+scoped :: Context => (Scope -> IO a) -> IO a
+```
+
+As you can see, it requires an implicit **context**. That's okay, we learned how to introduce the global
+**context** in [tutorial 1](01.md): just call `global`.
+
+`scoped` also takes a continuation, to which it provides a fresh **scope** derived from the **context**. The
+**scope** is only _open_ during the continuation, and is permanently _closed_ after the continuation returns. You can
+try smuggling the **scope** out via a mutable variable, or just return it directly from the continuation, but there's no
+point: attempting to use a _closed_ **scope** is an error, and will throw an exception.
+
+Let's try creating a **scope**, and while it's open, print a message.
+
+```haskell
+main :: IO ()
+main = do
+  Ki.global do
+    Ki.scoped \scope ->
+      putStrLn "Hello, while a scope is open!"
+```
+
+Great! How about opening a second **scope** inside the first?
+
+```haskell
+  Ki.global do
+    Ki.scoped \scope1 -> do
+      putStrLn "Hello, while a scope is open!"
+
+      Ki.scoped \scope2 ->
+        putStrLn "Hello, while two scopes are open!"
+
+      putStrLn "Back to only one!"
+```
+
+What was the point of that? Well, nothing yet, but read on :)
+
+---
+
+[Previous tutorial](01.md)
