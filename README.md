@@ -17,10 +17,7 @@
 
 ## Tutorial
 
-In-progress tutorial series:
-
-- [Tutorial 1](tutorial/01.md)
-- [Tutorial 2](tutorial/02.md)
+[In-progress tutorial series](tutorial/01.md)
 
 ## Overview
 
