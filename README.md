@@ -2,14 +2,18 @@
 
 [![GitHub CI](https://github.com/mitchellwrosen/ki/workflows/CI/badge.svg)](https://github.com/mitchellwrosen/ki/actions)
 [![Hackage](https://img.shields.io/hackage/v/ki.svg?label=ki&logo=haskell)](https://hackage.haskell.org/package/ki-0/candidate)
+[![Stackage LTS](https://stackage.org/package/ki/badge/lts)](https://www.stackage.org/lts/package/ki)
+[![Stackage Nightly](https://stackage.org/package/ki/badge/nightly)](https://www.stackage.org/nightly/package/ki)
+[![Dependencies](https://img.shields.io/hackage-deps/v/ki)](https://packdeps.haskellers.com/reverse/ki)
+
 
 `ki` is a lightweight structured-concurrency library inspired by
 
 * [`libdill`](http://libdill.org/)
-* [`trio`](https://github.com/python-trio/trio),
+* [`trio`](https://github.com/python-trio/trio)
 * [Kotlin coroutines](https://kotlinlang.org/docs/reference/coroutines-overview.html)
 * [Go Concurrency Patterns: Context](https://blog.golang.org/context)
-* [.NET 4 Cancellation Framework](https://devblogs.microsoft.com/pfxteam/net-4-cancellation-framework/).
+* [.NET 4 Cancellation Framework](https://devblogs.microsoft.com/pfxteam/net-4-cancellation-framework/)
 
 ## Tutorial
 
