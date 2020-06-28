@@ -51,23 +51,12 @@ data Scope = Scope
   }
 
 async :: forall a. Scope -> (Context => (forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
-async scope@Scope {context} action = do
+async scope action = do
   resultVar <- newEmptyTMVarIO
-  uninterruptibleMask \restore -> do
-    atomically (incrementStarting scope)
-    childThreadId <- forkIO (theThread restore resultVar)
-    atomically do
-      decrementStarting scope
-      insertRunning scope childThreadId
-      pure (Thread childThreadId (readTMVar resultVar))
-  where
-    theThread :: (forall x. IO x -> IO x) -> TMVar (Either SomeException a) -> IO ()
-    theThread restore resultVar = do
-      result <- try (let ?context = context in action restore)
-      childThreadId <- myThreadId
-      atomically do
-        deleteRunning scope childThreadId
-        putTMVar resultVar result
+  childThreadId <-
+    _fork scope action \result ->
+      atomically (putTMVar resultVar result)
+  pure (Thread childThreadId (readTMVar resultVar))
 
 -- | /Cancel/ all __contexts__ derived from a __scope__.
 cancel :: Scope -> IO ()
@@ -94,23 +83,29 @@ close scope@Scope {closedVar, runningVar} = do
 
 fork :: Scope -> (Context => (forall x. IO x -> IO x) -> IO ()) -> IO ()
 fork scope@Scope {context} action = do
-  uninterruptibleMask \restore -> do
-    parentThreadId <- myThreadId
-    atomically (incrementStarting scope)
-    childThreadId <- forkIO (theThread restore parentThreadId)
-    atomically do
-      decrementStarting scope
-      insertRunning scope childThreadId
-  where
-    theThread :: (forall x. IO x -> IO x) -> ThreadId -> IO ()
-    theThread restore parentThreadId = do
-      result <- try (let ?context = context in action restore)
+  parentThreadId <- myThreadId
+  _ <-
+    _fork scope action \result ->
       whenLeft result \exception ->
         whenM
           (shouldPropagateException context exception)
           (throwTo parentThreadId (AsyncThreadFailed exception))
-      childThreadId <- myThreadId
-      atomically (deleteRunning scope childThreadId)
+  pure ()
+
+_fork :: Scope -> (Context => (forall x. IO x -> IO x) -> IO a) -> (Either SomeException a -> IO ()) -> IO ThreadId
+_fork scope action k =
+  uninterruptibleMask \restore -> do
+    atomically (incrementStarting scope)
+    childThreadId <-
+      forkIO do
+        result <- try (inScope scope (action restore))
+        k result
+        childThreadId <- myThreadId
+        atomically (deleteRunning scope childThreadId)
+    atomically do
+      decrementStarting scope
+      insertRunning scope childThreadId
+    pure childThreadId
 
 inScope :: Scope -> (Context => IO a) -> IO a
 inScope Scope {context} action =
@@ -142,7 +137,7 @@ scoped :: Context => (Context => Scope -> IO a) -> IO a
 scoped f = do
   scope <- new
   uninterruptibleMask \restore -> do
-    result <- inScope scope (try (restore (f scope)))
+    result <- try (restore (inScope scope (f scope)))
     closeScopeException <- close scope
     case result of
       -- If the callback failed, we don't care if we were thrown an async exception while closing the scope
