@@ -17,26 +17,74 @@
 
 ## Tutorial
 
+If this is your first time here, please have a look at the tutorial, which
+should (eventually) demonstrate how to use every type and function defined in
+this library.
+
 [In-progress tutorial series](tutorial/01.md)
 
 ## Overview
 
 ### Structured concurrency
 
-TODO
+Structured concurrency aims to make concurrent programs easier to understand by
+requiring additional fanfare when spawning a __thread__. As explained in
+[Notes on Structured Concurrency](https://vorpus.org/blog/notes-on-structured-concurrency-or-go-statement-considered-harmful/),
+"goroutines" (and thus Haskell's `forkIO`) are "considered harmful".
+
+When using this library, compared to `base`, spawning a thread takes one more
+argument:
+
+```
+fork :: Scope -> IO () -> IO ()
+```
+
+In exchange for this boilerplate, you'll be programming in a world where
+spawning threads respects the basic function abstraction: all threads of
+execution enter a function at one place (the top), and exit the function at one
+place (the bottom).
+
+Put differently, a function is unable to silently spawn a background thread
+whose lifetime extends beyond the function call itself. By the time a function
+returns, any threads it may have spawned are guaranteed to have finished.
+
+This approach encourages a controlled, hierarchical structure to the nature of a
+concurrent program.
 
 ### Soft-cancellation
 
-TODO
-
 ### Error propagation
 
-TODO
+In a synchronous setting, when an exception is thrown, it propagates up the call
+stack until an appropriate exception handler is found, or else the entire
+program exits.
+
+When using this library, a concurrent program behaves similarly, with the call
+stack the call stack generalized to a "call tree".
+
+Error propagation between threads is bidirectional. There are variations on this
+theme, but in general:
+
+  * When a child thread throws or is thrown an exception, it propagates the
+    exception to its parent.
+  * When a parent thread throws or is thrown an exception, it first kills all of
+    its children, and waits for them to finish.
+
+This makes is much more difficult to have silent failures in background threads
+that aren't supposed to crash.
 
 ### Testing
 
 The implementation is tested for deadlocks, race conditions, and other concurrency anomalies by
 [`dejafu`](http://hackage.haskell.org/package/dejafu), a fantastic unit-testing library for concurrent programs.
+
+### Comparison to other libraries
+
+#### `async`
+
+#### `scheduler`
+
+#### `slave-thread`
 
 ## Recommended reading
 
