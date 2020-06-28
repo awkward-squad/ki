@@ -79,6 +79,7 @@ library
     Ki.Internal.Debug
     Ki.Internal.Prelude
     Ki.Internal.Scope
+    Ki.Internal.Scope.Internal
     Ki.Internal.Seconds
     Ki.Internal.Thread
   if flag(test)
