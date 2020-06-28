@@ -1,3 +1,4 @@
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Ki.Internal.Context.Internal.Internal
@@ -7,11 +8,12 @@ module Ki.Internal.Context.Internal.Internal
     derive,
     cancel,
     cancelled,
-    CancelToken (..),
-    Cancelled (..),
+    matchCancelled,
+    pattern Cancelled,
   )
 where
 
+import Control.Exception (fromException)
 import qualified Data.IntMap.Strict as IntMap
 import Ki.Internal.Concurrency
 import Ki.Internal.Prelude
@@ -41,16 +43,21 @@ data Context_ = Context_
     onCancel :: STM ()
   }
 
+newtype Cancelled_
+  = Cancelled_ CancelToken
+  deriving stock (Eq, Show)
+  deriving anyclass (Exception)
+
 newtype CancelToken
   = CancelToken Int
   deriving stock (Eq, Show)
 
 -- | A 'Cancelled' exception is thrown when a __thread__ voluntarily capitulates after observing its __context__ is
 -- /cancelled/.
-data Cancelled
-  = Cancelled_ CancelToken
-  deriving stock (Eq, Show)
-  deriving anyclass (Exception)
+pattern Cancelled :: Cancelled_
+pattern Cancelled <- Cancelled_ _
+
+{-# COMPLETE Cancelled #-}
 
 new :: IO Context
 new =
@@ -82,25 +89,41 @@ deleteChild (Context parentVar) childId =
     R ctx@Context_ {children} -> writeTVar parentVar $! R ctx {children = IntMap.delete childId children}
     L _ -> pure ()
 
-cancel :: Context -> CancelToken -> STM ()
-cancel (Context contextVar) token =
+cancel :: Context -> IO ()
+cancel context = do
+  token <- uniqueInt
+  atomically (cancelSTM context (CancelToken token))
+
+cancelSTM :: Context -> CancelToken -> STM ()
+cancelSTM (Context contextVar) token =
   readTVar contextVar >>= \case
     R Context_ {children, onCancel} -> do
       writeTVar contextVar (L token)
-      for_ (IntMap.elems children) (cancel_ token)
+      for_ (IntMap.elems children) (cancelSTM_ token)
       onCancel
     L _ -> pure ()
 
-cancel_ :: CancelToken -> Context -> STM ()
-cancel_ token (Context contextVar) =
+cancelSTM_ :: CancelToken -> Context -> STM ()
+cancelSTM_ token (Context contextVar) =
   readTVar contextVar >>= \case
     R Context_ {children} -> do
       writeTVar contextVar (L token)
-      for_ (IntMap.elems children) (cancel_ token)
+      for_ (IntMap.elems children) (cancelSTM_ token)
     L _ -> pure ()
 
-cancelled :: Context -> STM CancelToken
-cancelled (Context contextVar) =
+cancelled :: Context -> STM (IO a)
+cancelled context = do
+  token <- cancelled_ context
+  pure (throwIO (Cancelled_ token))
+
+cancelled_ :: Context -> STM CancelToken
+cancelled_ (Context contextVar) =
   readTVar contextVar >>= \case
     R _ -> retry
     L token -> pure token
+
+matchCancelled :: Context -> SomeException -> STM Bool
+matchCancelled context exception =
+  case fromException exception of
+    Just (Cancelled_ token) -> ((== token) <$> cancelled_ context) <|> pure False
+    Nothing -> pure False

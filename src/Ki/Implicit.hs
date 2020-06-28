@@ -28,7 +28,7 @@ module Ki.Implicit
     kill,
 
     -- * Exceptions
-    Ki.Implicit.Internal.Context.Cancelled (Cancelled),
+    pattern Cancelled,
 
     -- * Miscellaneous
     Seconds,
@@ -37,20 +37,13 @@ module Ki.Implicit
 where
 
 import qualified Ki.Implicit.Internal.Context
-import Ki.Implicit.Internal.Context (Context, global)
+import Ki.Implicit.Internal.Context (Context, global, pattern Cancelled)
 import qualified Ki.Implicit.Internal.Scope
 import Ki.Implicit.Internal.Scope (Scope, cancel, scoped)
 import Ki.Internal.Concurrency
 import Ki.Internal.Prelude
 import Ki.Internal.Seconds (Seconds)
 import Ki.Internal.Thread (Thread, await, awaitFor, awaitSTM, kill, timeoutSTM)
-
--- | A 'Cancelled' exception is thrown when a __thread__ voluntarily capitulates after observing its __context__ is
--- /cancelled/.
-pattern Cancelled :: Ki.Implicit.Internal.Context.Cancelled
-pattern Cancelled <- Ki.Implicit.Internal.Context.Cancelled_ _
-
-{-# COMPLETE Cancelled #-}
 
 -- | Fork a __thread__ within a __scope__.
 --
@@ -109,7 +102,7 @@ cancelled =
 -- | @STM@ variant of 'cancelled'.
 cancelledSTM :: Context => STM (IO a)
 cancelledSTM =
-  throwIO . Ki.Implicit.Internal.Context.Cancelled_ <$> Ki.Implicit.Internal.Context.cancelled ?context
+  Ki.Implicit.Internal.Context.cancelled ?context
 
 -- | Variant of 'async' that does not return a handle to the __thread__.
 --

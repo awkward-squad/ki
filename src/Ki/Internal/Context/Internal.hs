@@ -1,3 +1,5 @@
+{-# LANGUAGE PatternSynonyms #-}
+
 module Ki.Internal.Context.Internal
   ( -- * Context
     Context,
@@ -6,13 +8,13 @@ module Ki.Internal.Context.Internal
     derive,
     cancel,
     cancelled,
-    CancelToken (..),
-    Cancelled (..),
+    matchCancelled,
+    pattern Cancelled,
   )
 where
 
 import Ki.Internal.Concurrency
-import Ki.Internal.Context.Internal.Internal (CancelToken (..), Cancelled (..))
+import Ki.Internal.Context.Internal.Internal (pattern Cancelled)
 import qualified Ki.Internal.Context.Internal.Internal as Internal
 import Ki.Internal.Prelude
 
@@ -24,8 +26,8 @@ import Ki.Internal.Prelude
 -- A __thread__ can query whether its __context__ has been /cancelled/, which is a suggestion to perform a graceful
 -- termination.
 data Context = Context
-  { cancel :: CancelToken -> STM (),
-    cancelled :: STM CancelToken,
+  { cancel :: IO (),
+    cancelled :: forall a. STM (IO a),
     -- | Derive a child context from a parent context.
     --
     --   * If the parent is already cancelled, so is the child.
@@ -33,16 +35,17 @@ data Context = Context
     --     parent such that:
     --       * When the parent is cancelled, so is the child
     --       * When the child is cancelled, it removes the parent's reference to it
-    derive :: STM Context
+    derive :: STM Context,
+    matchCancelled :: SomeException -> STM Bool
   }
-  deriving stock (Generic)
 
 dummy :: Context
 dummy =
   Context
-    { cancel = const (pure ()),
+    { cancel = pure (),
       cancelled = retry,
-      derive = pure dummy
+      derive = pure dummy,
+      matchCancelled = const (pure False)
     }
 
 -- | Create a new context without a parent.
@@ -55,5 +58,6 @@ new =
       Context
         { cancel = Internal.cancel context,
           cancelled = Internal.cancelled context,
-          derive = f <$> Internal.derive context
+          derive = f <$> Internal.derive context,
+          matchCancelled = Internal.matchCancelled context
         }

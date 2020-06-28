@@ -16,7 +16,7 @@ import Control.Exception (AsyncException (ThreadKilled), Exception (fromExceptio
 import qualified Data.Monoid as Monoid
 import qualified Data.Set as Set
 import Ki.Internal.Concurrency
-import Ki.Internal.Context.Internal (CancelToken (..), Cancelled (..), Context)
+import Ki.Internal.Context.Internal (Context)
 import qualified Ki.Internal.Context.Internal as Context
 import Ki.Internal.Prelude
 import Ki.Internal.Thread (AsyncThreadFailed (..), Thread (Thread))
@@ -61,8 +61,7 @@ async scope action = do
 -- | /Cancel/ all __contexts__ derived from a __scope__.
 cancel :: Scope -> IO ()
 cancel Scope {context} = do
-  n <- uniqueInt
-  atomically (Context.cancel context (CancelToken n))
+  Context.cancel context
 
 -- | Close a scope, kill all of the running threads, and return the first
 -- async exception delivered to us while doing so, if any.
@@ -189,15 +188,12 @@ killThreads =
           Left exception -> loop (acc <> pure exception) (threadId : threadIds)
           Right () -> loop acc threadIds
 
-shouldPropagateException :: Ki.Internal.Context.Internal.Context -> SomeException -> IO Bool
+shouldPropagateException :: Context -> SomeException -> IO Bool
 shouldPropagateException context exception =
   case fromException exception of
     Just ThreadKilled -> pure False
     Just _ -> pure True
-    Nothing ->
-      case fromException exception of
-        Just (Cancelled_ token) -> atomically (((/= token) <$> Context.cancelled context) <|> pure True)
-        Nothing -> pure True
+    Nothing -> not <$> atomically (Context.matchCancelled context exception)
 
 blockUntilTVar :: TVar a -> (a -> Bool) -> STM ()
 blockUntilTVar var f = do
