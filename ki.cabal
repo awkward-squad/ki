@@ -68,17 +68,17 @@ library
     containers,
     stm,
   exposed-modules:
-    Ki,
+    Ki.Implicit,
     Ki.Lite,
   hs-source-dirs: src
   other-modules:
+    Ki.Implicit.Internal.Context
+    Ki.Implicit.Internal.Scope
     Ki.Internal.Concurrency
-    Ki.Internal.Context
     Ki.Internal.Context.Internal
     Ki.Internal.Context.Internal.Internal
     Ki.Internal.Debug
     Ki.Internal.Prelude
-    Ki.Internal.Scope
     Ki.Internal.Scope.Internal
     Ki.Internal.Seconds
     Ki.Internal.Thread

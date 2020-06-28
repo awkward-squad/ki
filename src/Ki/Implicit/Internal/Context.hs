@@ -1,4 +1,4 @@
-module Ki.Internal.Context
+module Ki.Implicit.Internal.Context
   ( -- * Context
     Context,
     dummy,

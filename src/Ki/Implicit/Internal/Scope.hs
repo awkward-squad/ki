@@ -1,4 +1,4 @@
-module Ki.Internal.Scope
+module Ki.Implicit.Internal.Scope
   ( Scope,
     async,
     cancel,
@@ -8,8 +8,8 @@ module Ki.Internal.Scope
   )
 where
 
+import Ki.Implicit.Internal.Context (Context)
 import Ki.Internal.Concurrency
-import Ki.Internal.Context (Context)
 import Ki.Internal.Scope.Internal (Scope, cancel, wait)
 import qualified Ki.Internal.Scope.Internal as Internal
 import Ki.Internal.Thread (Thread)

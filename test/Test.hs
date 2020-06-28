@@ -17,7 +17,7 @@ import Data.Function
 import Data.List (intercalate)
 import Data.Maybe
 import GHC.Clock
-import Ki
+import Ki.Implicit
 import System.Exit
 import qualified Test.DejaFu as DejaFu
 import qualified Test.DejaFu.Types as DejaFu

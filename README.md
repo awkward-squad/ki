@@ -4,9 +4,12 @@
 [![Hackage](https://img.shields.io/hackage/v/ki.svg?label=ki&logo=haskell)](https://hackage.haskell.org/package/ki-0/candidate)
 
 `ki` is a lightweight structured-concurrency library inspired by
-[`libdill`](http://libdill.org/), [`trio`](https://github.com/python-trio/trio),
-[`Go Concurrency Patterns: Context`](https://blog.golang.org/context), and the
-[`.NET 4 Cancellation Framework`](https://devblogs.microsoft.com/pfxteam/net-4-cancellation-framework/).
+
+* [`libdill`](http://libdill.org/)
+* [`trio`](https://github.com/python-trio/trio),
+* [Kotlin coroutines](https://kotlinlang.org/docs/reference/coroutines-overview.html)
+* [Go Concurrency Patterns: Context](https://blog.golang.org/context)
+* [.NET 4 Cancellation Framework](https://devblogs.microsoft.com/pfxteam/net-4-cancellation-framework/).
 
 ## Tutorial
 
@@ -17,7 +20,19 @@ In-progress tutorial series:
 
 ## Overview
 
-## Testing
+### Structured concurrency
+
+TODO
+
+### Soft-cancellation
+
+TODO
+
+### Error propagation
+
+TODO
+
+### Testing
 
 The implementation is tested for deadlocks, race conditions, and other concurrency anomalies by
 [`dejafu`](http://hackage.haskell.org/package/dejafu), a fantastic unit-testing library for concurrent programs.

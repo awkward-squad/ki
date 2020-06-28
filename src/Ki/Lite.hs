@@ -23,10 +23,10 @@ module Ki.Lite
   )
 where
 
-import Ki (Scope, Seconds, Thread, await, awaitFor, awaitSTM, kill, timeoutSTM, wait, waitFor, waitSTM)
-import qualified Ki
+import Ki.Implicit (Scope, Seconds, Thread, await, awaitFor, awaitSTM, kill, timeoutSTM, wait, waitFor, waitSTM)
+import qualified Ki.Implicit
+import qualified Ki.Implicit.Internal.Context
 import Ki.Internal.Concurrency
-import qualified Ki.Internal.Context as Context
 
 -- | Fork a __thread__ within a __scope__.
 --
@@ -35,7 +35,7 @@ import qualified Ki.Internal.Context as Context
 --   * Calls 'error' if the __scope__ is /closed/.
 async :: Scope -> IO a -> IO (Thread a)
 async =
-  Ki.async
+  Ki.Implicit.async
 
 -- | Variant of 'async' that provides the __thread__ a function that unmasks asynchronous exceptions.
 --
@@ -44,7 +44,7 @@ async =
 --   * Calls 'error' if the __scope__ is /closed/.
 asyncWithUnmask :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
 asyncWithUnmask =
-  Ki.asyncWithUnmask
+  Ki.Implicit.asyncWithUnmask
 
 -- | Variant of 'async' that does not return a handle to the __thread__.
 --
@@ -56,7 +56,7 @@ asyncWithUnmask =
 --   * Calls 'error' if the __scope__ is /closed/.
 fork :: Scope -> IO () -> IO ()
 fork =
-  Ki.fork
+  Ki.Implicit.fork
 
 -- | Variant of 'fork' that provides the __thread__ a function that unmasks asynchronous exceptions.
 --
@@ -65,7 +65,7 @@ fork =
 --   * Calls 'error' if the __scope__ is /closed/.
 forkWithUnmask :: Scope -> ((forall x. IO x -> IO x) -> IO ()) -> IO ()
 forkWithUnmask =
-  Ki.forkWithUnmask
+  Ki.Implicit.forkWithUnmask
 
 -- | Perform an action with a new __scope__, then /close/ the __scope__.
 --
@@ -83,4 +83,4 @@ forkWithUnmask =
 -- @
 scoped :: (Scope -> IO a) -> IO a
 scoped action =
-  let ?context = Context.dummy in Ki.scoped action
+  let ?context = Ki.Implicit.Internal.Context.dummy in Ki.Implicit.scoped action
