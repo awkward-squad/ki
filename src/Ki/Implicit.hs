@@ -32,6 +32,7 @@ module Ki.Implicit
 
     -- * Miscellaneous
     Seconds,
+    sleep,
     timeoutSTM,
   )
 where
@@ -43,7 +44,8 @@ import qualified Ki.Implicit.Scope
 import Ki.Implicit.Scope (Scope, cancel, scoped)
 import Ki.Prelude
 import Ki.Seconds (Seconds)
-import Ki.Thread (Thread, await, awaitFor, awaitSTM, kill, timeoutSTM)
+import Ki.Thread (Thread, await, awaitFor, awaitSTM, kill)
+import Ki.Timeout (timeoutSTM)
 
 -- | Fork a __thread__ within a __scope__.
 --
@@ -79,7 +81,7 @@ asyncWithUnmask scope action =
 --     pure value
 -- @
 --
--- Other times, it may be unable to, so it should call the provided action.
+-- Other times, it may be unable to, so it should call the provided action, which throws a 'Cancelled' exception.
 --
 -- @
 -- 'cancelled' >>= \\case
@@ -128,6 +130,20 @@ fork scope action =
 forkWithUnmask :: Scope -> (Context => (forall x. IO x -> IO x) -> IO ()) -> IO ()
 forkWithUnmask scope action =
   Ki.Implicit.Scope.fork scope \restore -> restore (action unsafeUnmask)
+
+-- | __Context__-aware @threadDelay@.
+--
+-- @
+-- 'sleep' seconds =
+--   'timeoutSTM seconds 'cancelledSTM' (pure ())
+-- @
+--
+-- /Throws/:
+--
+--   * Throws 'Cancelled' if the current __context__ is /cancelled/.
+sleep :: Context => Seconds -> IO ()
+sleep seconds =
+  timeoutSTM seconds cancelledSTM (pure ())
 
 -- | Variant of 'cancelled' that immediately capitulates if the current __context__ is /cancelled/.
 --

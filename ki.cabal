@@ -116,6 +116,7 @@ library
     Ki.Scope.Internal
     Ki.Seconds
     Ki.Thread
+    Ki.Timeout
   if flag(test)
     build-depends:
       concurrency ^>= 1.11.0.0,

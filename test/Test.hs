@@ -14,6 +14,7 @@ import Control.Exception (Exception (fromException), MaskingState (..), pattern 
 import Control.Monad
 import Data.Foldable
 import Data.Function
+import Data.Functor
 import Data.List (intercalate)
 import Data.Maybe
 import GHC.Clock
@@ -228,6 +229,19 @@ main = do
             Nothing -> throw A
             Just capitulate -> capitulate
         wait scope
+
+  test "`cancelled` returns an action that throws `Cancelled`" do
+    returns True do
+      scoped \scope -> do
+        cancel scope
+        thread <-
+          async scope do
+            cancelled >>= \case
+              Nothing -> throw A
+              Just capitulate ->
+                (capitulate $> False) `catch` \case
+                  Cancelled -> pure True
+        await' thread
 
 type P =
   DejaFu.Program DejaFu.Basic IO

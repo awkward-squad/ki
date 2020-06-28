@@ -4,8 +4,6 @@ module Ki.Thread
     awaitSTM,
     awaitFor,
     kill,
-    --
-    timeoutSTM,
 
     -- * Internal API
     AsyncThreadFailed (..),
@@ -16,8 +14,8 @@ where
 import Control.Exception (AsyncException (ThreadKilled), Exception (..), asyncExceptionFromException, asyncExceptionToException)
 import Ki.Concurrency
 import Ki.Prelude
-import qualified Ki.Seconds as Seconds
 import Ki.Seconds (Seconds)
+import Ki.Timeout (timeoutSTM)
 
 -- | A running __thread__.
 data Thread a = Thread
@@ -81,13 +79,3 @@ unwrapAsyncThreadFailed ex =
   case fromException ex of
     Just (AsyncThreadFailed exception) -> exception
     _ -> ex
-
--- Misc. utils
-
--- | Wait for an @STM@ action to return, and return the @IO@ action contained within.
---
--- If the given number of seconds elapses, return the given @IO@ action instead.
-timeoutSTM :: Seconds -> STM (IO a) -> IO a -> IO a
-timeoutSTM seconds action fallback = do
-  (delay, unregister) <- registerDelay (Seconds.toMicros seconds)
-  join (atomically (delay $> fallback <|> (unregister >>) <$> action))
