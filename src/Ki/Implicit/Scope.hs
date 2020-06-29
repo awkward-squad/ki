@@ -1,26 +1,26 @@
 module Ki.Implicit.Scope
   ( Scope,
     async,
-    cancel,
+    Ki.Scope.cancel,
     fork,
     scoped,
-    wait,
+    Ki.Scope.wait,
   )
 where
 
 import Ki.Concurrency
 import Ki.Implicit.Context (Context)
-import Ki.Scope.Internal (Scope, cancel, wait)
-import qualified Ki.Scope.Internal as Internal
+import Ki.Scope (Scope)
+import qualified Ki.Scope
 import Ki.Thread (Thread)
 
 async :: Scope -> (Context => (forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
 async scope action =
-  Internal.async scope \restore -> withContext scope (action restore)
+  Ki.Scope.async scope (let ?context = Ki.Scope.context scope in action)
 
 fork :: Scope -> (Context => (forall x. IO x -> IO x) -> IO ()) -> IO ()
 fork scope action =
-  Internal.fork scope \restore -> withContext scope (action restore)
+  Ki.Scope.fork scope (let ?context = Ki.Scope.context scope in action)
 
 -- | Perform an action with a new __scope__, then /close/ the __scope__.
 --
@@ -38,8 +38,4 @@ fork scope action =
 -- @
 scoped :: Context => (Context => Scope -> IO a) -> IO a
 scoped action =
-  Internal.scoped ?context \scope -> withContext scope (action scope)
-
-withContext :: Scope -> (Context => IO a) -> IO a
-withContext scope action =
-  Internal.withContext scope \context -> let ?context = context in action
+  Ki.Scope.scoped ?context \scope -> let ?context = Ki.Scope.context scope in action scope

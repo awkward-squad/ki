@@ -1,31 +1,41 @@
 {-# LANGUAGE PatternSynonyms #-}
 
 module Ki.Implicit
-  ( -- * Context
-    Context,
-    global,
-    cancelled,
-    cancelledSTM,
-    unlessCancelled,
-
-    -- * Scope
+  ( -- * Scope
     Scope,
     scoped,
     wait,
     waitSTM,
     waitFor,
-    cancel,
 
-    -- * Thread
+    -- * Spawning threads
+
+    -- ** Fork
+    fork,
+    forkWithUnmask,
+
+    -- ** Actor
+    Actor,
+    send,
+
+    -- ** Async
     Thread,
     async,
     asyncWithUnmask,
-    fork,
-    forkWithUnmask,
     await,
     awaitSTM,
     awaitFor,
-    kill,
+    -- kill,
+
+    -- * Soft-cancellation
+    Context,
+    cancel,
+    cancelled,
+    cancelledSTM,
+    unlessCancelled,
+
+    -- * Global context
+    global,
 
     -- * Exceptions
     pattern Cancelled,
@@ -38,13 +48,13 @@ module Ki.Implicit
 where
 
 import Ki.Concurrency
-import qualified Ki.Implicit.Context
-import Ki.Implicit.Context (Context, global, pattern Cancelled)
+import Ki.Implicit.Actor
+import Ki.Implicit.Context (Context, cancelled, cancelledSTM, global, unlessCancelled, pattern Cancelled)
 import qualified Ki.Implicit.Scope
 import Ki.Implicit.Scope (Scope, cancel, scoped)
 import Ki.Prelude
 import Ki.Seconds (Seconds)
-import Ki.Thread (Thread, await, awaitFor, awaitSTM, kill)
+import Ki.Thread (Thread, await, awaitFor, awaitSTM)
 import Ki.Timeout (timeoutSTM)
 
 -- | Fork a __thread__ within a __scope__.
@@ -64,47 +74,6 @@ async scope action =
 asyncWithUnmask :: Scope -> (Context => (forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
 asyncWithUnmask scope action =
   Ki.Implicit.Scope.async scope \restore -> restore (action unsafeUnmask)
-
--- | Return whether the current __context__ is /cancelled/.
---
--- __Threads__ running in a /cancelled/ __context__ should terminate as soon as possible. The returned action may be
--- used to honor the /cancellation/ request in case the __thread__ is unable or unwilling to terminate normally with a
--- value.
---
--- Sometimes, a __thread__ may terminate with a value after observing a /cancellation/ request.
---
--- @
--- 'cancelled' >>= \\case
---   Nothing -> continue
---   Just _capitulate -> do
---     cleanup
---     pure value
--- @
---
--- Other times, it may be unable to, so it should call the provided action, which throws a 'Cancelled' exception.
---
--- @
--- 'cancelled' >>= \\case
---   Nothing -> continue
---   Just capitulate -> do
---     cleanup
---     capitulate
--- @
---
--- But commonly, a thread has no explicit teardown phase, and can immediately honor a /cancellation/ request;
--- 'unlessCancelled' is useful for that.
---
--- @
--- 'unlessCancelled' continue
--- @
-cancelled :: Context => IO (Maybe (IO a))
-cancelled =
-  atomically (optional cancelledSTM)
-
--- | @STM@ variant of 'cancelled'.
-cancelledSTM :: Context => STM (IO a)
-cancelledSTM =
-  Ki.Implicit.Context.cancelled ?context
 
 -- | Variant of 'async' that does not return a handle to the __thread__.
 --
@@ -144,22 +113,6 @@ forkWithUnmask scope action =
 sleep :: Context => Seconds -> IO ()
 sleep seconds =
   timeoutSTM seconds cancelledSTM (pure ())
-
--- | Variant of 'cancelled' that immediately capitulates if the current __context__ is /cancelled/.
---
--- @
--- 'unlessCancelled' action =
---   'cancelled' >>= \\case
---     Nothing -> action
---     Just capitulate -> capitulate
--- @
---
--- /Throws/:
---
---   * Throws 'Cancelled' if the current __context__ is /cancelled/.
-unlessCancelled :: Context => IO a -> IO a
-unlessCancelled action =
-  cancelled >>= fromMaybe action
 
 -- | Wait until all __threads__ forked within a __scope__ finish.
 wait :: Scope -> IO ()

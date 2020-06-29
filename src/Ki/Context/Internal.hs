@@ -1,10 +1,10 @@
 {-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Ki.Context.Internal
   ( -- * Context
     Context,
-    dummy,
-    new,
+    newSTM,
     derive,
     cancel,
     cancelled,
@@ -13,51 +13,117 @@ module Ki.Context.Internal
   )
 where
 
+import Control.Exception (fromException)
+import qualified Data.IntMap.Strict as IntMap
 import Ki.Concurrency
-import Ki.Context.Internal.Internal (pattern Cancelled)
-import qualified Ki.Context.Internal.Internal as Internal
 import Ki.Prelude
 
--- | A __context__ models a program's call tree, and is used as a mechanism to propagate /cancellation/ requests to
--- every __thread__ forked within a __scope__.
---
--- Every __thread__ is provided its own __context__, which is derived from its __scope__.
---
--- A __thread__ can query whether its __context__ has been /cancelled/, which is a suggestion to perform a graceful
--- termination.
-data Context = Context
-  { cancel :: IO (),
-    cancelled :: forall a. STM (IO a),
-    -- | Derive a child context from a parent context.
+newtype Context
+  = Context (TVar E)
+
+data E -- strict either (StrictData)
+  = L CancelToken
+  | R Context_
+
+data Context_ = Context_
+  { -- | The next id to assign to a child context. The child needs a unique identifier so it can delete itself from its
+    -- parent's children map if it's cancelled independently. Wrap-around seems ok; that's a *lot* of children for one
+    -- parent to have.
+    nextId :: Int,
+    children :: IntMap Context,
+    -- | When I'm cancelled, this action removes myself from my parent's context. This isn't simply a pointer to the
+    -- parent (i.e. Context_) for three reasons:
     --
-    --   * If the parent is already cancelled, so is the child.
-    --   * If the parent isn't already canceled, the child registers itself with the
-    --     parent such that:
-    --       * When the parent is cancelled, so is the child
-    --       * When the child is cancelled, it removes the parent's reference to it
-    derive :: STM Context,
-    matchCancelled :: SomeException -> STM Bool
+    --   * "Root" contexts don't have a parent, so it'd have to be a Maybe (one more pointer indirection)
+    --   * We don't really need a reference to the parent, because we only want to be able to remove ourselves from its
+    --     children map, so just storing the STM action that does exactly seems a bit safer, even if conceptually it's
+    --     a bit indirect.
+    --   * If we stored a reference to the parent, we'd also have to store our own id, rather than just currying it into
+    --     this action.
+    onCancel :: STM ()
   }
 
-dummy :: Context
-dummy =
-  Context
-    { cancel = pure (),
-      cancelled = retry,
-      derive = pure dummy,
-      matchCancelled = const (pure False)
-    }
+newtype Cancelled_
+  = Cancelled_ CancelToken
+  deriving stock (Eq, Show)
+  deriving anyclass (Exception)
 
--- | Create a new context without a parent.
-new :: IO Context
-new =
-  f <$> Internal.new
+newtype CancelToken
+  = CancelToken Int
+  deriving stock (Eq, Show)
+
+-- | A 'Cancelled' exception is thrown when a __thread__ voluntarily capitulates after observing its __context__ is
+-- /cancelled/.
+pattern Cancelled :: Cancelled_
+pattern Cancelled <- Cancelled_ _
+
+{-# COMPLETE Cancelled #-}
+
+newSTM :: STM Context
+newSTM =
+  coerce @(STM (TVar E)) (newTVar (R (Context_ {nextId, children, onCancel})))
   where
-    f :: Internal.Context -> Context
-    f context =
-      Context
-        { cancel = Internal.cancel context,
-          cancelled = Internal.cancelled context,
-          derive = f <$> Internal.derive context,
-          matchCancelled = Internal.matchCancelled context
-        }
+    nextId = 0 :: Int
+    children = IntMap.empty :: IntMap Context
+    onCancel = pure () :: STM ()
+
+newWith :: STM () -> STM Context
+newWith onCancel =
+  coerce @(STM (TVar E)) (newTVar (R (Context_ {nextId, children, onCancel})))
+  where
+    nextId = 0 :: Int
+    children = IntMap.empty :: IntMap Context
+
+derive :: Context -> STM Context
+derive context@(Context parentVar) =
+  readTVar parentVar >>= \case
+    R ctx@Context_ {nextId, children} -> do
+      child <- newWith (deleteChild context nextId)
+      writeTVar parentVar $! R ctx {nextId = nextId + 1, children = IntMap.insert nextId child children}
+      pure child
+    L _ -> pure context
+
+deleteChild :: Context -> Int -> STM ()
+deleteChild (Context parentVar) childId =
+  readTVar parentVar >>= \case
+    R ctx@Context_ {children} -> writeTVar parentVar $! R ctx {children = IntMap.delete childId children}
+    L _ -> pure ()
+
+cancel :: Context -> IO ()
+cancel context = do
+  token <- uniqueInt
+  atomically (cancelSTM context (CancelToken token))
+
+cancelSTM :: Context -> CancelToken -> STM ()
+cancelSTM (Context contextVar) token =
+  readTVar contextVar >>= \case
+    R Context_ {children, onCancel} -> do
+      writeTVar contextVar (L token)
+      for_ (IntMap.elems children) (cancelSTM_ token)
+      onCancel
+    L _ -> pure ()
+
+cancelSTM_ :: CancelToken -> Context -> STM ()
+cancelSTM_ token (Context contextVar) =
+  readTVar contextVar >>= \case
+    R Context_ {children} -> do
+      writeTVar contextVar (L token)
+      for_ (IntMap.elems children) (cancelSTM_ token)
+    L _ -> pure ()
+
+cancelled :: Context -> STM (IO a)
+cancelled context = do
+  token <- cancelled_ context
+  pure (throwIO (Cancelled_ token))
+
+cancelled_ :: Context -> STM CancelToken
+cancelled_ (Context contextVar) =
+  readTVar contextVar >>= \case
+    R _ -> retry
+    L token -> pure token
+
+matchCancelled :: Context -> SomeException -> STM Bool
+matchCancelled context exception =
+  case fromException exception of
+    Just (Cancelled_ token) -> ((== token) <$> cancelled_ context) <|> pure False
+    Nothing -> pure False

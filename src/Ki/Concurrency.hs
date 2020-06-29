@@ -6,22 +6,25 @@ module Ki.Concurrency
   ( IO,
     MVar,
     STM,
+    TBQueue,
     TMVar,
     TVar,
     ThreadId,
     atomically,
     catch,
-    Ki.Concurrency.forkIO,
+    forkIO,
     modifyTVar',
     myThreadId,
     newEmptyTMVarIO,
     newMVar,
+    newTBQueueIO,
     newTVar,
     newTVarIO,
     putTMVar,
+    readTBQueue,
     readTMVar,
     readTVar,
-    Ki.Concurrency.registerDelay,
+    registerDelay,
     retry,
     throwIO,
     throwSTM,
@@ -31,54 +34,66 @@ module Ki.Concurrency
     uniqueInt,
     unsafeUnmask,
     withMVar,
+    writeTBQueue,
     writeTVar,
   )
 where
 
 #ifdef TEST
 
-import Control.Concurrent.Classy (atomically, catch, fork, modifyTVar', myThreadId, newEmptyTMVar, newMVar, newTVar, putTMVar, readTMVar, readTVar, retry, throw, throwSTM, uninterruptibleMask, unsafeUnmask, withMVar, writeTVar)
+import Control.Concurrent.Classy (atomically, catch, modifyTVar', myThreadId, newMVar, newTVar, putTMVar, readTBQueue, readTMVar, readTVar, retry, throwSTM, uninterruptibleMask, unsafeUnmask, withMVar, writeTBQueue, writeTVar)
 import qualified Control.Concurrent.Classy
 import Control.Exception (Exception)
-import Test.DejaFu
-import Test.DejaFu.Conc.Internal.Common
-import Test.DejaFu.Conc.Internal.STM
+import Numeric.Natural (Natural)
+import qualified Test.DejaFu
+import qualified Test.DejaFu.Conc.Internal.Common
+import qualified Test.DejaFu.Conc.Internal.STM
 import Test.DejaFu.Types (ThreadId)
 import qualified Prelude
 import Prelude hiding (IO)
 
 type IO =
-  ConcIO
+  Test.DejaFu.ConcIO
 
 type MVar =
-  ModelMVar Prelude.IO
+  Test.DejaFu.Conc.Internal.Common.ModelMVar Prelude.IO
 
 type STM =
-  ModelSTM Prelude.IO
+  Test.DejaFu.Conc.Internal.STM.ModelSTM Prelude.IO
+
+type TBQueue =
+  Control.Concurrent.Classy.TBQueue STM
 
 type TMVar =
   Control.Concurrent.Classy.TMVar STM
 
 type TVar =
-  ModelTVar Prelude.IO
+  Test.DejaFu.Conc.Internal.STM.ModelTVar Prelude.IO
 
 forkIO :: IO () -> IO ThreadId
-forkIO = fork
+forkIO =
+  Control.Concurrent.Classy.fork
+
+newTBQueueIO :: Natural -> IO (TBQueue a)
+newTBQueueIO =
+  Control.Concurrent.Classy.atomically . Control.Concurrent.Classy.newTBQueue
 
 newEmptyTMVarIO :: IO (TMVar a)
-newEmptyTMVarIO = atomically newEmptyTMVar
+newEmptyTMVarIO =
+  Control.Concurrent.Classy.atomically Control.Concurrent.Classy.newEmptyTMVar
 
 newTVarIO :: a -> IO (TVar a)
-newTVarIO = atomically . newTVar
+newTVarIO =
+  Control.Concurrent.Classy.atomically . Control.Concurrent.Classy.newTVar
 
 registerDelay :: Int -> IO (STM (), IO ())
 registerDelay micros = do
   var <- Control.Concurrent.Classy.registerDelay micros
-  pure (readTVar var >>= \b -> if b then pure () else retry, pure ())
+  pure (Control.Concurrent.Classy.readTVar var >>= Control.Concurrent.Classy.check, pure ())
 
 throwIO :: Exception e => e -> IO a
 throwIO =
-  throw
+  Control.Concurrent.Classy.throw
 
 throwTo :: Exception e => ThreadId -> e -> IO ()
 throwTo =
@@ -86,7 +101,7 @@ throwTo =
 
 try :: Exception e => IO a -> IO (Either e a)
 try action =
-  catch (Right <$> action) (pure . Left)
+  Control.Concurrent.Classy.catch (Right <$> action) (pure . Left)
 
 uniqueInt :: IO Int
 uniqueInt =
@@ -94,8 +109,8 @@ uniqueInt =
 
 #else
 
-import Control.Concurrent
-import Control.Concurrent.STM
+import Control.Concurrent hiding (forkIO)
+import Control.Concurrent.STM hiding (registerDelay)
 import Control.Exception
 import Control.Monad (unless)
 import Data.Atomics.Counter

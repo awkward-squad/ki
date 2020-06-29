@@ -115,18 +115,18 @@ main = do
         pure thread
       isRight <$> await thread
 
-  test "thread can be killed" do
-    returns () do
-      scoped \scope -> do
-        thread <- async scope block
-        kill thread
+  -- test "thread can be killed" do
+  --   returns () do
+  --     scoped \scope -> do
+  --       thread <- async scope block
+  --       kill thread
 
-  test "thread can be killed after it's finished" do
-    returns () do
-      scoped \scope -> do
-        thread <- async scope (pure ())
-        _ <- await thread
-        kill thread
+  -- test "thread can be killed after it's finished" do
+  --   returns () do
+  --     scoped \scope -> do
+  --       thread <- async scope (pure ())
+  --       _ <- await thread
+  --       kill thread
 
   test "`fork` propagates exceptions" do
     throws A do

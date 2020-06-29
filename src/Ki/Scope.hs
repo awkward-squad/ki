@@ -1,14 +1,16 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Ki.Scope.Internal
+module Ki.Scope
   ( Scope,
     async,
     cancel,
+    cancelledSTM,
+    context,
     fork,
     scoped,
+    unlessCancelledSTM,
     wait,
-    withContext,
   )
 where
 
@@ -16,11 +18,11 @@ import Control.Exception (AsyncException (ThreadKilled), Exception (fromExceptio
 import qualified Data.Monoid as Monoid
 import qualified Data.Set as Set
 import Ki.Concurrency
-import Ki.Context.Internal (Context)
-import qualified Ki.Context.Internal as Context
+import Ki.Context (Context)
+import qualified Ki.Context
 import Ki.Prelude
 import Ki.Thread (AsyncThreadFailed (..), Thread (Thread))
-import qualified Ki.Thread as Thread
+import qualified Ki.Thread
 
 -- | A __scope__ delimits the lifetime of all __threads__ forked within it. A __thread__ cannot outlive its __scope__.
 --
@@ -60,8 +62,12 @@ async scope action = do
 
 -- | /Cancel/ all __contexts__ derived from a __scope__.
 cancel :: Scope -> IO ()
-cancel Scope {context} = do
-  Context.cancel context
+cancel Scope {context} =
+  Ki.Context.cancel context
+
+cancelledSTM :: Scope -> STM (IO a)
+cancelledSTM Scope {context} =
+  Ki.Context.cancelled context
 
 -- | Close a scope, kill all of the running threads, and return the first
 -- async exception delivered to us while doing so, if any.
@@ -108,7 +114,7 @@ _fork scope action k =
 
 new :: Context -> IO Scope
 new parentContext = do
-  context <- atomically (Context.derive parentContext)
+  context <- atomically (Ki.Context.derive parentContext)
   closedVar <- newTVarIO False
   runningVar <- newTVarIO Set.empty
   startingVar <- newTVarIO 0
@@ -122,20 +128,20 @@ scoped context f = do
     closeScopeException <- close scope
     case result of
       -- If the callback failed, we don't care if we were thrown an async exception while closing the scope
-      Left exception -> throwIO (Thread.unwrapAsyncThreadFailed exception)
+      Left exception -> throwIO (Ki.Thread.unwrapAsyncThreadFailed exception)
       -- Otherwise, throw that exception (if it exists)
       Right value -> do
-        for_ @Maybe closeScopeException (throwIO . Thread.unwrapAsyncThreadFailed)
+        for_ @Maybe closeScopeException (throwIO . Ki.Thread.unwrapAsyncThreadFailed)
         pure value
+
+unlessCancelledSTM :: Scope -> STM (IO a) -> IO a
+unlessCancelledSTM scope action =
+  join (atomically (cancelledSTM scope <|> action))
 
 wait :: Scope -> STM ()
 wait scope = do
   blockUntilNoneRunning scope
   blockUntilNoneStarting scope
-
-withContext :: Scope -> (Context -> a) -> a
-withContext Scope {context} action =
-  action context
 
 --------------------------------------------------------------------------------
 -- Scope helpers
@@ -193,7 +199,7 @@ shouldPropagateException context exception =
   case fromException exception of
     Just ThreadKilled -> pure False
     Just _ -> pure True
-    Nothing -> not <$> atomically (Context.matchCancelled context exception)
+    Nothing -> not <$> atomically (Ki.Context.matchCancelled context exception)
 
 blockUntilTVar :: TVar a -> (a -> Bool) -> STM ()
 blockUntilTVar var f = do

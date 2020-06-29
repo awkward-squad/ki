@@ -2,9 +2,9 @@ module Ki.Lite
   ( -- * Scope
     Scope,
     scoped,
-    wait,
-    waitSTM,
-    waitFor,
+    Ki.Implicit.wait,
+    Ki.Implicit.waitSTM,
+    Ki.Implicit.waitFor,
 
     -- * Thread
     Thread,
@@ -12,21 +12,21 @@ module Ki.Lite
     asyncWithUnmask,
     fork,
     forkWithUnmask,
-    await,
-    awaitSTM,
-    awaitFor,
-    kill,
+    Ki.Implicit.await,
+    Ki.Implicit.awaitSTM,
+    Ki.Implicit.awaitFor,
+    -- kill,
 
     -- * Miscellaneous
     Seconds,
-    timeoutSTM,
+    Ki.Implicit.timeoutSTM,
   )
 where
 
 import Ki.Concurrency
-import Ki.Implicit (Scope, Seconds, Thread, await, awaitFor, awaitSTM, kill, timeoutSTM, wait, waitFor, waitSTM)
+import qualified Ki.Context
+import Ki.Implicit (Scope, Seconds, Thread)
 import qualified Ki.Implicit
-import qualified Ki.Implicit.Context
 
 -- | Fork a __thread__ within a __scope__.
 --
@@ -83,4 +83,4 @@ forkWithUnmask =
 -- @
 scoped :: (Scope -> IO a) -> IO a
 scoped action =
-  let ?context = Ki.Implicit.Context.dummy in Ki.Implicit.scoped action
+  let ?context = Ki.Context.dummy in Ki.Implicit.scoped action
