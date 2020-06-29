@@ -1,10 +1,12 @@
 module Ki.Implicit.Scope
   ( Scope,
-    async,
     Ki.Scope.cancel,
     fork,
+    forkWithUnmask,
     scoped,
     Ki.Scope.wait,
+    Ki.Scope.waitFor,
+    Ki.Scope.waitSTM,
   )
 where
 
@@ -12,15 +14,31 @@ import Ki.Concurrency
 import Ki.Implicit.Context (Context)
 import Ki.Scope (Scope)
 import qualified Ki.Scope
-import Ki.Thread (Thread)
 
-async :: Scope -> (Context => (forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
-async scope action =
-  Ki.Scope.async scope (let ?context = Ki.Scope.context scope in action)
-
-fork :: Scope -> (Context => (forall x. IO x -> IO x) -> IO ()) -> IO ()
+-- | Variant of 'async' that does not return a handle to the __thread__.
+--
+-- If the __thread__ throws an unexpected exception, the exception is propagated up the call tree to the __thread__ that
+-- opened its __scope__.
+--
+-- There is one expected exception the __thread__ may throw that will not be propagated up the call tree:
+--
+--   * 'Cancelled', as when the __thread__ voluntarily capitulates after observing a /cancellation/ request.
+--
+-- /Throws/:
+--
+--   * Calls 'error' if the __scope__ is /closed/.
+fork :: Scope -> (Context => IO ()) -> IO ()
 fork scope action =
-  Ki.Scope.fork scope (let ?context = Ki.Scope.context scope in action)
+  Ki.Scope.fork scope \restore -> restore (let ?context = Ki.Scope.context scope in action)
+
+-- | Variant of 'fork' that provides the __thread__ a function that unmasks asynchronous exceptions.
+--
+-- /Throws/:
+--
+--   * Calls 'error' if the __scope__ is /closed/.
+forkWithUnmask :: Scope -> (Context => (forall x. IO x -> IO x) -> IO ()) -> IO ()
+forkWithUnmask scope action =
+  Ki.Scope.fork scope \restore -> restore (let ?context = Ki.Scope.context scope in action unsafeUnmask)
 
 -- | Perform an action with a new __scope__, then /close/ the __scope__.
 --

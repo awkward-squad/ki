@@ -3,7 +3,7 @@
 
 module Ki.Scope
   ( Scope,
-    async,
+    _fork,
     cancel,
     cancelledSTM,
     context,
@@ -11,18 +11,22 @@ module Ki.Scope
     scoped,
     unlessCancelledSTM,
     wait,
+    waitFor,
+    waitSTM,
   )
 where
 
 import Control.Exception (AsyncException (ThreadKilled), Exception (fromException), pattern ErrorCall)
 import qualified Data.Monoid as Monoid
 import qualified Data.Set as Set
+import Ki.AsyncThreadFailed (AsyncThreadFailed (..))
+import qualified Ki.AsyncThreadFailed
 import Ki.Concurrency
 import Ki.Context (Context)
 import qualified Ki.Context
 import Ki.Prelude
-import Ki.Thread (AsyncThreadFailed (..), Thread (Thread))
-import qualified Ki.Thread
+import Ki.Seconds (Seconds)
+import Ki.Timeout (timeoutSTM)
 
 -- | A __scope__ delimits the lifetime of all __threads__ forked within it. A __thread__ cannot outlive its __scope__.
 --
@@ -51,14 +55,6 @@ data Scope = Scope
     -- before proceeding.
     startingVar :: TVar Int
   }
-
-async :: forall a. Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
-async scope action = do
-  resultVar <- newEmptyTMVarIO
-  childThreadId <-
-    _fork scope action \result ->
-      atomically (putTMVar resultVar result)
-  pure (Thread childThreadId (readTMVar resultVar))
 
 -- | /Cancel/ all __contexts__ derived from a __scope__.
 cancel :: Scope -> IO ()
@@ -128,18 +124,34 @@ scoped context f = do
     closeScopeException <- close scope
     case result of
       -- If the callback failed, we don't care if we were thrown an async exception while closing the scope
-      Left exception -> throwIO (Ki.Thread.unwrapAsyncThreadFailed exception)
+      Left exception -> throwIO (Ki.AsyncThreadFailed.unwrap exception)
       -- Otherwise, throw that exception (if it exists)
       Right value -> do
-        for_ @Maybe closeScopeException (throwIO . Ki.Thread.unwrapAsyncThreadFailed)
+        for_ @Maybe closeScopeException (throwIO . Ki.AsyncThreadFailed.unwrap)
         pure value
 
 unlessCancelledSTM :: Scope -> STM (IO a) -> IO a
 unlessCancelledSTM scope action =
   join (atomically (cancelledSTM scope <|> action))
 
-wait :: Scope -> STM ()
-wait scope = do
+-- | Wait until all __threads__ forked within a __scope__ finish.
+wait :: Scope -> IO ()
+wait =
+  atomically . waitSTM
+
+-- | Variant of 'wait' that gives up after the given number of seconds elapses.
+--
+-- @
+-- 'waitFor' scope seconds =
+--   'timeout' seconds (pure \<$\> 'waitSTM' scope) (pure ())
+-- @
+waitFor :: Scope -> Seconds -> IO ()
+waitFor scope seconds =
+  timeoutSTM seconds (pure <$> waitSTM scope) (pure ())
+
+-- | @STM@ variant of 'wait'.
+waitSTM :: Scope -> STM ()
+waitSTM scope = do
   blockUntilNoneRunning scope
   blockUntilNoneStarting scope
 

@@ -1,19 +1,18 @@
 module Ki.Thread
-  ( Thread (..),
+  ( Thread,
+    async,
     await,
     awaitSTM,
     awaitFor,
     kill,
-
-    -- * Internal API
-    AsyncThreadFailed (..),
-    unwrapAsyncThreadFailed,
   )
 where
 
-import Control.Exception (AsyncException (ThreadKilled), Exception (..), asyncExceptionFromException, asyncExceptionToException)
+import Control.Exception (AsyncException (ThreadKilled))
 import Ki.Concurrency
 import Ki.Prelude
+import Ki.Scope (Scope)
+import qualified Ki.Scope
 import Ki.Seconds (Seconds)
 import Ki.Timeout (timeoutSTM)
 
@@ -31,6 +30,14 @@ instance Eq (Thread a) where
 instance Ord (Thread a) where
   compare (Thread id1 _) (Thread id2 _) =
     compare id1 id2
+
+async :: forall a. Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
+async scope action = do
+  resultVar <- newEmptyTMVarIO
+  childThreadId <-
+    Ki.Scope._fork scope action \result ->
+      atomically (putTMVar resultVar result)
+  pure (Thread childThreadId (readTMVar resultVar))
 
 -- | Wait for a __thread__ to finish.
 await :: Thread a -> IO (Either SomeException a)
@@ -65,17 +72,3 @@ kill :: Thread a -> IO ()
 kill thread = do
   throwTo (threadId thread) ThreadKilled
   void (await thread)
-
-newtype AsyncThreadFailed
-  = AsyncThreadFailed SomeException
-  deriving stock (Show)
-
-instance Exception AsyncThreadFailed where
-  fromException = asyncExceptionFromException
-  toException = asyncExceptionToException
-
-unwrapAsyncThreadFailed :: SomeException -> SomeException
-unwrapAsyncThreadFailed ex =
-  case fromException ex of
-    Just (AsyncThreadFailed exception) -> exception
-    _ -> ex
