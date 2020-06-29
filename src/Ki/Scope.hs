@@ -3,7 +3,6 @@
 
 module Ki.Scope
   ( Scope,
-    _fork,
     cancel,
     cancelledSTM,
     context,
@@ -16,10 +15,9 @@ module Ki.Scope
   )
 where
 
-import Control.Exception (AsyncException (ThreadKilled), Exception (fromException), pattern ErrorCall)
+import Control.Exception (AsyncException (ThreadKilled), pattern ErrorCall)
 import qualified Data.Monoid as Monoid
 import qualified Data.Set as Set
-import Ki.AsyncThreadFailed (AsyncThreadFailed (..))
 import qualified Ki.AsyncThreadFailed
 import Ki.Concurrency
 import Ki.Context (Context)
@@ -82,19 +80,8 @@ close scope@Scope {closedVar, runningVar} = do
   atomically (blockUntilNoneRunning scope)
   pure (Monoid.getFirst exception)
 
-fork :: Scope -> ((forall x. IO x -> IO x) -> IO ()) -> IO ()
-fork scope@Scope {context} action = do
-  parentThreadId <- myThreadId
-  _ <-
-    _fork scope action \result ->
-      whenLeft result \exception ->
-        whenM
-          (shouldPropagateException context exception)
-          (throwTo parentThreadId (AsyncThreadFailed exception))
-  pure ()
-
-_fork :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> (Either SomeException a -> IO ()) -> IO ThreadId
-_fork scope action k =
+fork :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> (Either SomeException a -> IO ()) -> IO ThreadId
+fork scope action k =
   uninterruptibleMask \restore -> do
     atomically (incrementStarting scope)
     childThreadId <-
@@ -205,13 +192,6 @@ killThreads =
           -- don't drop thread we didn't kill
           Left exception -> loop (acc <> pure exception) (threadId : threadIds)
           Right () -> loop acc threadIds
-
-shouldPropagateException :: Context -> SomeException -> IO Bool
-shouldPropagateException context exception =
-  case fromException exception of
-    Just ThreadKilled -> pure False
-    Just _ -> pure True
-    Nothing -> not <$> atomically (Ki.Context.matchCancelled context exception)
 
 blockUntilTVar :: TVar a -> (a -> Bool) -> STM ()
 blockUntilTVar var f = do

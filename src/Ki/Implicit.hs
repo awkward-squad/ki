@@ -11,8 +11,8 @@ module Ki.Implicit
     -- * Spawning threads
 
     -- ** Fork
-    Ki.Implicit.Scope.fork,
-    Ki.Implicit.Scope.forkWithUnmask,
+    Ki.Implicit.Fork.fork,
+    Ki.Implicit.Fork.forkWithUnmask,
 
     -- ** Actor
     Ki.Implicit.Actor.Actor,
@@ -28,17 +28,17 @@ module Ki.Implicit
     -- kill,
 
     -- * Soft-cancellation
-    Context,
+    Ki.Implicit.Context.Context,
     Ki.Implicit.Scope.cancel,
-    cancelled,
-    cancelledSTM,
-    unlessCancelled,
+    Ki.Implicit.Context.cancelled,
+    Ki.Implicit.Context.cancelledSTM,
+    Ki.Implicit.Context.unlessCancelled,
 
     -- * Global context
-    global,
+    Ki.Implicit.Context.global,
 
     -- * Exceptions
-    pattern Cancelled,
+    pattern Ki.Implicit.Context.Cancelled,
 
     -- * Miscellaneous
     Seconds,
@@ -49,7 +49,8 @@ where
 
 import Ki.Concurrency
 import qualified Ki.Implicit.Actor
-import Ki.Implicit.Context (Context, cancelled, cancelledSTM, global, unlessCancelled, pattern Cancelled)
+import qualified Ki.Implicit.Fork
+import qualified Ki.Implicit.Context
 import qualified Ki.Implicit.Scope
 import qualified Ki.Implicit.Thread
 import Ki.Prelude
@@ -66,6 +67,6 @@ import Ki.Timeout (timeoutSTM)
 -- /Throws/:
 --
 --   * Throws 'Cancelled' if the current __context__ is /cancelled/.
-sleep :: Context => Seconds -> IO ()
+sleep :: Ki.Implicit.Context.Context => Seconds -> IO ()
 sleep seconds =
-  timeoutSTM seconds cancelledSTM (pure ())
+  timeoutSTM seconds Ki.Implicit.Context.cancelledSTM (pure ())

@@ -22,7 +22,7 @@ import qualified Ki.Thread
 --   * Calls 'error' if the __scope__ is /closed/.
 async :: Scope -> (Context => IO a) -> IO (Thread a)
 async scope action =
-  Ki.Thread.async scope \restore -> restore (let ?context = Ki.Scope.context scope in action)
+  Ki.Thread.async scope (let ?context = Ki.Scope.context scope in action)
 
 -- | Variant of 'async' that provides the __thread__ a function that unmasks asynchronous exceptions.
 --
@@ -31,4 +31,4 @@ async scope action =
 --   * Calls 'error' if the __scope__ is /closed/.
 asyncWithUnmask :: Scope -> (Context => (forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
 asyncWithUnmask scope action =
-  Ki.Thread.async scope \restore -> restore (let ?context = Ki.Scope.context scope in action unsafeUnmask)
+  Ki.Thread.asyncWithUnmask scope (let ?context = Ki.Scope.context scope in action)

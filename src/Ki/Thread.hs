@@ -1,6 +1,7 @@
 module Ki.Thread
   ( Thread,
     async,
+    asyncWithUnmask,
     await,
     awaitSTM,
     awaitFor,
@@ -31,11 +32,19 @@ instance Ord (Thread a) where
   compare (Thread id1 _) (Thread id2 _) =
     compare id1 id2
 
-async :: forall a. Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
-async scope action = do
+async :: Scope -> IO a -> IO (Thread a)
+async scope action =
+  asyncWithRestore scope \restore -> restore action
+
+asyncWithUnmask :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
+asyncWithUnmask scope action =
+  asyncWithRestore scope \restore -> restore (action unsafeUnmask)
+
+asyncWithRestore :: forall a. Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
+asyncWithRestore scope action = do
   resultVar <- newEmptyTMVarIO
   childThreadId <-
-    Ki.Scope._fork scope action \result ->
+    Ki.Scope.fork scope action \result ->
       atomically (putTMVar resultVar result)
   pure (Thread childThreadId (readTMVar resultVar))
 
