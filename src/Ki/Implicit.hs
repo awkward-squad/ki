@@ -13,10 +13,11 @@ module Ki.Implicit
     -- ** Fork
     Ki.Implicit.Fork.fork,
     Ki.Implicit.Fork.forkWithUnmask,
-
+    {-
     -- ** Actor
     Ki.Implicit.Actor.Actor,
     Ki.Implicit.Actor.send,
+    -}
 
     -- ** Thread
     Ki.Implicit.Thread.Thread,
@@ -48,9 +49,9 @@ module Ki.Implicit
 where
 
 import Ki.Concurrency
-import qualified Ki.Implicit.Actor
-import qualified Ki.Implicit.Fork
+-- import qualified Ki.Implicit.Actor
 import qualified Ki.Implicit.Context
+import qualified Ki.Implicit.Fork
 import qualified Ki.Implicit.Scope
 import qualified Ki.Implicit.Thread
 import Ki.Prelude

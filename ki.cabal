@@ -106,19 +106,19 @@ library
     Ki.Lite,
   hs-source-dirs: src
   other-modules:
-    Ki.Actor
+    -- Ki.Actor
     Ki.AsyncThreadFailed
     Ki.Concurrency
     Ki.Context
     Ki.Context.Internal
     Ki.Debug
     Ki.Fork
-    Ki.Implicit.Actor
+    -- Ki.Implicit.Actor
     Ki.Implicit.Context
     Ki.Implicit.Fork
     Ki.Implicit.Scope
     Ki.Implicit.Thread
-    Ki.Mailbox
+    -- Ki.Mailbox
     Ki.Prelude
     Ki.Scope
     Ki.Seconds
