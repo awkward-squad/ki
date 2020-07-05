@@ -127,7 +127,7 @@ library
   if flag(test)
     build-depends:
       concurrency ^>= 1.11.0.0,
-      dejafu ^>= 2.3.0.0,
+      dejafu ^>= 2.4.0.0,
     cpp-options: -DTEST
   else
     build-depends:

@@ -364,9 +364,10 @@ prettyThreadAction = \case
     "takeMVar " ++ prettyMVarId n ++ " (waking "
       ++ intercalate ", " (map prettyThreadId ts)
       ++ ")"
-  DejaFu.Throw _ True -> "throw (thread died)"
-  DejaFu.Throw _ False -> "throw (thread still alive)"
-  DejaFu.ThrowTo n _ success -> "throwTo " ++ prettyThreadId n ++ if success then " (killed it)" else " (didn't kill it)"
+  DejaFu.Throw Nothing -> "throw (thread died)"
+  DejaFu.Throw (Just _) -> "throw (thread still alive)"
+  DejaFu.ThrowTo n Nothing -> "throwTo " ++ prettyThreadId n ++ " (killed it)"
+  DejaFu.ThrowTo n (Just _) -> "throwTo " ++ prettyThreadId n ++ " (didn't kill it)"
   action -> show action
 
 prettyIORefId :: DejaFu.IORefId -> String
