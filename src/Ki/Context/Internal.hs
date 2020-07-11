@@ -18,19 +18,13 @@ import qualified Data.IntMap.Strict as IntMap
 import Ki.Concurrency
 import Ki.Prelude
 
-newtype Context
-  = Context (TVar E)
-
-data E -- strict either (StrictData)
-  = L CancelToken
-  | R Context_
-
-data Context_ = Context_
-  { -- | The next id to assign to a child context. The child needs a unique identifier so it can delete itself from its
+data Context = Context
+  { cancelTokenVar :: TVar (Maybe CancelToken),
+    childrenVar :: TVar (IntMap Context),
+    -- | The next id to assign to a child context. The child needs a unique identifier so it can delete itself from its
     -- parent's children map if it's cancelled independently. Wrap-around seems ok; that's a *lot* of children for one
     -- parent to have.
-    nextId :: Int,
-    children :: IntMap Context,
+    nextIdVar :: TVar Int,
     -- | When I'm cancelled, this action removes myself from my parent's context. This isn't simply a pointer to the
     -- parent (i.e. Context_) for three reasons:
     --
@@ -61,33 +55,26 @@ pattern Cancelled <- Cancelled_ _
 
 newSTM :: STM Context
 newSTM =
-  coerce @(STM (TVar E)) (newTVar (R (Context_ {nextId, children, onCancel})))
-  where
-    nextId = 0 :: Int
-    children = IntMap.empty :: IntMap Context
-    onCancel = pure () :: STM ()
+  newWith (pure ())
 
 newWith :: STM () -> STM Context
-newWith onCancel =
-  coerce @(STM (TVar E)) (newTVar (R (Context_ {nextId, children, onCancel})))
-  where
-    nextId = 0 :: Int
-    children = IntMap.empty :: IntMap Context
+newWith onCancel = do
+  cancelTokenVar <- newTVar Nothing
+  childrenVar <- newTVar IntMap.empty
+  nextIdVar <- newTVar 0
+  pure Context {cancelTokenVar, childrenVar, nextIdVar, onCancel}
 
 derive :: Context -> STM Context
-derive context@(Context parentVar) =
-  readTVar parentVar >>= \case
-    R ctx@Context_ {nextId, children} -> do
-      child <- newWith (deleteChild context nextId)
-      writeTVar parentVar $! R ctx {nextId = nextId + 1, children = IntMap.insert nextId child children}
+derive context@Context{cancelTokenVar, childrenVar, nextIdVar} =
+  readTVar cancelTokenVar >>= \case
+    Nothing -> do
+      childId <- readTVar nextIdVar
+      writeTVar nextIdVar $! childId + 1
+      child <- newWith (modifyTVar' childrenVar (IntMap.delete childId))
+      children <- readTVar childrenVar
+      writeTVar childrenVar $! IntMap.insert childId child children
       pure child
-    L _ -> pure context
-
-deleteChild :: Context -> Int -> STM ()
-deleteChild (Context parentVar) childId =
-  readTVar parentVar >>= \case
-    R ctx@Context_ {children} -> writeTVar parentVar $! R ctx {children = IntMap.delete childId children}
-    L _ -> pure ()
+    Just _ -> pure context
 
 cancel :: Context -> IO ()
 cancel context = do
@@ -95,21 +82,23 @@ cancel context = do
   atomically (cancelSTM context (CancelToken token))
 
 cancelSTM :: Context -> CancelToken -> STM ()
-cancelSTM (Context contextVar) token =
-  readTVar contextVar >>= \case
-    R Context_ {children, onCancel} -> do
-      writeTVar contextVar (L token)
+cancelSTM Context{cancelTokenVar, childrenVar, onCancel} token =
+  readTVar cancelTokenVar >>= \case
+    Nothing -> do
+      writeTVar cancelTokenVar $! Just token
+      children <- readTVar childrenVar
       for_ (IntMap.elems children) (cancelSTM_ token)
       onCancel
-    L _ -> pure ()
+    Just _ -> pure ()
 
 cancelSTM_ :: CancelToken -> Context -> STM ()
-cancelSTM_ token (Context contextVar) =
-  readTVar contextVar >>= \case
-    R Context_ {children} -> do
-      writeTVar contextVar (L token)
+cancelSTM_ token Context{cancelTokenVar, childrenVar} =
+  readTVar cancelTokenVar >>= \case
+    Nothing -> do
+      writeTVar cancelTokenVar $! Just token
+      children <- readTVar childrenVar
       for_ (IntMap.elems children) (cancelSTM_ token)
-    L _ -> pure ()
+    Just _ -> pure ()
 
 cancelled :: Context -> STM (IO a)
 cancelled context = do
@@ -117,10 +106,10 @@ cancelled context = do
   pure (throwIO (Cancelled_ token))
 
 cancelled_ :: Context -> STM CancelToken
-cancelled_ (Context contextVar) =
-  readTVar contextVar >>= \case
-    R _ -> retry
-    L token -> pure token
+cancelled_ Context{cancelTokenVar} =
+  readTVar cancelTokenVar >>= \case
+    Nothing -> retry
+    Just token -> pure token
 
 matchCancelled :: Context -> SomeException -> STM Bool
 matchCancelled context exception =
