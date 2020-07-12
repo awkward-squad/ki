@@ -16,25 +16,11 @@ import Control.Concurrent.MVar
 main :: IO ()
 main = Ki.global do
   let n = 1000000
-  let m = 10
+  let m = 100
 
   Ki.scoped \scope -> do
     pull <-
       Ki.pusher scope \push -> do
-        Ki.scoped \s -> do
-          replicateM_ m (Ki.fork s (replicateM_ (n `div` m) (push ())))
-          Ki.wait s
-    ns <-
-      timed do
-        fix \again ->
-          atomically pull >>= \case
-            Nothing -> pure ()
-            Just () -> again
-    printf "(pusher) pulled %d in %dns (%.2fns each)\n" n ns (fromIntegral ns / fromIntegral n :: Double)
-
-  Ki.scoped \scope -> do
-    pull <-
-      Ki.pusher2 scope \push -> do
         Ki.scoped \s -> do
           replicateM_ m (Ki.fork s (replicateM_ (n `div` m) (push ())))
           Ki.wait s

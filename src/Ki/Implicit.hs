@@ -49,7 +49,6 @@ module Ki.Implicit
     Ki.Experimental.Implicit.Actor.actor,
     Ki.Experimental.Implicit.Puller.puller,
     Ki.Experimental.Implicit.Pusher.pusher,
-    Ki.Experimental.Implicit.Pusher.pusher2,
   )
 where
 

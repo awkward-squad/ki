@@ -3,33 +3,23 @@ module Ki.Experimental.Puller
   )
 where
 
-import Control.Monad
+import Control.Concurrent.STM
 import qualified Ki.Fork
 import Ki.Prelude
 import Ki.Scope (Scope)
 import qualified Ki.Scope
 
-data S a
-  = Busy
-  | Waiting !(TMVar a)
-
 puller :: Scope -> (IO a -> IO ()) -> IO (a -> STM ())
 puller scope action = do
-  var <- newTVarIO Busy
+  queue <- newTQueueIO
 
   Ki.Fork.fork scope do
     action do
       mvar <- newEmptyTMVarIO
       atomicallyIO do
-        readTVar var >>= \case
-          Busy -> do
-            writeTVar var (Waiting mvar)
-            pure (atomicallyIO (pure <$> readTMVar mvar <|> Ki.Scope.cancelledSTM scope))
-          Waiting _ -> Ki.Scope.cancelledSTM scope
+        writeTQueue queue mvar
+        pure (atomicallyIO (pure <$> readTMVar mvar <|> Ki.Scope.cancelledSTM scope))
 
-  pure \value ->
-    readTVar var >>= \case
-      Busy -> retry
-      Waiting mvar -> do
-        writeTVar var Busy
-        putTMVar mvar value
+  pure \value -> do
+    mvar <- readTQueue queue
+    putTMVar mvar value

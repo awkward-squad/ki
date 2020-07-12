@@ -1,6 +1,5 @@
 module Ki.Experimental.Pusher
   ( pusher,
-    pusher2,
   )
 where
 
@@ -12,56 +11,10 @@ import Ki.Scope (Scope)
 import qualified Ki.Scope
 
 data S a
-  = Closed !(Maybe a) -- last value, if full when closed
-  | Empty
-  | Full !a !(TMVar ())
+  = S !a !(TVar Bool)
 
 pusher :: Scope -> ((a -> IO ()) -> IO ()) -> IO (STM (Maybe a))
 pusher scope action = do
-  resultVar <- newTVarIO Empty
-
-  let close :: IO ()
-      close =
-        atomically do
-          readTVar resultVar >>= \case
-            Closed _ -> error "closed"
-            Empty -> writeTVar resultVar $! Closed Nothing
-            Full value _ -> writeTVar resultVar $! Closed (Just value)
-
-  let produce :: IO ()
-      produce =
-        action \value -> do
-          tookVar <- newEmptyTMVarIO
-          atomicallyIO do
-            readTVar resultVar >>= \case
-              Closed _ -> error "closed"
-              Empty -> do
-                writeTVar resultVar $! Full value tookVar
-                pure (atomicallyIO (pure <$> readTMVar tookVar <|> Ki.Scope.cancelledSTM scope))
-              Full _ _ -> Ki.Scope.cancelledSTM scope
-
-  uninterruptibleMask \_ -> do
-    Ki.Fork.forkWithUnmask scope \unmask -> do
-      unmask produce `onException` close
-      close
-
-  pure do
-    readTVar resultVar >>= \case
-      Closed Nothing -> pure Nothing
-      Closed value -> do
-        writeTVar resultVar $! Closed Nothing
-        pure value
-      Empty -> retry
-      Full value tookVar -> do
-        writeTVar resultVar Empty
-        putTMVar tookVar ()
-        pure (Just value)
-
-data S2 a
-  = S2 !a !(TVar Bool)
-
-pusher2 :: Scope -> ((a -> IO ()) -> IO ()) -> IO (STM (Maybe a))
-pusher2 scope action = do
   closedVar <- newTVarIO False
   queue <- newTQueueIO
 
@@ -74,7 +27,7 @@ pusher2 scope action = do
         action \value -> do
           tookVar <- newTVarIO False
           atomicallyIO do
-            writeTQueue queue (S2 value tookVar)
+            writeTQueue queue $! S value tookVar
             pure (atomicallyIO (pure <$> (readTVar tookVar >>= check) <|> Ki.Scope.cancelledSTM scope))
 
   uninterruptibleMask \_ -> do
@@ -82,12 +35,17 @@ pusher2 scope action = do
       unmask produce `onException` close
       close
 
-  pure do
-    ( do
-        S2 value tookVar <- readTQueue queue
-        writeTVar tookVar True $> Just value
-      )
-      <|> ((readTVar closedVar >>= check) $> Nothing)
+  let pull = do
+        S value tookVar <- readTQueue queue
+        writeTVar tookVar True
+        pure (Just value)
+
+  let closed :: STM (Maybe a)
+      closed = do
+        readTVar closedVar >>= check
+        pure Nothing
+
+  pure (pull <|> closed)
 
 {-
 _testProducer :: IO ()
