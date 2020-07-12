@@ -1,13 +1,13 @@
 {-# LANGUAGE PatternSynonyms #-}
 
 module Ki.Implicit.Context
-  ( -- * Context
-    Context,
+  ( Context,
     global,
     cancelled,
     cancelledSTM,
     unlessCancelled,
-    pattern Ki.Context.Cancelled,
+    Ki.Context.Cancelled (..),
+    Ki.Context.CancelToken,
   )
 where
 
@@ -64,7 +64,7 @@ cancelled =
 -- | @STM@ variant of 'cancelled'.
 cancelledSTM :: Context => STM (IO a)
 cancelledSTM =
-  Ki.Context.cancelled ?context
+  throwIO . Ki.Context.Cancelled <$> Ki.Context.cancelled ?context
 
 global :: (Context => IO a) -> IO a
 global action =

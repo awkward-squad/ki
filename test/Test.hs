@@ -240,7 +240,7 @@ main = do
               Nothing -> throw A
               Just capitulate ->
                 (capitulate $> False) `catch` \case
-                  Cancelled -> pure True
+                  Cancelled _token -> pure True
         await' thread
 
 type P =

@@ -4,16 +4,15 @@
 module Ki.Context.Internal
   ( -- * Context
     Context,
+    Cancelled (..),
+    CancelToken,
     newSTM,
     derive,
     cancel,
     cancelled,
-    matchCancelled,
-    pattern Cancelled,
   )
 where
 
-import Control.Exception (fromException)
 import qualified Data.IntMap.Strict as IntMap
 import Ki.Concurrency
 import Ki.Prelude
@@ -37,21 +36,16 @@ data Context = Context
     onCancel :: STM ()
   }
 
-newtype Cancelled_
-  = Cancelled_ CancelToken
+-- | A 'Cancelled' exception is thrown when a __thread__ voluntarily capitulates after observing its __context__ is
+-- /cancelled/.
+newtype Cancelled
+  = Cancelled CancelToken
   deriving stock (Eq, Show)
   deriving anyclass (Exception)
 
 newtype CancelToken
   = CancelToken Int
   deriving stock (Eq, Show)
-
--- | A 'Cancelled' exception is thrown when a __thread__ voluntarily capitulates after observing its __context__ is
--- /cancelled/.
-pattern Cancelled :: Cancelled_
-pattern Cancelled <- Cancelled_ _
-
-{-# COMPLETE Cancelled #-}
 
 newSTM :: STM Context
 newSTM =
@@ -65,7 +59,7 @@ newWith onCancel = do
   pure Context {cancelTokenVar, childrenVar, nextIdVar, onCancel}
 
 derive :: Context -> STM Context
-derive context@Context{cancelTokenVar, childrenVar, nextIdVar} =
+derive context@Context {cancelTokenVar, childrenVar, nextIdVar} =
   readTVar cancelTokenVar >>= \case
     Nothing -> do
       childId <- readTVar nextIdVar
@@ -82,7 +76,7 @@ cancel context = do
   atomically (cancelSTM context (CancelToken token))
 
 cancelSTM :: Context -> CancelToken -> STM ()
-cancelSTM Context{cancelTokenVar, childrenVar, onCancel} token =
+cancelSTM Context {cancelTokenVar, childrenVar, onCancel} token =
   readTVar cancelTokenVar >>= \case
     Nothing -> do
       writeTVar cancelTokenVar $! Just token
@@ -92,7 +86,7 @@ cancelSTM Context{cancelTokenVar, childrenVar, onCancel} token =
     Just _ -> pure ()
 
 cancelSTM_ :: CancelToken -> Context -> STM ()
-cancelSTM_ token Context{cancelTokenVar, childrenVar} =
+cancelSTM_ token Context {cancelTokenVar, childrenVar} =
   readTVar cancelTokenVar >>= \case
     Nothing -> do
       writeTVar cancelTokenVar $! Just token
@@ -100,19 +94,8 @@ cancelSTM_ token Context{cancelTokenVar, childrenVar} =
       for_ (IntMap.elems children) (cancelSTM_ token)
     Just _ -> pure ()
 
-cancelled :: Context -> STM (IO a)
-cancelled context = do
-  token <- cancelled_ context
-  pure (throwIO (Cancelled_ token))
-
-cancelled_ :: Context -> STM CancelToken
-cancelled_ Context{cancelTokenVar} =
+cancelled :: Context -> STM CancelToken
+cancelled Context {cancelTokenVar} =
   readTVar cancelTokenVar >>= \case
     Nothing -> retry
     Just token -> pure token
-
-matchCancelled :: Context -> SomeException -> STM Bool
-matchCancelled context exception =
-  case fromException exception of
-    Just (Cancelled_ token) -> ((== token) <$> cancelled_ context) <|> pure False
-    Nothing -> pure False

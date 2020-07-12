@@ -37,4 +37,7 @@ shouldPropagateException context exception =
   case fromException exception of
     Just ThreadKilled -> pure False
     Just _ -> pure True
-    Nothing -> not <$> atomically (Ki.Context.matchCancelled context exception)
+    Nothing ->
+      case fromException exception of
+        Just (Ki.Context.Cancelled token) -> atomically ((/= token) <$> Ki.Context.cancelled context <|> pure True)
+        Nothing -> pure True

@@ -34,12 +34,11 @@ module Ki.Implicit
     Ki.Implicit.Context.cancelled,
     Ki.Implicit.Context.cancelledSTM,
     Ki.Implicit.Context.unlessCancelled,
+    Ki.Implicit.Context.Cancelled (..),
+    Ki.Implicit.Context.CancelToken,
 
     -- * Global context
     Ki.Implicit.Context.global,
-
-    -- * Exceptions
-    pattern Ki.Implicit.Context.Cancelled,
 
     -- * Miscellaneous
     Seconds,

@@ -47,7 +47,7 @@ cancel Scope {context} =
 
 cancelledSTM :: Scope -> STM (IO a)
 cancelledSTM Scope {context} =
-  Ki.Context.cancelled context
+  throwIO . Ki.Context.Cancelled <$> Ki.Context.cancelled context
 
 -- | Close a scope, kill all of the running threads, and return the first
 -- async exception delivered to us while doing so, if any.
