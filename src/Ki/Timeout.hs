@@ -13,4 +13,4 @@ import qualified Ki.Seconds
 timeoutSTM :: Seconds -> STM (IO a) -> IO a -> IO a
 timeoutSTM seconds action fallback = do
   (delay, unregister) <- registerDelay (Ki.Seconds.toMicros seconds)
-  join (atomically (delay $> fallback <|> (unregister >>) <$> action))
+  atomicallyIO (delay $> fallback <|> (unregister >>) <$> action)

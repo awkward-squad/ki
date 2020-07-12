@@ -104,7 +104,7 @@ scoped context f = do
 
 unlessCancelledSTM :: Scope -> STM (IO a) -> IO a
 unlessCancelledSTM scope action =
-  join (atomically (cancelledSTM scope <|> action))
+  atomicallyIO (cancelledSTM scope <|> action)
 
 -- | Wait until all __threads__ forked within a __scope__ finish.
 wait :: Scope -> IO ()

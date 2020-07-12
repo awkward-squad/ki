@@ -114,6 +114,7 @@ library
     Ki.Experimental.Implicit.Actor
     Ki.Experimental.Mailbox
     Ki.Experimental.Producer
+    Ki.Experimental.Puller
     Ki.Fork
     Ki.Implicit.Context
     Ki.Implicit.Fork

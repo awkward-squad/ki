@@ -1,5 +1,6 @@
 module Ki.Prelude
-  ( whenLeft,
+  ( atomicallyIO,
+    whenLeft,
     whenM,
     module X,
   )
@@ -20,6 +21,10 @@ import Data.Word as X (Word32)
 import GHC.Generics as X (Generic)
 import Ki.Concurrency as X
 import Prelude as X hiding (IO)
+
+atomicallyIO :: STM (IO a) -> IO a
+atomicallyIO =
+  join . atomically
 
 whenLeft :: Applicative m => Either a b -> (a -> m ()) -> m ()
 whenLeft x f =

@@ -30,12 +30,12 @@ producer scope action = do
       produce =
         action \value -> do
           tookVar <- newEmptyTMVarIO
-          (join . atomically) do
+          atomicallyIO do
             readTVar resultVar >>= \case
               Closed _ -> error "closed"
               Empty -> do
                 writeTVar resultVar $! Full value tookVar
-                pure (join (atomically (pure <$> readTMVar tookVar <|> Ki.Scope.cancelledSTM scope)))
+                pure (atomicallyIO (pure <$> readTMVar tookVar <|> Ki.Scope.cancelledSTM scope))
               Full _ _ -> Ki.Scope.cancelledSTM scope
 
   uninterruptibleMask \_ -> do

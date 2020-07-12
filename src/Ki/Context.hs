@@ -55,4 +55,4 @@ global =
 
 unlessCancelled :: Context -> IO a -> IO a
 unlessCancelled context action =
-  join (atomically (throwIO . Cancelled <$> cancelled context <|> pure action))
+  atomicallyIO (throwIO . Cancelled <$> cancelled context <|> pure action)

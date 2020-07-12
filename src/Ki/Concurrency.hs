@@ -15,6 +15,7 @@ module Ki.Concurrency
     forkIO,
     modifyTVar',
     myThreadId,
+    newEmptyTMVar,
     newEmptyTMVarIO,
     newMVar,
     newTBQueueIO,
