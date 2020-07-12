@@ -20,6 +20,7 @@ module Ki.Concurrency
     newTBQueueIO,
     newTVar,
     newTVarIO,
+    onException,
     putTMVar,
     readTBQueue,
     readTMVar,
@@ -121,7 +122,7 @@ import GHC.Conc.Windows
 import GHC.Event
 #endif
 import GHC.Exts (fork#)
-import GHC.IO
+import GHC.IO (IO (IO), unsafePerformIO, unsafeUnmask)
 import Prelude
 
 forkIO :: IO () -> IO ThreadId

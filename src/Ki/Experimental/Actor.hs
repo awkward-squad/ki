@@ -1,4 +1,4 @@
-module Ki.Actor
+module Ki.Experimental.Actor
   ( Actor,
     actor,
     send,
@@ -6,8 +6,8 @@ module Ki.Actor
 where
 
 import Ki.Concurrency
+import qualified Ki.Experimental.Mailbox as Ki.Mailbox
 import qualified Ki.Fork
-import qualified Ki.Mailbox
 import Ki.Prelude
 import Ki.Scope (Scope)
 import qualified Ki.Scope

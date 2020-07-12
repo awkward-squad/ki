@@ -1,6 +1,6 @@
 {-# LANGUAGE TypeApplications #-}
 
-module Ki.Mailbox
+module Ki.Experimental.Mailbox
   ( Mailbox,
     new,
     send,

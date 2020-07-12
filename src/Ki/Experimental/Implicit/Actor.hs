@@ -1,12 +1,12 @@
-module Ki.Implicit.Actor
+module Ki.Experimental.Implicit.Actor
   ( Actor,
     actor,
     Ki.Actor.send,
   )
 where
 
-import Ki.Actor (Actor)
-import qualified Ki.Actor
+import Ki.Experimental.Actor (Actor)
+import qualified Ki.Experimental.Actor as Ki.Actor
 import Ki.Concurrency
 import Ki.Implicit.Context (Context)
 import qualified Ki.Scope
