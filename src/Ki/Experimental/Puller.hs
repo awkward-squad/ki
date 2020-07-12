@@ -3,7 +3,6 @@ module Ki.Experimental.Puller
   )
 where
 
-import Control.Concurrent.STM
 import qualified Ki.Fork
 import Ki.Prelude
 import Ki.Scope (Scope)

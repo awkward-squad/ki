@@ -12,19 +12,21 @@ module Ki.Concurrency
     ThreadId,
     atomically,
     catch,
+    check,
     forkIO,
     modifyTVar',
     myThreadId,
-    newEmptyTMVar,
     newEmptyTMVarIO,
     newMVar,
     newTBQueueIO,
+    newTQueueIO,
     newTVar,
     newTVarIO,
     onException,
     putTMVar,
     readTBQueue,
     readTMVar,
+    readTQueue,
     readTVar,
     registerDelay,
     retry,
@@ -37,15 +39,16 @@ module Ki.Concurrency
     unsafeUnmask,
     withMVar,
     writeTBQueue,
+    writeTQueue,
     writeTVar,
   )
 where
 
 #ifdef TEST
 
-import Control.Concurrent.Classy (atomically, catch, modifyTVar', myThreadId, newMVar, newTVar, putTMVar, readTBQueue, readTMVar, readTVar, retry, throwSTM, uninterruptibleMask, unsafeUnmask, withMVar, writeTBQueue, writeTVar)
+import Control.Concurrent.Classy (atomically, catch, check, modifyTVar', myThreadId, newMVar, newTVar, putTMVar, readTBQueue, readTQueue, writeTQueue, readTMVar, readTVar, retry, throwSTM, uninterruptibleMask, unsafeUnmask, withMVar, writeTBQueue, writeTVar)
 import qualified Control.Concurrent.Classy
-import Control.Exception (Exception)
+import Control.Exception (Exception, SomeException)
 import Numeric.Natural (Natural)
 import qualified Test.DejaFu
 import qualified Test.DejaFu.Conc.Internal.Common
@@ -66,6 +69,9 @@ type STM =
 type TBQueue =
   Control.Concurrent.Classy.TBQueue STM
 
+type TQueue =
+  Control.Concurrent.Classy.TQueue STM
+
 type TMVar =
   Control.Concurrent.Classy.TMVar STM
 
@@ -80,6 +86,10 @@ newTBQueueIO :: Natural -> IO (TBQueue a)
 newTBQueueIO =
   Control.Concurrent.Classy.atomically . Control.Concurrent.Classy.newTBQueue
 
+newTQueueIO :: IO (TQueue a)
+newTQueueIO =
+  Control.Concurrent.Classy.atomically Control.Concurrent.Classy.newTQueue
+
 newEmptyTMVarIO :: IO (TMVar a)
 newEmptyTMVarIO =
   Control.Concurrent.Classy.atomically Control.Concurrent.Classy.newEmptyTMVar
@@ -87,6 +97,12 @@ newEmptyTMVarIO =
 newTVarIO :: a -> IO (TVar a)
 newTVarIO =
   Control.Concurrent.Classy.atomically . Control.Concurrent.Classy.newTVar
+
+onException :: IO a -> IO b -> IO a
+onException action cleanup =
+  Control.Concurrent.Classy.catch action \exception -> do
+    _ <- cleanup
+    throwIO (exception :: SomeException)
 
 registerDelay :: Int -> IO (STM (), IO ())
 registerDelay micros = do

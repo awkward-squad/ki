@@ -4,8 +4,8 @@ module Ki.Debug
 where
 
 import Control.Concurrent
-import Ki.Prelude
 import System.IO.Unsafe (unsafePerformIO)
+import Prelude
 
 debug :: Monad m => String -> m ()
 debug message =

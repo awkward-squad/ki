@@ -3,7 +3,6 @@ module Ki.Experimental.Pusher
   )
 where
 
-import Control.Concurrent.STM
 import Control.Monad
 import qualified Ki.Fork
 import Ki.Prelude
