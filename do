@@ -13,7 +13,7 @@ case "$@" in
     exec cabal clean
     ;;
   "dev")
-    exec ghcid -c 'cabal repl ki:lib:ki' --restart ki.cabal
+    exec ghcid -c 'cabal repl ki:lib:ki --disable-optimization' --restart ki.cabal
     ;;
   "dev tests")
     exec \
@@ -26,8 +26,8 @@ case "$@" in
   "docs")
     exec cabal haddock --disable-optimization --haddock-hyperlink-source --haddock-quickjump
     ;;
-  "freeze")
-    exec cabal freeze
+  "repl")
+    exec cabal repl ki:lib:ki --disable-optimization
     ;;
   "test")
     cabal build --disable-optimization
