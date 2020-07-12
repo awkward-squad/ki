@@ -1,8 +1,10 @@
 module Ki.Experimental.Pusher
   ( pusher,
+    pusher2,
   )
 where
 
+import Control.Concurrent.STM
 import Control.Monad
 import qualified Ki.Fork
 import Ki.Prelude
@@ -54,6 +56,38 @@ pusher scope action = do
         writeTVar resultVar Empty
         putTMVar tookVar ()
         pure (Just value)
+
+data S2 a
+  = S2 !a !(TVar Bool)
+
+pusher2 :: Scope -> ((a -> IO ()) -> IO ()) -> IO (STM (Maybe a))
+pusher2 scope action = do
+  closedVar <- newTVarIO False
+  queue <- newTQueueIO
+
+  let close :: IO ()
+      close =
+        atomically (writeTVar closedVar True)
+
+  let produce :: IO ()
+      produce =
+        action \value -> do
+          tookVar <- newTVarIO False
+          atomicallyIO do
+            writeTQueue queue (S2 value tookVar)
+            pure (atomicallyIO (pure <$> (readTVar tookVar >>= check) <|> Ki.Scope.cancelledSTM scope))
+
+  uninterruptibleMask \_ -> do
+    Ki.Fork.forkWithUnmask scope \unmask -> do
+      unmask produce `onException` close
+      close
+
+  pure do
+    ( do
+        S2 value tookVar <- readTQueue queue
+        writeTVar tookVar True $> Just value
+      )
+      <|> ((readTVar closedVar >>= check) $> Nothing)
 
 {-
 _testProducer :: IO ()

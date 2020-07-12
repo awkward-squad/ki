@@ -19,10 +19,10 @@ puller scope action = do
 
   Ki.Fork.fork scope do
     action do
+      mvar <- newEmptyTMVarIO
       atomicallyIO do
         readTVar var >>= \case
           Busy -> do
-            mvar <- newEmptyTMVar
             writeTVar var (Waiting mvar)
             pure (atomicallyIO (pure <$> readTMVar mvar <|> Ki.Scope.cancelledSTM scope))
           Waiting _ -> Ki.Scope.cancelledSTM scope
