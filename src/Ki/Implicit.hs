@@ -44,11 +44,18 @@ module Ki.Implicit
     Seconds,
     sleep,
     timeoutSTM,
+
+    -- * Experimental
+    Ki.Experimental.Implicit.Actor.actor,
+    Ki.Experimental.Implicit.Puller.puller,
+    Ki.Experimental.Implicit.Pusher.pusher,
   )
 where
 
 import Ki.Concurrency
--- import qualified Ki.Implicit.Actor
+import qualified Ki.Experimental.Implicit.Actor
+import qualified Ki.Experimental.Implicit.Puller
+import qualified Ki.Experimental.Implicit.Pusher
 import qualified Ki.Implicit.Context
 import qualified Ki.Implicit.Fork
 import qualified Ki.Implicit.Scope
