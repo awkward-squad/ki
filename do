@@ -24,7 +24,7 @@ case "$@" in
         --restart ki.cabal
     ;;
   "docs")
-    exec cabal haddock --haddock-hyperlink-source --haddock-quickjump
+    exec cabal haddock --disable-optimization --haddock-hyperlink-source --haddock-quickjump
     ;;
   "freeze")
     exec cabal freeze

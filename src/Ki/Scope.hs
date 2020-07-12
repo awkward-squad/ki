@@ -26,21 +26,7 @@ import Ki.Prelude
 import Ki.Seconds (Seconds)
 import Ki.Timeout (timeoutSTM)
 
--- | A __scope__ delimits the lifetime of all __threads__ forked within it. A __thread__ cannot outlive its __scope__.
---
--- When a __scope__ is /closed/, all remaining __threads__ forked within it are killed.
---
--- The basic usage of a __scope__ is as follows.
---
--- @
--- 'scoped' \\scope -> do
---   'fork' scope worker1
---   'fork' scope worker2
---   'wait' scope
--- @
---
--- A __scope__ can be passed into functions or shared amongst __threads__, but this is generally not advised, as it
--- takes the "structure" out of "structured concurrency".
+-- | A __scope__, which delimits the lifetime of all __threads__ forked within it.
 data Scope = Scope
   { context :: Context,
     -- | Whether this scope is closed
@@ -54,7 +40,7 @@ data Scope = Scope
     startingVar :: TVar Int
   }
 
--- | /Cancel/ all __contexts__ derived from a __scope__.
+-- | Cancel all __contexts__ derived from a __scope__.
 cancel :: Scope -> IO ()
 cancel Scope {context} =
   Ki.Context.cancel context
@@ -126,11 +112,16 @@ wait :: Scope -> IO ()
 wait =
   atomically . waitSTM
 
--- | Variant of 'wait' that gives up after the given number of seconds elapses.
+-- | Variant of 'wait' that waits for up to the given duration.
+--
+-- This is useful for giving __threads__ some time to honor a cancellation request before killing them, as in the
+-- following example.
 --
 -- @
--- 'waitFor' scope seconds =
---   'timeout' seconds (pure \<$\> 'waitSTM' scope) (pure ())
+-- 'scoped' \\scope -> do
+--   'fork' worker
+--   'cancel' scope
+--   'waitFor' scope 10
 -- @
 waitFor :: Scope -> Seconds -> IO ()
 waitFor scope seconds =

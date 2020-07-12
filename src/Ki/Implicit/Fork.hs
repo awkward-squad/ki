@@ -10,14 +10,10 @@ import Ki.Implicit.Context (Context)
 import Ki.Scope (Scope)
 import qualified Ki.Scope
 
--- | Variant of 'async' that does not return a handle to the __thread__.
+-- | Fork a __thread__.
 --
--- If the __thread__ throws an unexpected exception, the exception is propagated up the call tree to the __thread__ that
--- opened its __scope__.
---
--- There is one expected exception the __thread__ may throw that will not be propagated up the call tree:
---
---   * 'Cancelled', as when the __thread__ voluntarily capitulates after observing a /cancellation/ request.
+-- If the __thread__ throws an exception, it is propagated up the call tree to the __thread__ that opened its __scope__,
+-- /unless/ that exception fulfills a cancellation request.
 --
 -- /Throws/:
 --

@@ -13,7 +13,12 @@ import Ki.Implicit.Context (Context)
 import Ki.Scope (Scope)
 import qualified Ki.Scope
 
--- | Perform an action with a new __scope__, then /close/ the __scope__.
+-- | Open a __scope__, perform an @IO@ action with it, then close it.
+--
+-- When the __scope__ is closed, all remaining __threads__ forked within it are killed.
+--
+-- It is generally not advised to pass a __scope__ into a function, or share it amongst __threads_, as this takes the
+-- "structure" out of "structured concurrency".
 --
 -- /Throws/:
 --

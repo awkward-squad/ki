@@ -15,7 +15,10 @@ import qualified Ki.Scope
 import Ki.Thread (Thread)
 import qualified Ki.Thread
 
--- | Fork a __thread__ within a __scope__.
+-- | Fork a __thread__ within a __scope__ to compute a value concurrently.
+--
+-- If the __thread__ throws an exception, it is /not/ propagated up the call tree, but rather can be observed by
+-- 'await'.
 --
 -- /Throws/:
 --

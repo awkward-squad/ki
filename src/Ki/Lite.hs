@@ -4,7 +4,6 @@ module Ki.Lite
     scoped,
     Ki.Implicit.wait,
     Ki.Implicit.waitSTM,
-    Ki.Implicit.waitFor,
 
     -- * Thread
     Thread,

@@ -2,15 +2,15 @@
 
 module Ki.Implicit
   ( -- * Scope
-    Ki.Implicit.Scope.Scope,
     Ki.Implicit.Scope.scoped,
     Ki.Implicit.Scope.wait,
     Ki.Implicit.Scope.waitSTM,
     Ki.Implicit.Scope.waitFor,
+    Ki.Implicit.Scope.Scope,
 
     -- * Spawning threads
 
-    -- ** Fork
+    -- ** Implicit
     Ki.Implicit.Fork.fork,
     Ki.Implicit.Fork.forkWithUnmask,
     {-
@@ -19,13 +19,13 @@ module Ki.Implicit
     Ki.Implicit.Actor.send,
     -}
 
-    -- ** Thread
-    Ki.Implicit.Thread.Thread,
+    -- ** Explicit
     Ki.Implicit.Thread.async,
     Ki.Implicit.Thread.asyncWithUnmask,
     Ki.Implicit.Thread.await,
     Ki.Implicit.Thread.awaitSTM,
     Ki.Implicit.Thread.awaitFor,
+    Ki.Implicit.Thread.Thread,
     -- kill,
 
     -- * Soft-cancellation
