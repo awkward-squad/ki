@@ -8,7 +8,6 @@ module Ki.Experimental.Mailbox
   )
 where
 
-import Ki.Concurrency
 import Ki.Prelude
 
 type Mailbox a =

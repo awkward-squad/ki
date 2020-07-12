@@ -10,7 +10,6 @@ module Ki.Thread
 where
 
 import Control.Exception (AsyncException (ThreadKilled))
-import Ki.Concurrency
 import Ki.Prelude
 import Ki.Scope (Scope)
 import qualified Ki.Scope

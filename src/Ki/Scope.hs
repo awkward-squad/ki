@@ -19,7 +19,6 @@ import Control.Exception (AsyncException (ThreadKilled), pattern ErrorCall)
 import qualified Data.Monoid as Monoid
 import qualified Data.Set as Set
 import qualified Ki.AsyncThreadFailed
-import Ki.Concurrency
 import Ki.Context (Context)
 import qualified Ki.Context
 import Ki.Prelude

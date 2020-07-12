@@ -6,7 +6,6 @@ where
 
 import Control.Exception (AsyncException (ThreadKilled), Exception (fromException))
 import Ki.AsyncThreadFailed (AsyncThreadFailed (..))
-import Ki.Concurrency
 import Ki.Context (Context)
 import qualified Ki.Context
 import Ki.Prelude

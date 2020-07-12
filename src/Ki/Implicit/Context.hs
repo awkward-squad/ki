@@ -11,7 +11,6 @@ module Ki.Implicit.Context
   )
 where
 
-import Ki.Concurrency
 import qualified Ki.Context
 import Ki.Prelude
 

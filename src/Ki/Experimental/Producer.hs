@@ -4,49 +4,58 @@ module Ki.Experimental.Producer
 where
 
 import Control.Monad
-import Ki.Concurrency
-import Ki.Implicit
+import qualified Ki.Fork
 import Ki.Prelude
+import Ki.Scope (Scope)
+import qualified Ki.Scope
 
 data S a
-  = Closed
+  = Closed !(Maybe a) -- last value, if full when closed
   | Empty
   | Full !a !(TMVar ())
 
-producer :: Scope -> (Context => (a -> IO ()) -> IO ()) -> IO (STM (Maybe a))
+producer :: Scope -> ((a -> IO ()) -> IO ()) -> IO (STM (Maybe a))
 producer scope action = do
   resultVar <- newTVarIO Empty
 
   let close :: IO ()
       close =
-        atomically (writeTVar resultVar Closed)
+        atomically do
+          readTVar resultVar >>= \case
+            Closed _ -> error "closed"
+            Empty -> writeTVar resultVar $! Closed Nothing
+            Full value _ -> writeTVar resultVar $! Closed (Just value)
+
+  let produce :: IO ()
+      produce =
+        action \value -> do
+          tookVar <- newEmptyTMVarIO
+          (join . atomically) do
+            readTVar resultVar >>= \case
+              Closed _ -> error "closed"
+              Empty -> do
+                writeTVar resultVar $! Full value tookVar
+                pure (join (atomically (pure <$> readTMVar tookVar <|> Ki.Scope.cancelledSTM scope)))
+              Full _ _ -> Ki.Scope.cancelledSTM scope
 
   uninterruptibleMask \_ -> do
-    forkWithUnmask scope \unmask -> do
-      unmask (produce resultVar action) `onException` close
+    Ki.Fork.forkWithUnmask scope \unmask -> do
+      unmask produce `onException` close
       close
 
   pure do
     readTVar resultVar >>= \case
-      Closed -> pure Nothing
+      Closed Nothing -> pure Nothing
+      Closed value -> do
+        writeTVar resultVar $! Closed Nothing
+        pure value
       Empty -> retry
       Full value tookVar -> do
         writeTVar resultVar Empty
         putTMVar tookVar ()
         pure (Just value)
 
-produce :: Context => TVar (S a) -> (Context => (a -> IO ()) -> IO ()) -> IO ()
-produce resultVar action =
-  action \value -> do
-    tookVar <- newEmptyTMVarIO
-    (join . atomically) do
-      readTVar resultVar >>= \case
-        Closed -> error "closed"
-        Empty -> do
-          writeTVar resultVar $! Full value tookVar
-          pure (join (atomically (pure <$> readTMVar tookVar <|> cancelledSTM)))
-        Full _ _ -> cancelledSTM
-
+{-
 _testProducer :: IO ()
 _testProducer = do
   lock <- newMVar ()
@@ -75,3 +84,4 @@ _testProducer = do
           send n
           sleep 0.2
           loop (n + 1)
+-}

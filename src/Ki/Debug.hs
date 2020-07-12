@@ -6,7 +6,6 @@ where
 import Control.Concurrent
 import Ki.Prelude
 import System.IO.Unsafe (unsafePerformIO)
-import Prelude (IO)
 
 debug :: Monad m => String -> m ()
 debug message =

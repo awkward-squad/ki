@@ -3,7 +3,6 @@ module Ki.Timeout
   )
 where
 
-import Ki.Concurrency
 import Ki.Prelude
 import Ki.Seconds (Seconds)
 import qualified Ki.Seconds

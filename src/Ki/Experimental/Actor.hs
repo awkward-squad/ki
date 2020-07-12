@@ -1,21 +1,15 @@
 module Ki.Experimental.Actor
-  ( Actor,
-    actor,
-    send,
+  ( actor,
   )
 where
 
-import Ki.Concurrency
 import qualified Ki.Experimental.Mailbox as Ki.Mailbox
 import qualified Ki.Fork
 import Ki.Prelude
 import Ki.Scope (Scope)
 import qualified Ki.Scope
 
-newtype Actor a
-  = Actor (a -> STM ())
-
-actor :: Scope -> s -> (s -> a -> IO s) -> IO (Actor a)
+actor :: Scope -> s -> (s -> a -> IO s) -> IO (a -> STM ())
 actor scope s0 action = do
   mailbox <- Ki.Mailbox.new
 
@@ -25,8 +19,4 @@ actor scope s0 action = do
         x <- Ki.Mailbox.receive mailbox
         pure (action s x >>= loop)
 
-  pure (Actor (Ki.Mailbox.send mailbox))
-
-send :: Actor a -> a -> STM ()
-send (Actor f) =
-  f
+  pure (Ki.Mailbox.send mailbox)

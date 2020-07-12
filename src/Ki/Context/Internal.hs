@@ -14,7 +14,6 @@ module Ki.Context.Internal
 where
 
 import qualified Data.IntMap.Strict as IntMap
-import Ki.Concurrency
 import Ki.Prelude
 
 data Context = Context

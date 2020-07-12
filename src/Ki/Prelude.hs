@@ -18,6 +18,7 @@ import Data.Maybe as X (fromMaybe)
 import Data.Set as X (Set)
 import Data.Word as X (Word32)
 import GHC.Generics as X (Generic)
+import Ki.Concurrency as X
 import Prelude as X hiding (IO)
 
 whenLeft :: Applicative m => Either a b -> (a -> m ()) -> m ()

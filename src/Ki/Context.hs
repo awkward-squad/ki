@@ -11,7 +11,6 @@ module Ki.Context
   )
 where
 
-import Ki.Concurrency
 import Ki.Context.Internal (CancelToken, Cancelled (..))
 import qualified Ki.Context.Internal
 import Ki.Prelude
