@@ -1,5 +1,5 @@
-module Ki.Experimental.Producer
-  ( producer,
+module Ki.Experimental.Pusher
+  ( pusher,
   )
 where
 
@@ -14,8 +14,8 @@ data S a
   | Empty
   | Full !a !(TMVar ())
 
-producer :: Scope -> ((a -> IO ()) -> IO ()) -> IO (STM (Maybe a))
-producer scope action = do
+pusher :: Scope -> ((a -> IO ()) -> IO ()) -> IO (STM (Maybe a))
+pusher scope action = do
   resultVar <- newTVarIO Empty
 
   let close :: IO ()
