@@ -10,16 +10,11 @@ module Ki.Implicit
 
     -- * Spawning threads
 
-    -- ** Implicit
+    -- ** Fork
     Ki.Implicit.Fork.fork,
     Ki.Implicit.Fork.forkWithUnmask,
-    {-
-    -- ** Actor
-    Ki.Implicit.Actor.Actor,
-    Ki.Implicit.Actor.send,
-    -}
 
-    -- ** Explicit
+    -- ** Async
     Ki.Implicit.Thread.async,
     Ki.Implicit.Thread.asyncWithUnmask,
     Ki.Implicit.Thread.await,
@@ -46,14 +41,12 @@ module Ki.Implicit
     timeoutSTM,
 
     -- * Experimental
-    Ki.Experimental.Implicit.Actor.actor,
     Ki.Experimental.Implicit.Puller.puller,
     Ki.Experimental.Implicit.Pusher.pusher,
   )
 where
 
 import Ki.Concurrency
-import qualified Ki.Experimental.Implicit.Actor
 import qualified Ki.Experimental.Implicit.Puller
 import qualified Ki.Experimental.Implicit.Pusher
 import qualified Ki.Implicit.Context

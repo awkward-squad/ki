@@ -110,11 +110,8 @@ library
     Ki.Context
     Ki.Context.Internal
     Ki.Debug
-    Ki.Experimental.Actor
-    Ki.Experimental.Implicit.Actor
     Ki.Experimental.Implicit.Puller
     Ki.Experimental.Implicit.Pusher
-    Ki.Experimental.Mailbox
     Ki.Experimental.Puller
     Ki.Experimental.Pusher
     Ki.Fork

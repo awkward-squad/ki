@@ -1,22 +1,26 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Main where
 
+import Control.Concurrent
+import Control.Concurrent.MVar
 import Control.Concurrent.STM
 import Control.Monad
 import Data.Function
 import Data.Word
 import GHC.Clock
 import qualified Ki.Implicit as Ki
+import System.Environment
 import Text.Printf
-import Control.Concurrent
-import Control.Concurrent.MVar
 
 main :: IO ()
 main = Ki.global do
-  let n = 1000000
-  let m = 100
+  (n, m) <-
+    getArgs >>= \case
+      [read -> n, read -> m] -> pure (n, m)
+      _ -> error "usage: pusher n m"
 
   Ki.scoped \scope -> do
     pull <-
@@ -30,12 +34,22 @@ main = Ki.global do
           atomically pull >>= \case
             Nothing -> pure ()
             Just () -> again
-    printf "(pusher) pulled %d in %dns (%.2fns each)\n" n ns (fromIntegral ns / fromIntegral n :: Double)
+    printf
+      "(pusher) pushed %d from %d threads in %dns (%.2fns each)\n"
+      n
+      m
+      ns
+      (fromIntegral ns / fromIntegral n :: Double)
 
   var <- newEmptyMVar
   replicateM_ m (forkIO (replicateM_ (n `div` m) (putMVar var ())))
   ns <- timed (replicateM_ n (takeMVar var))
-  printf "(mvar) pulled %d in %dns (%.2fns each)\n" n ns (fromIntegral ns / fromIntegral n :: Double)
+  printf
+    "(mvar) pushed %d in from %d threads in %dns (%.2fns each)\n"
+    n
+    m
+    ns
+    (fromIntegral ns / fromIntegral n :: Double)
 
 timed :: IO () -> IO Word64
 timed action = do
