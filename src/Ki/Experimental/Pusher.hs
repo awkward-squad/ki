@@ -14,65 +14,46 @@ data S a
 
 pusher :: Scope -> ((a -> IO ()) -> IO ()) -> IO (STM (Maybe a))
 pusher scope action = do
-  closedVar <- newTVarIO False
-  queue <- newTQueueIO
+  queue <- newQ
 
-  let close :: IO ()
-      close =
-        atomically (writeTVar closedVar True)
-
-  let produce :: IO ()
-      produce =
-        action \value -> do
-          tookVar <- newTVarIO False
-          atomicallyIO do
-            writeTQueue queue $! S value tookVar
-            pure (atomicallyIO (pure <$> (readTVar tookVar >>= check) <|> Ki.Scope.cancelledSTM scope))
+  let push value = do
+        tookVar <- newTVarIO False
+        writeQ queue (S value tookVar)
+        atomicallyIO (pure <$> (readTVar tookVar >>= check) <|> Ki.Scope.cancelledSTM scope)
 
   uninterruptibleMask \_ -> do
     Ki.Fork.forkWithUnmask scope \unmask -> do
-      unmask produce `onException` close
-      close
+      unmask (action push) `onException` closeQ queue
+      closeQ queue
 
   let pull = do
-        S value tookVar <- readTQueue queue
+        S value tookVar <- readQ queue
         writeTVar tookVar True
         pure (Just value)
 
-  let closed :: STM (Maybe a)
-      closed = do
-        readTVar closedVar >>= check
-        pure Nothing
+  pure (pull <|> closedQ queue Nothing)
 
-  pure (pull <|> closed)
+data Q a
+  = Q !(TQueue a) !(TVar Bool)
 
-{-
-_testProducer :: IO ()
-_testProducer = do
-  lock <- newMVar ()
-  global do
-    scoped \scope1 -> do
-      recv <- producer scope1 go
-      let r = atomically recv >>= withMVar lock . const . print
-      scoped \scope2 -> do
-        fork scope2 (replicateM_ 4 r)
-        fork scope2 (replicateM_ 5 r)
-        fork scope2 (replicateM_ 6 r)
-        wait scope2
-      cancel scope1
-      wait scope1
-  where
-    go :: Context => (Int -> IO ()) -> IO ()
-    go send = do
-      scoped \scope -> do
-        fork scope (loop 1)
-        fork scope (loop 10)
-        fork scope (loop 100)
-        wait scope
-      where
-        loop :: Int -> IO ()
-        loop n = do
-          send n
-          sleep 0.2
-          loop (n + 1)
--}
+newQ :: IO (Q a)
+newQ =
+  Q <$> newTQueueIO <*> newTVarIO False
+
+closeQ :: Q a -> IO ()
+closeQ (Q _ closedVar) =
+  atomically (writeTVar closedVar True)
+
+closedQ :: Q a -> b -> STM b
+closedQ (Q _ closedVar) value = do
+  readTVar closedVar >>= \case
+    False -> retry
+    True -> pure value
+
+readQ :: Q a -> STM a
+readQ (Q queue _) =
+  readTQueue queue
+
+writeQ :: Q a -> a -> IO ()
+writeQ (Q queue _) value =
+  atomically (writeTQueue queue $! value)

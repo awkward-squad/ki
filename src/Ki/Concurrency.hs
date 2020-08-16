@@ -8,6 +8,7 @@ module Ki.Concurrency
     STM,
     TBQueue,
     TMVar,
+    TQueue,
     TVar,
     ThreadId,
     atomically,

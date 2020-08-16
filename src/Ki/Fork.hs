@@ -12,10 +12,23 @@ import Ki.Prelude
 import Ki.Scope (Scope)
 import qualified Ki.Scope
 
+-- | Variant of 'async' that does not return a handle to the __thread__.
+--
+-- If the __thread__ throws an exception, the exception is propagated up the call tree to the __thread__ that opened its
+-- __scope__.
+--
+-- /Throws/:
+--
+--   * Calls 'error' if the __scope__ is /closed/.
 fork :: Scope -> IO () -> IO ()
 fork scope action =
   forkWithRestore scope \restore -> restore action
 
+-- | Variant of 'fork' that provides the __thread__ a function that unmasks asynchronous exceptions.
+--
+-- /Throws/:
+--
+--   * Calls 'error' if the __scope__ is /closed/.
 forkWithUnmask :: Scope -> ((forall x. IO x -> IO x) -> IO ()) -> IO ()
 forkWithUnmask scope action =
   forkWithRestore scope \restore -> restore (action unsafeUnmask)

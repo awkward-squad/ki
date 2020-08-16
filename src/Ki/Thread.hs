@@ -31,10 +31,20 @@ instance Ord (Thread a) where
   compare (Thread id1 _) (Thread id2 _) =
     compare id1 id2
 
+-- | Fork a __thread__ within a __scope__.
+--
+-- /Throws/:
+--
+--   * Calls 'error' if the __scope__ is /closed/.
 async :: Scope -> IO a -> IO (Thread a)
 async scope action =
   asyncWithRestore scope \restore -> restore action
 
+-- | Variant of 'async' that provides the __thread__ a function that unmasks asynchronous exceptions.
+--
+-- /Throws/:
+--
+--   * Calls 'error' if the __scope__ is /closed/.
 asyncWithUnmask :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
 asyncWithUnmask scope action =
   asyncWithRestore scope \restore -> restore (action unsafeUnmask)
@@ -53,10 +63,6 @@ await =
   atomically . awaitSTM
 
 -- | @STM@ variant of 'await'.
---
--- /Throws/:
---
---   * The exception that the __thread__ threw, if any.
 awaitSTM :: Thread a -> STM (Either SomeException a)
 awaitSTM Thread {action} =
   action

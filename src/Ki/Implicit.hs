@@ -1,12 +1,10 @@
-{-# LANGUAGE PatternSynonyms #-}
-
 module Ki.Implicit
   ( -- * Scope
     Ki.Implicit.Scope.scoped,
-    Ki.Implicit.Scope.wait,
-    Ki.Implicit.Scope.waitSTM,
-    Ki.Implicit.Scope.waitFor,
-    Ki.Implicit.Scope.Scope,
+    Ki.Scope.wait,
+    Ki.Scope.waitSTM,
+    Ki.Scope.waitFor,
+    Ki.Scope.Scope,
 
     -- * Spawning threads
 
@@ -17,28 +15,28 @@ module Ki.Implicit
     -- ** Async
     Ki.Implicit.Thread.async,
     Ki.Implicit.Thread.asyncWithUnmask,
-    Ki.Implicit.Thread.await,
-    Ki.Implicit.Thread.awaitSTM,
-    Ki.Implicit.Thread.awaitFor,
-    Ki.Implicit.Thread.Thread,
+    Ki.Thread.await,
+    Ki.Thread.awaitSTM,
+    Ki.Thread.awaitFor,
+    Ki.Thread.Thread,
     -- kill,
 
     -- * Soft-cancellation
     Ki.Implicit.Context.Context,
-    Ki.Implicit.Scope.cancel,
+    Ki.Scope.cancel,
     Ki.Implicit.Context.cancelled,
     Ki.Implicit.Context.cancelledSTM,
     Ki.Implicit.Context.unlessCancelled,
-    Ki.Implicit.Context.Cancelled (..),
-    Ki.Implicit.Context.CancelToken,
+    Ki.Context.Cancelled (..),
+    Ki.Context.CancelToken,
 
     -- * Global context
     Ki.Implicit.Context.global,
 
     -- * Miscellaneous
-    Seconds,
     sleep,
     timeoutSTM,
+    Seconds,
 
     -- * Experimental
     Ki.Experimental.Implicit.Puller.puller,
@@ -47,6 +45,7 @@ module Ki.Implicit
 where
 
 import Ki.Concurrency
+import qualified Ki.Context
 import qualified Ki.Experimental.Implicit.Puller
 import qualified Ki.Experimental.Implicit.Pusher
 import qualified Ki.Implicit.Context
@@ -54,7 +53,9 @@ import qualified Ki.Implicit.Fork
 import qualified Ki.Implicit.Scope
 import qualified Ki.Implicit.Thread
 import Ki.Prelude
+import qualified Ki.Scope
 import Ki.Seconds (Seconds)
+import qualified Ki.Thread
 import Ki.Timeout (timeoutSTM)
 
 -- | __Context__-aware @threadDelay@.

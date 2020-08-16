@@ -1,70 +1,44 @@
 module Ki.Lite
   ( -- * Scope
-    Scope,
     scoped,
-    Ki.Implicit.wait,
-    Ki.Implicit.waitSTM,
+    Ki.Scope.wait,
+    Ki.Scope.waitSTM,
+    Ki.Scope.waitFor,
+    Ki.Scope.Scope,
 
-    -- * Thread
-    Thread,
-    async,
-    asyncWithUnmask,
-    fork,
-    forkWithUnmask,
-    Ki.Implicit.await,
-    Ki.Implicit.awaitSTM,
-    Ki.Implicit.awaitFor,
-    -- kill,
+    -- * Spawning threads
+
+    -- ** Fork
+    Ki.Fork.fork,
+    Ki.Fork.forkWithUnmask,
+
+    -- ** Async
+    Ki.Thread.async,
+    Ki.Thread.asyncWithUnmask,
+    Ki.Thread.await,
+    Ki.Thread.awaitSTM,
+    Ki.Thread.awaitFor,
+    Ki.Thread.Thread,
 
     -- * Miscellaneous
-    Seconds,
-    Ki.Implicit.timeoutSTM,
+    Ki.Timeout.timeoutSTM,
+    Ki.Seconds.Seconds,
+
+    -- * Experimental
+    Ki.Experimental.Puller.puller,
+    Ki.Experimental.Pusher.pusher,
   )
 where
 
-import Ki.Concurrency
 import qualified Ki.Context
-import Ki.Implicit (Scope, Seconds, Thread)
-import qualified Ki.Implicit
-
--- | Fork a __thread__ within a __scope__.
---
--- /Throws/:
---
---   * Calls 'error' if the __scope__ is /closed/.
-async :: Scope -> IO a -> IO (Thread a)
-async =
-  Ki.Implicit.async
-
--- | Variant of 'async' that provides the __thread__ a function that unmasks asynchronous exceptions.
---
--- /Throws/:
---
---   * Calls 'error' if the __scope__ is /closed/.
-asyncWithUnmask :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
-asyncWithUnmask =
-  Ki.Implicit.asyncWithUnmask
-
--- | Variant of 'async' that does not return a handle to the __thread__.
---
--- If the __thread__ throws an exception, the exception is propagated up the call tree to the __thread__ that opened its
--- __scope__.
---
--- /Throws/:
---
---   * Calls 'error' if the __scope__ is /closed/.
-fork :: Scope -> IO () -> IO ()
-fork =
-  Ki.Implicit.fork
-
--- | Variant of 'fork' that provides the __thread__ a function that unmasks asynchronous exceptions.
---
--- /Throws/:
---
---   * Calls 'error' if the __scope__ is /closed/.
-forkWithUnmask :: Scope -> ((forall x. IO x -> IO x) -> IO ()) -> IO ()
-forkWithUnmask =
-  Ki.Implicit.forkWithUnmask
+import qualified Ki.Experimental.Puller
+import qualified Ki.Experimental.Pusher
+import qualified Ki.Fork
+import Ki.Prelude
+import qualified Ki.Scope
+import qualified Ki.Seconds
+import qualified Ki.Thread
+import qualified Ki.Timeout
 
 -- | Perform an action with a new __scope__, then /close/ the __scope__.
 --
@@ -80,6 +54,6 @@ forkWithUnmask =
 --   'fork' scope worker2
 --   'wait' scope
 -- @
-scoped :: (Scope -> IO a) -> IO a
-scoped action =
-  let ?context = Ki.Context.dummy in Ki.Implicit.scoped action
+scoped :: (Ki.Scope.Scope -> IO a) -> IO a
+scoped =
+  Ki.Scope.scoped Ki.Context.dummy

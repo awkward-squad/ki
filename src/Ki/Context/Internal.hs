@@ -24,7 +24,7 @@ data Context = Context
     -- parent to have.
     nextIdVar :: TVar Int,
     -- | When I'm cancelled, this action removes myself from my parent's context. This isn't simply a pointer to the
-    -- parent (i.e. Context_) for three reasons:
+    -- parent Context for three reasons:
     --
     --   * "Root" contexts don't have a parent, so it'd have to be a Maybe (one more pointer indirection)
     --   * We don't really need a reference to the parent, because we only want to be able to remove ourselves from its

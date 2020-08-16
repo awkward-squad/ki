@@ -48,8 +48,8 @@ cancelledSTM :: Scope -> STM (IO a)
 cancelledSTM Scope {context} =
   throwIO . Ki.Context.Cancelled <$> Ki.Context.cancelled context
 
--- | Close a scope, kill all of the running threads, and return the first
--- async exception delivered to us while doing so, if any.
+-- | Close a scope, kill all of the running threads, and return the first async exception delivered to us while doing
+-- so, if any.
 --
 -- Preconditions:
 --   * The set of threads doesn't include us
@@ -63,7 +63,7 @@ close scope@Scope {closedVar, runningVar} = do
       readTVar runningVar
   exception <- killThreads (Set.toList threads)
   atomically (blockUntilNoneRunning scope)
-  pure (Monoid.getFirst exception)
+  pure exception
 
 fork :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> (Either SomeException a -> IO ()) -> IO ThreadId
 fork scope action k =
@@ -167,21 +167,18 @@ blockUntilNoneStarting Scope {startingVar} =
 --------------------------------------------------------------------------------
 -- Misc. utils
 
-killThreads :: [ThreadId] -> IO (Monoid.First SomeException)
+killThreads :: [ThreadId] -> IO (Maybe SomeException)
 killThreads =
-  loop mempty
-  where
-    loop :: Monoid.First SomeException -> [ThreadId] -> IO (Monoid.First SomeException)
-    loop acc = \case
-      [] -> pure acc
-      threadId : threadIds ->
-        -- We unmask because we don't want to deadlock with a thread
-        -- that is concurrently trying to throw an exception to us with
-        -- exceptions masked.
-        try (unsafeUnmask (throwTo threadId ThreadKilled)) >>= \case
-          -- don't drop thread we didn't kill
-          Left exception -> loop (acc <> pure exception) (threadId : threadIds)
-          Right () -> loop acc threadIds
+  (`fix` mempty) \loop acc -> \case
+    [] -> pure (Monoid.getFirst acc)
+    threadId : threadIds ->
+      -- We unmask because we don't want to deadlock with a thread
+      -- that is concurrently trying to throw an exception to us with
+      -- exceptions masked.
+      try (unsafeUnmask (throwTo threadId ThreadKilled)) >>= \case
+        -- don't drop thread we didn't kill
+        Left exception -> loop (acc <> pure exception) (threadId : threadIds)
+        Right () -> loop acc threadIds
 
 blockUntilTVar :: TVar a -> (a -> Bool) -> STM ()
 blockUntilTVar var f = do

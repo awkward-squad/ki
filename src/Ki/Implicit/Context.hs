@@ -6,8 +6,6 @@ module Ki.Implicit.Context
     cancelled,
     cancelledSTM,
     unlessCancelled,
-    Ki.Context.Cancelled (..),
-    Ki.Context.CancelToken,
   )
 where
 

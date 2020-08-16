@@ -1,10 +1,5 @@
 module Ki.Implicit.Scope
-  ( Scope,
-    Ki.Scope.cancel,
-    scoped,
-    Ki.Scope.wait,
-    Ki.Scope.waitFor,
-    Ki.Scope.waitSTM,
+  ( scoped,
   )
 where
 
