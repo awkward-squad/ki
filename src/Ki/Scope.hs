@@ -21,8 +21,8 @@ import qualified Data.Set as Set
 import qualified Ki.AsyncThreadFailed
 import Ki.Context (Context)
 import qualified Ki.Context
-import Ki.Prelude
 import Ki.Duration (Duration)
+import Ki.Prelude
 import Ki.Timeout (timeoutSTM)
 
 -- | A __scope__, which delimits the lifetime of all __threads__ forked within it.
@@ -111,17 +111,8 @@ wait :: Scope -> IO ()
 wait =
   atomically . waitSTM
 
--- | Variant of 'wait' that waits for up to the given duration.
---
--- This is useful for giving __threads__ some time to honor a cancellation request before killing them, as in the
--- following example.
---
--- @
--- 'scoped' \\scope -> do
---   'fork' worker
---   'cancel' scope
---   'waitFor' scope 10
--- @
+-- | Variant of 'wait' that waits for up to the given duration. This is useful for giving __threads__ some time to honor
+-- a cancellation request before killing them.
 waitFor :: Scope -> Duration -> IO ()
 waitFor scope duration =
   timeoutSTM duration (pure <$> waitSTM scope) (pure ())

@@ -12,7 +12,7 @@ import qualified Ki.Scope
 --
 -- When the __scope__ is closed, all remaining __threads__ forked within it are killed.
 --
--- It is generally not advised to pass a __scope__ into a function, or share it amongst __threads_, as this takes the
+-- It is generally not advised to pass a __scope__ into a function, or share it amongst __threads__, as this takes the
 -- "structure" out of "structured concurrency".
 --
 -- /Throws/:

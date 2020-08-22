@@ -4,8 +4,8 @@ module Ki.Implicit.Thread
   )
 where
 
-import Ki.Concurrency
 import qualified Ki.Implicit.Context
+import Ki.Prelude
 import qualified Ki.Scope
 import qualified Ki.Thread
 
@@ -17,7 +17,7 @@ import qualified Ki.Thread
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-async :: Ki.Scope.Scope -> (Ki.Implicit.Context.Context => IO a) -> IO (Ki.Thread.Thread a)
+async :: Ki.Scope.Scope -> (Ki.Implicit.Context.Context => IO a) -> IO (Ki.Thread.Thread (Either SomeException a))
 async scope action =
   Ki.Thread.async scope (let ?context = Ki.Scope.context scope in action)
 
@@ -29,6 +29,6 @@ async scope action =
 asyncWithUnmask ::
   Ki.Scope.Scope ->
   (Ki.Implicit.Context.Context => (forall x. IO x -> IO x) -> IO a) ->
-  IO (Ki.Thread.Thread a)
+  IO (Ki.Thread.Thread (Either SomeException a))
 asyncWithUnmask scope action =
   Ki.Thread.asyncWithUnmask scope (let ?context = Ki.Scope.context scope in action)

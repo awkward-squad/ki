@@ -19,7 +19,7 @@ import Ki.Timeout (timeoutSTM)
 -- | A running __thread__.
 data Thread a = Thread
   { threadId :: !ThreadId,
-    action :: !(STM (Either SomeException a))
+    action :: !(STM a)
   }
   deriving stock (Functor, Generic)
 
@@ -36,7 +36,7 @@ instance Ord (Thread a) where
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-async :: Scope -> IO a -> IO (Thread a)
+async :: Scope -> IO a -> IO (Thread (Either SomeException a))
 async scope action =
   asyncWithRestore scope \restore -> restore action
 
@@ -45,11 +45,11 @@ async scope action =
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-asyncWithUnmask :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
+asyncWithUnmask :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread (Either SomeException a))
 asyncWithUnmask scope action =
   asyncWithRestore scope \restore -> restore (action unsafeUnmask)
 
-asyncWithRestore :: forall a. Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
+asyncWithRestore :: forall a. Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread (Either SomeException a))
 asyncWithRestore scope action = do
   resultVar <- newEmptyTMVarIO
   childThreadId <-
@@ -58,12 +58,12 @@ asyncWithRestore scope action = do
   pure (Thread childThreadId (readTMVar resultVar))
 
 -- | Wait for a __thread__ to finish.
-await :: Thread a -> IO (Either SomeException a)
+await :: Thread a -> IO a
 await =
   atomically . awaitSTM
 
 -- | @STM@ variant of 'await'.
-awaitSTM :: Thread a -> STM (Either SomeException a)
+awaitSTM :: Thread a -> STM a
 awaitSTM Thread {action} =
   action
 
@@ -73,7 +73,7 @@ awaitSTM Thread {action} =
 -- 'awaitFor' thread duration =
 --   'timeout' duration (pure . Just \<$\> 'awaitSTM' thread) (pure Nothing)
 -- @
-awaitFor :: Thread a -> Duration -> IO (Maybe (Either SomeException a))
+awaitFor :: Thread a -> Duration -> IO (Maybe a)
 awaitFor thread duration =
   timeoutSTM duration (pure . Just <$> awaitSTM thread) (pure Nothing)
 
