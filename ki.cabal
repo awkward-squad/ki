@@ -110,6 +110,7 @@ library
     Ki.Context
     Ki.Context.Internal
     Ki.Debug
+    Ki.Duration
     Ki.Experimental.Implicit.Puller
     Ki.Experimental.Implicit.Pusher
     Ki.Experimental.Puller
@@ -121,7 +122,6 @@ library
     Ki.Implicit.Thread
     Ki.Prelude
     Ki.Scope
-    Ki.Seconds
     Ki.Thread
     Ki.Timeout
   if flag(test)

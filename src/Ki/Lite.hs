@@ -22,7 +22,10 @@ module Ki.Lite
 
     -- * Miscellaneous
     Ki.Timeout.timeoutSTM,
-    Ki.Seconds.Seconds,
+    Ki.Duration.Duration,
+    Ki.Duration.microseconds,
+    Ki.Duration.milliseconds,
+    Ki.Duration.seconds,
 
     -- * Experimental
     Ki.Experimental.Puller.puller,
@@ -31,12 +34,12 @@ module Ki.Lite
 where
 
 import qualified Ki.Context
+import qualified Ki.Duration
 import qualified Ki.Experimental.Puller
 import qualified Ki.Experimental.Pusher
 import qualified Ki.Fork
 import Ki.Prelude
 import qualified Ki.Scope
-import qualified Ki.Seconds
 import qualified Ki.Thread
 import qualified Ki.Timeout
 

@@ -10,10 +10,10 @@ module Ki.Thread
 where
 
 import Control.Exception (AsyncException (ThreadKilled))
+import Ki.Duration (Duration)
 import Ki.Prelude
 import Ki.Scope (Scope)
 import qualified Ki.Scope
-import Ki.Seconds (Seconds)
 import Ki.Timeout (timeoutSTM)
 
 -- | A running __thread__.
@@ -67,15 +67,15 @@ awaitSTM :: Thread a -> STM (Either SomeException a)
 awaitSTM Thread {action} =
   action
 
--- | Variant of 'await' that gives up after the given number of seconds elapses.
+-- | Variant of 'await' that gives up after the given duration.
 --
 -- @
--- 'awaitFor' thread seconds =
---   'timeout' seconds (pure . Just \<$\> 'awaitSTM' thread) (pure Nothing)
+-- 'awaitFor' thread duration =
+--   'timeout' duration (pure . Just \<$\> 'awaitSTM' thread) (pure Nothing)
 -- @
-awaitFor :: Thread a -> Seconds -> IO (Maybe (Either SomeException a))
-awaitFor thread seconds =
-  timeoutSTM seconds (pure . Just <$> awaitSTM thread) (pure Nothing)
+awaitFor :: Thread a -> Duration -> IO (Maybe (Either SomeException a))
+awaitFor thread duration =
+  timeoutSTM duration (pure . Just <$> awaitSTM thread) (pure Nothing)
 
 -- | Kill a __thread__ wait for it to finish.
 --

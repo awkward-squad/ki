@@ -22,7 +22,7 @@ import qualified Ki.AsyncThreadFailed
 import Ki.Context (Context)
 import qualified Ki.Context
 import Ki.Prelude
-import Ki.Seconds (Seconds)
+import Ki.Duration (Duration)
 import Ki.Timeout (timeoutSTM)
 
 -- | A __scope__, which delimits the lifetime of all __threads__ forked within it.
@@ -122,9 +122,9 @@ wait =
 --   'cancel' scope
 --   'waitFor' scope 10
 -- @
-waitFor :: Scope -> Seconds -> IO ()
-waitFor scope seconds =
-  timeoutSTM seconds (pure <$> waitSTM scope) (pure ())
+waitFor :: Scope -> Duration -> IO ()
+waitFor scope duration =
+  timeoutSTM duration (pure <$> waitSTM scope) (pure ())
 
 -- | @STM@ variant of 'wait'.
 waitSTM :: Scope -> STM ()

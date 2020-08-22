@@ -4,13 +4,13 @@ module Ki.Timeout
 where
 
 import Ki.Prelude
-import Ki.Seconds (Seconds)
-import qualified Ki.Seconds
+import Ki.Duration (Duration)
+import qualified Ki.Duration
 
 -- | Wait for an @STM@ action to return, and return the @IO@ action contained within.
 --
--- If the given number of seconds elapses, return the given @IO@ action instead.
-timeoutSTM :: Seconds -> STM (IO a) -> IO a -> IO a
-timeoutSTM seconds action fallback = do
-  (delay, unregister) <- registerDelay (Ki.Seconds.toMicros seconds)
+-- If the given duration elapses, return the given @IO@ action instead.
+timeoutSTM :: Duration -> STM (IO a) -> IO a -> IO a
+timeoutSTM duration action fallback = do
+  (delay, unregister) <- registerDelay (Ki.Duration.toMicroseconds duration)
   atomicallyIO (delay $> fallback <|> (unregister >>) <$> action)

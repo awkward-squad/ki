@@ -36,7 +36,10 @@ module Ki.Implicit
     -- * Miscellaneous
     sleep,
     timeoutSTM,
-    Seconds,
+    Ki.Duration.Duration,
+    Ki.Duration.microseconds,
+    Ki.Duration.milliseconds,
+    Ki.Duration.seconds,
 
     -- * Experimental
     Ki.Experimental.Implicit.Puller.puller,
@@ -46,6 +49,7 @@ where
 
 import Ki.Concurrency
 import qualified Ki.Context
+import qualified Ki.Duration
 import qualified Ki.Experimental.Implicit.Puller
 import qualified Ki.Experimental.Implicit.Pusher
 import qualified Ki.Implicit.Context
@@ -54,20 +58,19 @@ import qualified Ki.Implicit.Scope
 import qualified Ki.Implicit.Thread
 import Ki.Prelude
 import qualified Ki.Scope
-import Ki.Seconds (Seconds)
 import qualified Ki.Thread
 import Ki.Timeout (timeoutSTM)
 
 -- | __Context__-aware @threadDelay@.
 --
 -- @
--- 'sleep' seconds =
---   'timeoutSTM seconds 'cancelledSTM' (pure ())
+-- 'sleep' duration =
+--   'timeoutSTM duration 'cancelledSTM' (pure ())
 -- @
 --
 -- /Throws/:
 --
 --   * Throws 'Cancelled' if the current __context__ is /cancelled/.
-sleep :: Ki.Implicit.Context.Context => Seconds -> IO ()
-sleep seconds =
-  timeoutSTM seconds Ki.Implicit.Context.cancelledSTM (pure ())
+sleep :: Ki.Implicit.Context.Context => Ki.Duration.Duration -> IO ()
+sleep duration =
+  timeoutSTM duration Ki.Implicit.Context.cancelledSTM (pure ())
