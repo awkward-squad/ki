@@ -15,7 +15,9 @@ module Ki.Implicit
     -- * Spawning threads
     -- $spawning-threads
     fork,
+    fork_,
     forkWithUnmask,
+    forkWithUnmask_,
     async,
     asyncWithUnmask,
     Ki.Thread.await,
@@ -128,6 +130,15 @@ fork :: Scope -> (Context => IO a) -> IO (Thread a)
 fork scope action =
   Ki.Thread.fork scope (with scope action)
 
+-- | Variant of 'fork' that does not return a handle to the created __thread__.
+--
+-- /Throws/:
+--
+--   * Calls 'error' if the __scope__ is /closed/.
+fork_ :: Scope -> (Context => IO ()) -> IO ()
+fork_ scope action =
+  Ki.Thread.fork_ scope (with scope action)
+
 -- | Variant of 'fork' that provides the __thread__ a function that unmasks asynchronous exceptions.
 --
 -- /Throws/:
@@ -136,6 +147,15 @@ fork scope action =
 forkWithUnmask :: Scope -> (Context => (forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
 forkWithUnmask scope action =
   Ki.Thread.forkWithUnmask scope (let ?context = Ki.Scope.context scope in action)
+
+-- | Variant of 'forkWithUnmask' that does not return a handle to the created __thread__.
+--
+-- /Throws/:
+--
+--   * Calls 'error' if the __scope__ is /closed/.
+forkWithUnmask_ :: Scope -> (Context => (forall x. IO x -> IO x) -> IO ()) -> IO ()
+forkWithUnmask_ scope action =
+  Ki.Thread.forkWithUnmask_ scope (let ?context = Ki.Scope.context scope in action)
 
 -- | Perform an @IO@ action in the global __context__. The global __context__ cannot be /cancelled/.
 global :: (Context => IO a) -> IO a

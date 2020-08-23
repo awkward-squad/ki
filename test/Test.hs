@@ -374,20 +374,6 @@ data A
   deriving stock (Eq, Show)
   deriving anyclass (Exception)
 
-fork_ :: Scope -> (Context => DejaFu.Program DejaFu.Basic IO a) -> DejaFu.Program DejaFu.Basic IO ()
-fork_ scope action =
-  void (fork scope action)
-
-forkWithUnmask_ ::
-  Scope ->
-  ( Context =>
-    (forall x. DejaFu.Program DejaFu.Basic IO x -> DejaFu.Program DejaFu.Basic IO x) ->
-    DejaFu.Program DejaFu.Basic IO a
-  ) ->
-  DejaFu.Program DejaFu.Basic IO ()
-forkWithUnmask_ scope action =
-  void (forkWithUnmask scope action)
-
 await' :: Thread (Either SomeException a) -> P a
 await' =
   await >=> either throw pure

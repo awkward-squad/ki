@@ -23,9 +23,9 @@ description:
 
   This package comes in two variants:
 
-  * "Ki.Lite" exposes the most stripped-down variant; start here.
+  * "Ki" exposes the most stripped-down variant; start here.
 
-  * "Ki.Implicit" extends "Ki.Lite" with an implicit context that's used to
+  * "Ki.Implicit" extends "Ki" with an implicit context that's used to
     propagate soft cancellation signals.
 
       Using this variant comes at a cost:
@@ -37,16 +37,15 @@ description:
           where they are no longer needed.
 
     If you don't need soft-cancellation, there is no benefit to using this
-    variant, and you should stick with "Ki.Lite".
+    variant, and you should stick with "Ki".
 
   Because you'll only ever need one variant at a time, I recommend using a
   <https://www.haskell.org/cabal/users-guide/developing-packages.html#pkg-field-mixins mixin stanza>
-  to rename one module to @Ki@ while hiding the others. This also
-  simplifies the process of upgrading from "Ki.Lite" to "Ki.Implicit" if
-  necessary.
+  to rename one module to @Ki@ while hiding the others. This also simplifies the
+  process of upgrading from "Ki.Implicit" to "Ki" if necessary.
 
   @
-  mixins: (Ki.Lite as Ki)
+  mixins: ki (Ki.Implicit as Ki)
   @
 
 extra-source-files:
@@ -101,8 +100,8 @@ library
     containers,
     stm,
   exposed-modules:
+    Ki,
     Ki.Implicit,
-    Ki.Lite,
   hs-source-dirs: src
   other-modules:
     Ki.AsyncThreadFailed

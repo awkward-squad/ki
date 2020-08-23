@@ -7,7 +7,9 @@ module Ki.Thread
     awaitFor,
     kill,
     fork,
+    fork_,
     forkWithUnmask,
+    forkWithUnmask_,
   )
 where
 
@@ -102,6 +104,15 @@ fork :: Scope -> IO a -> IO (Thread a)
 fork scope action =
   forkWithRestore scope \restore -> restore action
 
+-- | Variant of 'fork' that does not return a handle to the created __thread__.
+--
+-- /Throws/:
+--
+--   * Calls 'error' if the __scope__ is /closed/.
+fork_ :: Scope -> IO () -> IO ()
+fork_ scope action =
+  forkWithRestore_ scope \restore -> restore action
+
 -- | Variant of 'fork' that provides the __thread__ a function that unmasks asynchronous exceptions.
 --
 -- /Throws/:
@@ -110,6 +121,15 @@ fork scope action =
 forkWithUnmask :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
 forkWithUnmask scope action =
   forkWithRestore scope \restore -> restore (action unsafeUnmask)
+
+-- | Variant of 'forkWithUnmask' that does not return a handle to the created __thread__.
+--
+-- /Throws/:
+--
+--   * Calls 'error' if the __scope__ is /closed/.
+forkWithUnmask_ :: Scope -> ((forall x. IO x -> IO x) -> IO ()) -> IO ()
+forkWithUnmask_ scope action =
+  forkWithRestore_ scope \restore -> restore (action unsafeUnmask)
 
 forkWithRestore :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
 forkWithRestore scope action = do
@@ -123,6 +143,16 @@ forkWithRestore scope action = do
           (throwTo parentThreadId (AsyncThreadFailed exception))
       putTMVarIO resultVar result
   pure (Thread childThreadId (readTMVar resultVar >>= either throwSTM pure))
+
+forkWithRestore_ :: Scope -> ((forall x. IO x -> IO x) -> IO ()) -> IO ()
+forkWithRestore_ scope action = do
+  parentThreadId <- myThreadId
+  void do
+    Ki.Scope.fork scope action \result -> do
+      whenLeft result \exception -> do
+        whenM
+          (shouldPropagateException (Ki.Scope.context scope) exception)
+          (throwTo parentThreadId (AsyncThreadFailed exception))
 
 shouldPropagateException :: Context -> SomeException -> IO Bool
 shouldPropagateException context exception =

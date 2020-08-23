@@ -1,4 +1,4 @@
-module Ki.Lite
+module Ki
   ( -- * Scope
     scoped,
     Ki.Scope.wait,
@@ -9,7 +9,9 @@ module Ki.Lite
     -- * Spawning threads
     -- $spawning-threads
     Ki.Thread.fork,
+    Ki.Thread.fork_,
     Ki.Thread.forkWithUnmask,
+    Ki.Thread.forkWithUnmask_,
     Ki.Thread.async,
     Ki.Thread.asyncWithUnmask,
     Ki.Thread.await,
