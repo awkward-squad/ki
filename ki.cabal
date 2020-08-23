@@ -111,13 +111,8 @@ library
     Ki.Context.Internal
     Ki.Debug
     Ki.Duration
-    Ki.Experimental.Implicit.Puller
-    Ki.Experimental.Implicit.Pusher
     Ki.Experimental.Puller
     Ki.Experimental.Pusher
-    Ki.Implicit.Context
-    Ki.Implicit.Scope
-    Ki.Implicit.Thread
     Ki.Prelude
     Ki.Scope
     Ki.Thread

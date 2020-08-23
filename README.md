@@ -36,7 +36,7 @@ When using this library, compared to `base`, spawning a thread takes one more
 argument:
 
 ```
-fork :: Scope -> IO () -> IO ()
+fork :: Scope -> IO a -> IO (Thread a)
 ```
 
 In exchange for this boilerplate, you'll be programming in a world where

@@ -1,17 +1,15 @@
 module Ki.Context
   ( Context,
-    Cancelled (..),
     CancelToken,
     dummy,
     derive,
     global,
     cancel,
     cancelled,
-    unlessCancelled,
   )
 where
 
-import Ki.Context.Internal (CancelToken, Cancelled (..))
+import Ki.Context.Internal (CancelToken (..))
 import qualified Ki.Context.Internal
 import Ki.Prelude
 
@@ -52,7 +50,3 @@ global =
           cancelled = Ki.Context.Internal.cancelled context,
           derive = f <$> Ki.Context.Internal.derive context
         }
-
-unlessCancelled :: Context -> IO a -> IO a
-unlessCancelled context action =
-  atomicallyIO (throwIO . Cancelled <$> cancelled context <|> pure action)

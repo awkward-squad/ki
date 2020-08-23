@@ -8,7 +8,6 @@ module Ki.Scope
     context,
     fork,
     scoped,
-    unlessCancelledSTM,
     wait,
     waitFor,
     waitSTM,
@@ -25,7 +24,7 @@ import Ki.Duration (Duration)
 import Ki.Prelude
 import Ki.Timeout (timeoutSTM)
 
--- | A __scope__, which delimits the lifetime of all __threads__ forked within it.
+-- | A __scope__ delimits the lifetime of all __threads__ created within it.
 data Scope = Scope
   { context :: Context,
     -- | Whether this scope is closed
@@ -39,14 +38,14 @@ data Scope = Scope
     startingVar :: TVar Int
   }
 
--- | Cancel all __contexts__ derived from a __scope__.
+-- | /Cancel/ all __contexts__ derived from a __scope__.
 cancel :: Scope -> IO ()
 cancel Scope {context} =
   Ki.Context.cancel context
 
 cancelledSTM :: Scope -> STM (IO a)
 cancelledSTM Scope {context} =
-  throwIO . Ki.Context.Cancelled <$> Ki.Context.cancelled context
+  throwIO <$> Ki.Context.cancelled context
 
 -- | Close a scope, kill all of the running threads, and return the first async exception delivered to us while doing
 -- so, if any.
@@ -105,17 +104,12 @@ scoped context f = do
         whenJust closeScopeException throw
         pure value
 
-unlessCancelledSTM :: Scope -> STM (IO a) -> IO a
-unlessCancelledSTM scope action =
-  atomicallyIO (cancelledSTM scope <|> action)
-
--- | Wait until all __threads__ forked within a __scope__ finish.
+-- | Wait until all __threads__ created within a __scope__ finish.
 wait :: Scope -> IO ()
 wait =
   atomically . waitSTM
 
--- | Variant of 'wait' that waits for up to the given duration. This is useful for giving __threads__ some time to honor
--- a cancellation request before killing them.
+-- | Variant of 'wait' that waits for up to the given duration.
 waitFor :: Scope -> Duration -> IO ()
 waitFor scope duration =
   timeoutSTM duration (pure <$> waitSTM scope) (pure ())

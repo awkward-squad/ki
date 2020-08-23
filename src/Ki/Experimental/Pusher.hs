@@ -13,7 +13,7 @@ import qualified Ki.Thread
 data S a
   = S !a !(TVar Bool)
 
-pusher :: Scope -> ((a -> IO ()) -> IO ()) -> IO (STM (Maybe a))
+pusher :: Scope -> ((a -> IO ()) -> IO b) -> IO (STM (Maybe a), Thread b)
 pusher scope action = do
   queue <- newQ
 
@@ -22,18 +22,19 @@ pusher scope action = do
         writeQ queue (S value tookVar)
         atomicallyIO (pure <$> (readTVar tookVar >>= check) <|> Ki.Scope.cancelledSTM scope)
 
-  _ :: Thread () <-
+  thread <-
     uninterruptibleMask \_ -> do
       Ki.Thread.forkWithUnmask scope \unmask -> do
-        unmask (action push) `onException` closeQ queue
+        result <- unmask (action push) `onException` closeQ queue
         closeQ queue
+        pure result
 
   let pull = do
         S value tookVar <- readQ queue
         writeTVar tookVar True
         pure (Just value)
 
-  pure (pull <|> closedQ queue Nothing)
+  pure (pull <|> closedQ queue Nothing, thread)
 
 data Q a
   = Q !(TQueue a) !(TVar Bool)

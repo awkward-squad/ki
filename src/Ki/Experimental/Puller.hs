@@ -8,13 +8,14 @@ where
 import Ki.Prelude
 import Ki.Scope (Scope)
 import qualified Ki.Scope
+import Ki.Thread (Thread)
 import qualified Ki.Thread
 
-puller :: Scope -> (IO a -> IO ()) -> IO (a -> STM ())
+puller :: Scope -> (IO a -> IO b) -> IO (a -> STM (), Thread b)
 puller scope action = do
   queue <- newQ
-  _ <- Ki.Thread.fork scope (action (pullQ queue (Ki.Scope.cancelledSTM scope)))
-  pure (pushQ queue)
+  thread <- Ki.Thread.fork scope (action (pullQ queue (Ki.Scope.cancelledSTM scope)))
+  pure (pushQ queue, thread)
 
 newtype Q a
   = Q (TQueue (TMVar a))

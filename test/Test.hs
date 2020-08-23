@@ -220,28 +220,15 @@ main = do
       scoped \scope ->
         fork_ scope (wait scope)
 
-  test "`fork` doesn't propagate `Cancelled`" do
+  test "`fork` doesn't propagate `CancelToken`" do
     returns () do
       scoped \scope -> do
         cancel scope
         fork_ scope do
           cancelled >>= \case
             Nothing -> throw A
-            Just capitulate -> capitulate
+            Just cancelToken -> throw cancelToken
         wait scope
-
-  test "`cancelled` returns an action that throws `Cancelled`" do
-    returns True do
-      scoped \scope -> do
-        cancel scope
-        thread <-
-          async scope do
-            cancelled >>= \case
-              Nothing -> throw A
-              Just capitulate ->
-                (capitulate $> False) `catch` \case
-                  Cancelled _token -> pure True
-        await' thread
 
 type P =
   DejaFu.Program DejaFu.Basic IO

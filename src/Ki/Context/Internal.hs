@@ -4,8 +4,7 @@
 module Ki.Context.Internal
   ( -- * Context
     Context,
-    Cancelled (..),
-    CancelToken,
+    CancelToken (..),
     newSTM,
     derive,
     cancel,
@@ -35,16 +34,12 @@ data Context = Context
     onCancel :: STM ()
   }
 
--- | A 'Cancelled' exception is thrown when a __thread__ voluntarily capitulates after observing its __context__ is
--- /cancelled/.
-newtype Cancelled
-  = Cancelled CancelToken
-  deriving stock (Eq, Show)
-  deriving anyclass (Exception)
-
+-- | A cancel token represents a request for /cancellation/; this request can be fulfilled by throwing the token as an
+-- exception.
 newtype CancelToken
   = CancelToken Int
   deriving stock (Eq, Show)
+  deriving anyclass (Exception)
 
 newSTM :: STM Context
 newSTM =

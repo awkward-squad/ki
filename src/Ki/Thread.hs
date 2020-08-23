@@ -36,7 +36,7 @@ instance Ord (Thread a) where
   compare (Thread id1 _) (Thread id2 _) =
     compare id1 id2
 
--- | Fork a __thread__ within a __scope__.
+-- | Create a __thread__ within a __scope__ to compute a value concurrently.
 --
 -- /Throws/:
 --
@@ -90,7 +90,7 @@ kill thread = do
   throwTo (threadId thread) ThreadKilled
   void (await thread)
 
--- | Variant of 'async' that does not return a handle to the __thread__.
+-- | Create a __thread__ within a __scope__ to compute a value concurrently.
 --
 -- If the __thread__ throws an exception, the exception is propagated up the call tree to the __thread__ that opened its
 -- __scope__.
@@ -131,5 +131,5 @@ shouldPropagateException context exception =
     Just _ -> pure True
     Nothing ->
       case fromException exception of
-        Just (Ki.Context.Cancelled token) -> atomically ((/= token) <$> Ki.Context.cancelled context <|> pure True)
+        Just token -> atomically ((/= token) <$> Ki.Context.cancelled context <|> pure True)
         Nothing -> pure True

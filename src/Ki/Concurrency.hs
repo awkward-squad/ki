@@ -32,6 +32,7 @@ module Ki.Concurrency
     readTVar,
     registerDelay,
     retry,
+    threadDelay,
     throwIO,
     throwSTM,
     throwTo,
@@ -48,7 +49,7 @@ where
 
 #ifdef TEST
 
-import Control.Concurrent.Classy (atomically, catch, check, modifyTVar', myThreadId, newMVar, newTVar, putTMVar, readTBQueue, readTQueue, writeTQueue, readTMVar, readTVar, retry, throwSTM, uninterruptibleMask, unsafeUnmask, withMVar, writeTBQueue, writeTVar)
+import Control.Concurrent.Classy (atomically, catch, check, modifyTVar', myThreadId, newMVar, newTVar, putTMVar, readTBQueue, readTQueue, writeTQueue, readTMVar, readTVar, retry, threadDelay, throwSTM, uninterruptibleMask, unsafeUnmask, withMVar, writeTBQueue, writeTVar)
 import qualified Control.Concurrent.Classy
 import Control.Exception (Exception, SomeException)
 import Numeric.Natural (Natural)
