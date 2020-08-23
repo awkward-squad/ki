@@ -10,7 +10,7 @@
 module Main (main) where
 
 import Control.Concurrent.Classy hiding (fork, forkWithUnmask, wait)
-import Control.Exception (Exception (fromException), MaskingState (..), pattern ErrorCall)
+import Control.Exception (Exception (fromException), MaskingState (..), SomeException, pattern ErrorCall)
 import Control.Monad
 import Data.Foldable
 import Data.Function
@@ -78,7 +78,7 @@ main = do
     returns True do
       ref <- newIORef False
       scoped \scope -> do
-        fork scope (writeIORef ref True)
+        fork_ scope (writeIORef ref True)
         wait scope
       readIORef ref
 
@@ -93,7 +93,7 @@ main = do
   test "using a closed scope throws" do
     throws (ErrorCall "ki: scope closed") do
       scope <- scoped pure
-      fork scope (pure ())
+      fork_ scope (pure ())
 
   test "`await` waits" do
     returns True do
@@ -131,7 +131,7 @@ main = do
   test "`fork` propagates exceptions" do
     throws A do
       scoped \scope -> do
-        fork scope (throw A)
+        fork_ scope (throw A)
         wait scope
 
   test "`async` doesn't propagate exceptions" do
@@ -186,7 +186,7 @@ main = do
   test "`scoped` re-throws from `fork`" do
     throws A do
       scoped \scope -> do
-        fork scope (() <$ throw A)
+        fork_ scope (() <$ throw A)
         wait scope
 
   test "`scoped` kills threads when it throws" do
@@ -195,7 +195,7 @@ main = do
         scoped \scope -> do
           var <- newEmptyMVar
           uninterruptibleMask_ do
-            forkWithUnmask scope \unmask -> do
+            forkWithUnmask_ scope \unmask -> do
               putMVar var ()
               unmask block
           takeMVar var
@@ -205,26 +205,26 @@ main = do
     returns () do
       ignoring @A do
         scoped \scope -> do
-          fork scope block
-          fork scope (void (throw A))
+          fork_ scope block
+          fork_ scope (void (throw A))
           wait scope
 
   test "thread waiting on its own scope deadlocks" do
     deadlocks do
       scoped \scope -> do
-        fork scope (wait scope)
+        fork_ scope (wait scope)
         wait scope
 
   test "thread waiting on its own scope allows async exceptions" do
     returns () do
       scoped \scope ->
-        fork scope (wait scope)
+        fork_ scope (wait scope)
 
   test "`fork` doesn't propagate `Cancelled`" do
     returns () do
       scoped \scope -> do
         cancel scope
-        fork scope do
+        fork_ scope do
           cancelled >>= \case
             Nothing -> throw A
             Just capitulate -> capitulate
@@ -387,7 +387,21 @@ data A
   deriving stock (Eq, Show)
   deriving anyclass (Exception)
 
-await' :: Thread a -> P a
+fork_ :: Scope -> (Context => DejaFu.Program DejaFu.Basic IO a) -> DejaFu.Program DejaFu.Basic IO ()
+fork_ scope action =
+  void (fork scope action)
+
+forkWithUnmask_ ::
+  Scope ->
+  ( Context =>
+    (forall x. DejaFu.Program DejaFu.Basic IO x -> DejaFu.Program DejaFu.Basic IO x) ->
+    DejaFu.Program DejaFu.Basic IO a
+  ) ->
+  DejaFu.Program DejaFu.Basic IO ()
+forkWithUnmask_ scope action =
+  void (forkWithUnmask scope action)
+
+await' :: Thread (Either SomeException a) -> P a
 await' =
   await >=> either throw pure
 

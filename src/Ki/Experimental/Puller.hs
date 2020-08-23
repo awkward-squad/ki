@@ -5,15 +5,15 @@ module Ki.Experimental.Puller
   )
 where
 
-import qualified Ki.Fork
 import Ki.Prelude
 import Ki.Scope (Scope)
 import qualified Ki.Scope
+import qualified Ki.Thread
 
 puller :: Scope -> (IO a -> IO ()) -> IO (a -> STM ())
 puller scope action = do
   queue <- newQ
-  Ki.Fork.fork scope (action (pullQ queue (Ki.Scope.cancelledSTM scope)))
+  _ <- Ki.Thread.fork scope (action (pullQ queue (Ki.Scope.cancelledSTM scope)))
   pure (pushQ queue)
 
 newtype Q a

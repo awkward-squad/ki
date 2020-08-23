@@ -94,12 +94,15 @@ scoped context f = do
   uninterruptibleMask \restore -> do
     result <- try (restore (f scope))
     closeScopeException <- close scope
+    let throw :: SomeException -> IO a
+        throw =
+          throwIO . Ki.AsyncThreadFailed.unwrap
     case result of
       -- If the callback failed, we don't care if we were thrown an async exception while closing the scope
-      Left exception -> throwIO (Ki.AsyncThreadFailed.unwrap exception)
+      Left exception -> throw exception
       -- Otherwise, throw that exception (if it exists)
       Right value -> do
-        for_ @Maybe closeScopeException (throwIO . Ki.AsyncThreadFailed.unwrap)
+        whenJust closeScopeException throw
         pure value
 
 unlessCancelledSTM :: Scope -> STM (IO a) -> IO a

@@ -115,9 +115,7 @@ library
     Ki.Experimental.Implicit.Pusher
     Ki.Experimental.Puller
     Ki.Experimental.Pusher
-    Ki.Fork
     Ki.Implicit.Context
-    Ki.Implicit.Fork
     Ki.Implicit.Scope
     Ki.Implicit.Thread
     Ki.Prelude

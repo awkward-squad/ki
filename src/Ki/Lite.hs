@@ -9,8 +9,8 @@ module Ki.Lite
     -- * Spawning threads
 
     -- ** Fork
-    Ki.Fork.fork,
-    Ki.Fork.forkWithUnmask,
+    Ki.Thread.fork,
+    Ki.Thread.forkWithUnmask,
 
     -- ** Async
     Ki.Thread.async,
@@ -37,7 +37,6 @@ import qualified Ki.Context
 import qualified Ki.Duration
 import qualified Ki.Experimental.Puller
 import qualified Ki.Experimental.Pusher
-import qualified Ki.Fork
 import Ki.Prelude
 import qualified Ki.Scope
 import qualified Ki.Thread

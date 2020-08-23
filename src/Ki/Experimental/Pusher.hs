@@ -4,10 +4,11 @@ module Ki.Experimental.Pusher
 where
 
 import Control.Monad
-import qualified Ki.Fork
 import Ki.Prelude
 import Ki.Scope (Scope)
 import qualified Ki.Scope
+import Ki.Thread (Thread)
+import qualified Ki.Thread
 
 data S a
   = S !a !(TVar Bool)
@@ -21,10 +22,11 @@ pusher scope action = do
         writeQ queue (S value tookVar)
         atomicallyIO (pure <$> (readTVar tookVar >>= check) <|> Ki.Scope.cancelledSTM scope)
 
-  uninterruptibleMask \_ -> do
-    Ki.Fork.forkWithUnmask scope \unmask -> do
-      unmask (action push) `onException` closeQ queue
-      closeQ queue
+  _ :: Thread () <-
+    uninterruptibleMask \_ -> do
+      Ki.Thread.forkWithUnmask scope \unmask -> do
+        unmask (action push) `onException` closeQ queue
+        closeQ queue
 
   let pull = do
         S value tookVar <- readQ queue

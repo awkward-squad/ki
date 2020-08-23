@@ -25,6 +25,7 @@ module Ki.Concurrency
     newTVarIO,
     onException,
     putTMVar,
+    putTMVarIO,
     readTBQueue,
     readTMVar,
     readTQueue,
@@ -105,6 +106,10 @@ onException action cleanup =
     _ <- cleanup
     throwIO (exception :: SomeException)
 
+putTMVarIO :: TMVar a -> a -> IO ()
+putTMVarIO var x =
+  atomically (putTMVar var x)
+
 registerDelay :: Int -> IO (STM (), IO ())
 registerDelay micros = do
   var <- Control.Concurrent.Classy.registerDelay micros
@@ -148,6 +153,10 @@ forkIO action =
   IO \s ->
     case fork# action s of
       (# s1, tid #) -> (# s1, ThreadId tid #)
+
+putTMVarIO :: TMVar a -> a -> IO ()
+putTMVarIO var x =
+  atomically (putTMVar var x)
 
 #if defined(mingw32_HOST_OS)
 registerDelay :: Int -> IO (STM (), IO ())

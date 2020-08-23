@@ -9,8 +9,8 @@ module Ki.Implicit
     -- * Spawning threads
 
     -- ** Fork
-    Ki.Implicit.Fork.fork,
-    Ki.Implicit.Fork.forkWithUnmask,
+    Ki.Implicit.Thread.fork,
+    Ki.Implicit.Thread.forkWithUnmask,
 
     -- ** Async
     Ki.Implicit.Thread.async,
@@ -53,7 +53,6 @@ import qualified Ki.Duration
 import qualified Ki.Experimental.Implicit.Puller
 import qualified Ki.Experimental.Implicit.Pusher
 import qualified Ki.Implicit.Context
-import qualified Ki.Implicit.Fork
 import qualified Ki.Implicit.Scope
 import qualified Ki.Implicit.Thread
 import Ki.Prelude

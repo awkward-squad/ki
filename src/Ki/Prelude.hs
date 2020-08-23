@@ -1,5 +1,6 @@
 module Ki.Prelude
   ( atomicallyIO,
+    whenJust,
     whenLeft,
     whenM,
     module X,
@@ -25,6 +26,10 @@ import Prelude as X hiding (IO)
 atomicallyIO :: STM (IO a) -> IO a
 atomicallyIO =
   join . atomically
+
+whenJust :: Applicative m => Maybe a -> (a -> m ()) -> m ()
+whenJust x f =
+  maybe (pure ()) f x
 
 whenLeft :: Applicative m => Either a b -> (a -> m ()) -> m ()
 whenLeft x f =
