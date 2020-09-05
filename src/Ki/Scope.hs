@@ -2,10 +2,9 @@
 {-# LANGUAGE TypeApplications #-}
 
 module Ki.Scope
-  ( Scope,
+  ( Scope(..),
     cancel,
     cancelledSTM,
-    context,
     fork,
     scoped,
     wait,

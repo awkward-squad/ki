@@ -50,7 +50,7 @@ module Ki.Implicit
   )
 where
 
-import Ki.Context (CancelToken)
+import Ki.CancelToken (CancelToken)
 import qualified Ki.Context
 import qualified Ki.Duration
 import Ki.Duration (Duration)

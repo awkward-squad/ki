@@ -1,16 +1,13 @@
 module Ki.Context
-  ( Context,
-    CancelToken,
+  ( Context (..),
+    deriveCtx,
     dummy,
-    derive,
     global,
-    cancel,
-    cancelled,
   )
 where
 
-import Ki.Context.Internal (CancelToken (..))
-import qualified Ki.Context.Internal
+import Ki.CancelToken (CancelToken)
+import Ki.Context.Internal
 import Ki.Prelude
 
 data Context = Context
@@ -26,6 +23,14 @@ data Context = Context
     derive :: STM Context
   }
 
+deriveCtx :: Ctx -> Context
+deriveCtx ctx =
+  Context
+    { cancel = ctxCancel ctx,
+      cancelled = ctxCancelled ctx,
+      derive = deriveCtx <$> ctxDerive ctx
+    }
+
 dummy :: Context
 dummy =
   Context
@@ -40,13 +45,5 @@ global =
   Context
     { cancel = pure (),
       cancelled = retry,
-      derive = f <$> Ki.Context.Internal.newSTM
+      derive = deriveCtx <$> ctxNewSTM
     }
-  where
-    f :: Ki.Context.Internal.Context -> Context
-    f context =
-      Context
-        { cancel = Ki.Context.Internal.cancel context,
-          cancelled = Ki.Context.Internal.cancelled context,
-          derive = f <$> Ki.Context.Internal.derive context
-        }

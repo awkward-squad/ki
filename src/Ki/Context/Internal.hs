@@ -2,28 +2,28 @@
 {-# LANGUAGE TypeApplications #-}
 
 module Ki.Context.Internal
-  ( -- * Context
-    Context,
-    CancelToken (..),
-    newSTM,
-    derive,
-    cancel,
-    cancelled,
+  ( Ctx (..),
+    ctxNewSTM,
+    ctxDerive,
+    ctxCancel,
+    ctxCancelSTM,
+    ctxCancelled,
   )
 where
 
 import qualified Data.IntMap.Strict as IntMap
+import Ki.CancelToken
 import Ki.Prelude
 
-data Context = Context
+data Ctx = Ctx
   { cancelTokenVar :: TVar (Maybe CancelToken),
-    childrenVar :: TVar (IntMap Context),
+    childrenVar :: TVar (IntMap Ctx),
     -- | The next id to assign to a child context. The child needs a unique identifier so it can delete itself from its
     -- parent's children map if it's cancelled independently. Wrap-around seems ok; that's a *lot* of children for one
     -- parent to have.
     nextIdVar :: TVar Int,
     -- | When I'm cancelled, this action removes myself from my parent's context. This isn't simply a pointer to the
-    -- parent Context for three reasons:
+    -- parent 'Ctx' for three reasons:
     --
     --   * "Root" contexts don't have a parent, so it'd have to be a Maybe (one more pointer indirection)
     --   * We don't really need a reference to the parent, because we only want to be able to remove ourselves from its
@@ -34,26 +34,19 @@ data Context = Context
     onCancel :: STM ()
   }
 
--- | A cancel token represents a request for /cancellation/; this request can be fulfilled by throwing the token as an
--- exception.
-newtype CancelToken
-  = CancelToken Int
-  deriving stock (Eq, Show)
-  deriving anyclass (Exception)
-
-newSTM :: STM Context
-newSTM =
+ctxNewSTM :: STM Ctx
+ctxNewSTM =
   newWith (pure ())
 
-newWith :: STM () -> STM Context
+newWith :: STM () -> STM Ctx
 newWith onCancel = do
   cancelTokenVar <- newTVar Nothing
   childrenVar <- newTVar IntMap.empty
   nextIdVar <- newTVar 0
-  pure Context {cancelTokenVar, childrenVar, nextIdVar, onCancel}
+  pure Ctx {cancelTokenVar, childrenVar, nextIdVar, onCancel}
 
-derive :: Context -> STM Context
-derive context@Context {cancelTokenVar, childrenVar, nextIdVar} =
+ctxDerive :: Ctx -> STM Ctx
+ctxDerive context@Ctx {cancelTokenVar, childrenVar, nextIdVar} =
   readTVar cancelTokenVar >>= \case
     Nothing -> do
       childId <- readTVar nextIdVar
@@ -64,13 +57,13 @@ derive context@Context {cancelTokenVar, childrenVar, nextIdVar} =
       pure child
     Just _ -> pure context
 
-cancel :: Context -> IO ()
-cancel context = do
-  token <- uniqueInt
-  atomically (cancelSTM context (CancelToken token))
+ctxCancel :: Ctx -> IO ()
+ctxCancel context = do
+  token <- newCancelToken
+  atomically (ctxCancelSTM context token)
 
-cancelSTM :: Context -> CancelToken -> STM ()
-cancelSTM Context {cancelTokenVar, childrenVar, onCancel} token =
+ctxCancelSTM :: Ctx -> CancelToken -> STM ()
+ctxCancelSTM Ctx {cancelTokenVar, childrenVar, onCancel} token =
   readTVar cancelTokenVar >>= \case
     Nothing -> do
       writeTVar cancelTokenVar $! Just token
@@ -79,8 +72,8 @@ cancelSTM Context {cancelTokenVar, childrenVar, onCancel} token =
       onCancel
     Just _ -> pure ()
 
-cancelSTM_ :: CancelToken -> Context -> STM ()
-cancelSTM_ token Context {cancelTokenVar, childrenVar} =
+cancelSTM_ :: CancelToken -> Ctx -> STM ()
+cancelSTM_ token Ctx {cancelTokenVar, childrenVar} =
   readTVar cancelTokenVar >>= \case
     Nothing -> do
       writeTVar cancelTokenVar $! Just token
@@ -88,8 +81,8 @@ cancelSTM_ token Context {cancelTokenVar, childrenVar} =
       for_ (IntMap.elems children) (cancelSTM_ token)
     Just _ -> pure ()
 
-cancelled :: Context -> STM CancelToken
-cancelled Context {cancelTokenVar} =
+ctxCancelled :: Ctx -> STM CancelToken
+ctxCancelled Ctx {cancelTokenVar} =
   readTVar cancelTokenVar >>= \case
     Nothing -> retry
     Just token -> pure token

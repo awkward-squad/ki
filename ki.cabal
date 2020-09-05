@@ -98,9 +98,11 @@ library
   exposed-modules:
     Ki,
     Ki.Implicit,
+    Ki.Internal,
   hs-source-dirs: src
   other-modules:
     Ki.AsyncThreadFailed
+    Ki.CancelToken
     Ki.Concurrency
     Ki.Context
     Ki.Context.Internal
