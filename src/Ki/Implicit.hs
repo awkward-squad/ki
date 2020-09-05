@@ -41,11 +41,12 @@ module Ki.Implicit
     Ki.Duration.microseconds,
     Ki.Duration.milliseconds,
     Ki.Duration.seconds,
-
+    {-
     -- * Experimental
     -- $experimental
     puller,
     pusher,
+    -}
   )
 where
 
@@ -53,8 +54,8 @@ import Ki.Context (CancelToken)
 import qualified Ki.Context
 import qualified Ki.Duration
 import Ki.Duration (Duration)
-import qualified Ki.Experimental.Puller
-import qualified Ki.Experimental.Pusher
+-- import qualified Ki.Experimental.Puller
+-- import qualified Ki.Experimental.Pusher
 import Ki.Prelude
 import Ki.Scope (Scope)
 import qualified Ki.Scope
@@ -162,13 +163,13 @@ global :: (Context => IO a) -> IO a
 global action =
   let ?context = Ki.Context.global in action
 
-puller :: Scope -> (Context => IO a -> IO b) -> IO (a -> STM (), Thread b)
-puller scope action =
-  Ki.Experimental.Puller.puller scope (with scope action)
+-- puller :: Scope -> (Context => IO a -> IO b) -> IO (a -> STM (), Thread b)
+-- puller scope action =
+--   Ki.Experimental.Puller.puller scope (with scope action)
 
-pusher :: Scope -> (Context => (a -> IO ()) -> IO b) -> IO (STM (Maybe a), Thread b)
-pusher scope action =
-  Ki.Experimental.Pusher.pusher scope (with scope action)
+-- pusher :: Scope -> (Context => (a -> IO ()) -> IO b) -> IO (STM (Maybe a), Thread b)
+-- pusher scope action =
+--   Ki.Experimental.Pusher.pusher scope (with scope action)
 
 -- | Open a __scope__, perform an @IO@ action with it, then close it.
 --

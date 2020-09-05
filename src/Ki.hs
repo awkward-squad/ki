@@ -26,19 +26,20 @@ module Ki
     Ki.Duration.microseconds,
     Ki.Duration.milliseconds,
     Ki.Duration.seconds,
-
+    {-
     -- * Experimental
     -- $experimental
     Ki.Experimental.Puller.puller,
     Ki.Experimental.Pusher.pusher,
+    -}
   )
 where
 
 import qualified Ki.Context
 import qualified Ki.Duration
 import Ki.Duration (Duration)
-import qualified Ki.Experimental.Puller
-import qualified Ki.Experimental.Pusher
+-- import qualified Ki.Experimental.Puller
+-- import qualified Ki.Experimental.Pusher
 import Ki.Prelude
 import Ki.Scope (Scope)
 import qualified Ki.Scope
