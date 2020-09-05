@@ -17,10 +17,6 @@ version: 0
 description:
   A lightweight, structured concurrency library.
 
-  If this is your first time here, please see the
-  <https://github.com/mitchellwrosen/ki#ki README> for an overview of this
-  package, which includes a link to a tutorial series.
-
   This package comes in two variants:
 
   * "Ki" exposes the most stripped-down variant; start here.

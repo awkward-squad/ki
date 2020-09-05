@@ -13,10 +13,10 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        ghc: ["8.10.1", "8.8.3", "8.6.5"]
+        ghc: ["8.10.2", "8.8.4", "8.6.5"]
         include:
           - os: macOS-latest
-            ghc: "8.10.1"
+            ghc: "8.10.2"
 
     steps:
       - uses: actions/checkout@v2
@@ -51,11 +51,6 @@ jobs:
 
       - name: Build
         run: cabal build ki:lib:ki --disable-optimization
-
-      - name: Typecheck tutorials
-        run: |
-          cabal install markdown-unlit
-          cabal exec -- ghci -package ki -pgmL ~/.cabal/bin/markdown-unlit tutorial/*.lhs < /dev/null
 
       - name: Build tests
         run: cabal build ki:test:tests --constraint "ki +test" --disable-optimization --enable-tests

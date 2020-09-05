@@ -15,14 +15,6 @@
 * [Go Concurrency Patterns: Context](https://blog.golang.org/context)
 * [.NET 4 Cancellation Framework](https://devblogs.microsoft.com/pfxteam/net-4-cancellation-framework/)
 
-## Tutorial
-
-If this is your first time here, please have a look at the tutorial, which
-should (eventually) demonstrate how to use every type and function defined in
-this library.
-
-[In-progress tutorial series](tutorial/01.md)
-
 ## Overview
 
 ### Structured concurrency
