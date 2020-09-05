@@ -27,29 +27,20 @@ import Prelude
 
 main :: IO ()
 main = do
-  test "background context isn't cancelled" do
-    returns False do
-      isJust <$> cancelled
-
-  test "scope doesn't start out cancelled" do
-    returns False do
-      scoped \_ ->
-        isJust <$> cancelled
-
-  test "`cancel` cancels scope" do
+  test "background context isn't cancelled" (returns False (isJust <$> cancelled))
+  test "new scope doesn't start out cancelled" (returns False (scoped \_ -> isJust <$> cancelled))
+  test "`cancel` observable by `cancelled` (scope itself)" do
     returns True do
       scoped \scope -> do
         cancel scope
         isJust <$> cancelled
-
-  test "`cancel` cancels inner scope" do
+  test "`cancel` observable by `cancelled` (inner scope)" do
     returns True do
       scoped \scope1 -> do
         scoped \_ -> do
           cancel scope1
           isJust <$> cancelled
-
-  test "`cancel` cancels inner thread" do
+  test "`cancel` observable by `cancelled` (child)" do
     returns True do
       scoped \scope1 -> do
         thread <-
@@ -57,14 +48,33 @@ main = do
             cancel scope1
             isJust <$> cancelled
         await' thread
-
+  test "`cancel` observable by `cancelled` (child's inner scope)" do
+    returns True do
+      scoped \scope1 -> do
+        thread <-
+          async scope1 do
+            scoped \_ -> do
+              cancel scope1
+              isJust <$> cancelled
+        await' thread
+  test "`cancel` observable by `cancelled` (grandchild)" do
+    returns True do
+      scoped \scope1 -> do
+        thread1 <-
+          async scope1 do
+            scoped \scope2 -> do
+              thread2 <-
+                async scope2 do
+                  cancel scope1
+                  isJust <$> cancelled
+              await' thread2
+        await' thread1
   test "inner scope inherits cancellation" do
     returns True do
       scoped \scope1 -> do
         cancel scope1
         scoped \_ ->
           isJust <$> cancelled
-
   test "inner thread inherits cancellation" do
     returns True do
       scoped \scope -> do
@@ -263,12 +273,7 @@ todo :: String -> IO ()
 todo =
   printf "[-] %4.0fms %s\n" (0 :: Float)
 
-runTest ::
-  Eq a =>
-  (DejaFu.Condition -> Bool) ->
-  (a -> Bool) ->
-  (Context => P a) ->
-  IO (DejaFu.Result a)
+runTest :: Eq a => (DejaFu.Condition -> Bool) -> (a -> Bool) -> (Context => P a) -> IO (DejaFu.Result a)
 runTest p q t =
   DejaFu.runTestWithSettings
     ( DejaFu.fromWayAndMemType
