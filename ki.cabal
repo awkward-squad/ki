@@ -112,6 +112,7 @@ library
     Ki.Experimental.Pusher
     Ki.Prelude
     Ki.Scope
+    Ki.SyncException
     Ki.Thread
     Ki.Timeout
   if flag(test)

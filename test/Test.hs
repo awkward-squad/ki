@@ -193,11 +193,7 @@ main = do
 
   todo "`forkWithUnmask` provides an unmasking function"
 
-  test "`scoped` re-throws from `fork`" do
-    throws A do
-      scoped \scope -> do
-        fork_ scope (() <$ throw A)
-        wait scope
+  todo "`scoped` wraps async exceptions it throws in SyncException"
 
   test "`scoped` kills threads when it throws" do
     returns () do

@@ -2,7 +2,7 @@
 {-# LANGUAGE TypeApplications #-}
 
 module Ki.Scope
-  ( Scope(..),
+  ( Scope (..),
     cancel,
     cancelledSTM,
     fork,
@@ -21,6 +21,7 @@ import Ki.Context (Context)
 import qualified Ki.Context
 import Ki.Duration (Duration)
 import Ki.Prelude
+import qualified Ki.SyncException
 import Ki.Timeout (timeoutSTM)
 
 -- | A __scope__ delimits the lifetime of all __threads__ created within it.
@@ -94,7 +95,7 @@ scoped context f = do
     closeScopeException <- close scope
     let throw :: SomeException -> IO a
         throw =
-          throwIO . Ki.AsyncThreadFailed.unwrap
+          Ki.SyncException.throw . Ki.AsyncThreadFailed.unwrap
     case result of
       -- If the callback failed, we don't care if we were thrown an async exception while closing the scope
       Left exception -> throw exception
