@@ -70,14 +70,6 @@ that aren't supposed to crash.
 The implementation is tested for deadlocks, race conditions, and other concurrency anomalies by
 [`dejafu`](http://hackage.haskell.org/package/dejafu), a fantastic unit-testing library for concurrent programs.
 
-### Comparison to other libraries
-
-#### `async`
-
-#### `scheduler`
-
-#### `slave-thread`
-
 ## Recommended reading
 
   * https://vorpus.org/blog/timeouts-and-cancellation-for-humans/
