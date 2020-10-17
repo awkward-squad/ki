@@ -53,6 +53,7 @@ source-repository head
 
 common component
   default-extensions:
+    AllowAmbiguousTypes
     BlockArguments
     ConstraintKinds
     DeriveAnyClass
@@ -134,4 +135,6 @@ test-suite tests
   ghc-options: -rtsopts -threaded
   hs-source-dirs: test
   main-is: Test.hs
+  other-modules:
+    DejaFuTestUtils
   type: exitcode-stdio-1.0
