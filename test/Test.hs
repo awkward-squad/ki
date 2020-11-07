@@ -4,7 +4,13 @@
 module Main (main) where
 
 import Control.Concurrent.Classy hiding (fork, forkWithUnmask, wait)
-import Control.Exception (Exception, MaskingState (..), SomeException, pattern ErrorCall)
+import Control.Exception
+  ( AsyncException (ThreadKilled),
+    Exception,
+    MaskingState (..),
+    SomeException,
+    pattern ErrorCall,
+  )
 import Control.Monad
 import Data.Function
 import Data.Functor
@@ -88,10 +94,14 @@ main = do
       wait scope
     readIORef ref
 
-  todo "`waitFor` works"
-  -- nondeterministinc [False, True]
+  test "`waitFor` sometimes waits for a thread, sometimes kills it" (nondeterministic [Right False, Right True]) do
+    ref <- newIORef False
+    scoped \scope -> do
+      fork_ scope (writeIORef ref True)
+      waitFor scope 1
+    readIORef ref
 
-  test "using a closed scope throws" (throws (ErrorCall "ki: scope closed")) do
+  test "using a closed scope throws ErrorCall" (throws (ErrorCall "ki: scope closed")) do
     scope <- scoped pure
     fork_ scope (pure ())
 
@@ -125,18 +135,39 @@ main = do
   --       _ <- await thread
   --       kill thread
 
-  test "`fork` propagates exceptions" (throws A) do
+  test "`fork` forks a background thread" (returns True) do
+    scoped \scope -> do
+      var <- newEmptyMVar
+      fork_ scope (myThreadId >>= putMVar var)
+      (/=) <$> myThreadId <*> takeMVar var
+
+  test "`fork`ed thread inherits masking state" (returns (Unmasked, MaskedInterruptible, MaskedUninterruptible)) do
+    scoped \scope -> do
+      var1 <- newEmptyMVar
+      var2 <- newEmptyMVar
+      var3 <- newEmptyMVar
+      fork_ scope (getMaskingState >>= putMVar var1)
+      mask_ (fork_ scope (getMaskingState >>= putMVar var2))
+      uninterruptibleMask_ (fork_ scope (getMaskingState >>= putMVar var3))
+      (,,) <$> takeMVar var1 <*> takeMVar var2 <*> takeMVar var3
+
+  test "`fork` propagates sync exceptions to parent" (throws A) do
     scoped \scope -> do
       fork_ scope (throw A)
       wait scope
 
-  test "`async` doesn't propagate exceptions" (returns ()) (scoped \scope -> void (async scope (throw A)))
+  {- seems like a dejafu bug
+  test "`fork` propagates async exceptions to parent" (throws ThreadKilled) do
+    scoped \scope -> do
+      var <- newEmptyMVar
+      fork_ scope do
+        myThreadId >>= putMVar var
+        block
+      takeMVar var >>= killThread
+      block
+  -}
 
-  -- I think this deadlocks because of https://github.com/barrucadu/dejafu/issues/324
-  -- Still, we want to assert either it succeeds or throws A
-  --
-  --   scoped \scope -> do
-  --     fork scope (throw A)
+  test "`async` doesn't propagate exceptions" (returns ()) (scoped \scope -> void (async scope (throw A)))
 
   test "`await` returns Left if thread throws" (returns True) do
     scoped \scope -> do

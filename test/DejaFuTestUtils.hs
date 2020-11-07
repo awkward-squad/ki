@@ -6,6 +6,7 @@ module DejaFuTestUtils
     block,
     deadlocks,
     ignoring,
+    nondeterministic,
     returns,
     test,
     throws,
@@ -32,10 +33,20 @@ type P =
 
 test :: (Eq a, Show a) => String -> DejaFu.Predicate a -> (Context => P a) -> IO ()
 test name predicate t = do
-  result <- DejaFu.runTestWithSettings dejaFuSettings (DejaFu.representative predicate) (global t)
+  result <- DejaFu.runTestWithSettings settings (DejaFu.representative predicate) (global t)
   printf "[%s] %s\n" (if DejaFu._pass result then "x" else " ") name
   for_ (DejaFu._failures result) \(value, trace) -> prettyPrintTrace value trace
   unless (DejaFu._pass result) exitFailure
+  where
+    settings :: DejaFu.Settings IO a
+    settings =
+      DejaFu.fromWayAndMemType (DejaFu.systematically bounds) DejaFu.defaultMemType
+      where
+        bounds =
+          DejaFu.Bounds
+            { DejaFu.boundPreemp = Just 2,
+              DejaFu.boundFair = Just 5
+            }
 
 _failingTest :: String -> IO (DejaFu.Result a) -> IO ()
 _failingTest name action = do
@@ -47,15 +58,15 @@ todo :: String -> IO ()
 todo =
   printf "[-] %s\n"
 
-dejaFuSettings :: DejaFu.Settings IO a
-dejaFuSettings =
-  DejaFu.fromWayAndMemType (DejaFu.systematically bounds) DejaFu.defaultMemType
-  where
-    bounds =
-      DejaFu.Bounds
-        { DejaFu.boundPreemp = Just 2,
-          DejaFu.boundFair = Just 5
-        }
+deadlocks :: DejaFu.Predicate a
+deadlocks =
+  DejaFu.alwaysTrue \case
+    Left DejaFu.Deadlock -> True
+    _ -> False
+
+nondeterministic :: (Eq a, Show a ) => [Either DejaFu.Condition a] -> DejaFu.Predicate a
+nondeterministic =
+  DejaFu.gives
 
 returns :: Eq a => a -> DejaFu.Predicate a
 returns expected =
@@ -69,11 +80,7 @@ throws expected =
     Left (DejaFu.UncaughtException actual) -> fromException actual == Just expected
     _ -> False
 
-deadlocks :: DejaFu.Predicate a
-deadlocks =
-  DejaFu.alwaysTrue \case
-    Left DejaFu.Deadlock -> True
-    _ -> False
+--
 
 block :: P ()
 block =
@@ -82,6 +89,8 @@ block =
 ignoring :: forall e. Exception e => P () -> P ()
 ignoring action =
   catch @_ @e action \_ -> pure ()
+
+--
 
 prettyPrintTrace :: Show a => Either DejaFu.Condition a -> DejaFu.Trace -> IO ()
 prettyPrintTrace value trace = do
