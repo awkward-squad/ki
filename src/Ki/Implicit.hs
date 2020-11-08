@@ -2,29 +2,34 @@
 
 module Ki.Implicit
   ( -- * Context
-    globalContext,
     Context,
+    globalContext,
 
     -- * Scope
+    Ki.Scope.Scope,
     scoped,
     Ki.Scope.wait,
     Ki.Scope.waitSTM,
     waitFor,
-    Ki.Scope.Scope,
 
     -- * Spawning threads
     -- $spawning-threads
+    Ki.Thread.Thread,
+
+    -- ** Fork
     fork,
     fork_,
     forkWithUnmask,
     forkWithUnmask_,
+
+    -- ** Async
     async,
     asyncWithUnmask,
-    Ki.Thread.await,
-    Ki.Thread.awaitSTM,
-    Ki.Thread.awaitFor,
-    Ki.Thread.Thread,
-    -- kill,
+
+    -- ** Await
+    await,
+    awaitSTM,
+    awaitFor,
 
     -- * Soft-cancellation
     Ki.Scope.cancelScope,
@@ -61,7 +66,7 @@ import Ki.Timeout (timeoutSTM)
 
 -- $spawning-threads
 --
--- There are two kinds of __thread__ with different exception-propagation semantics.
+-- There are two variants of __thread__-creating functions with different exception-propagation semantics.
 --
 -- * If a __thread__ created with 'fork' throws an exception, it is immediately propagated up the call tree to the
 -- __thread__ that created its __scope__.
@@ -97,6 +102,33 @@ asyncWithUnmask :: Scope -> (Context => (forall x. IO x -> IO x) -> IO a) -> IO 
 asyncWithUnmask scope action =
   Ki.Thread.asyncWithUnmask scope (let ?context = Ki.Scope.context scope in action)
 
+-- | Wait for a __thread__ to finish.
+--
+-- /Throws/:
+--
+--   * 'ThreadFailed' if the __thread__ threw an exception and was created with 'fork'.
+await :: Ki.Thread.Thread a -> IO a
+await =
+  Ki.Thread.await
+
+-- | @STM@ variant of 'await'.
+--
+-- /Throws/:
+--
+--   * 'ThreadFailed' if the __thread__ threw an exception and was created with 'fork'.
+awaitSTM :: Ki.Thread.Thread a -> STM a
+awaitSTM =
+  Ki.Thread.awaitSTM
+
+-- | Variant of 'await' that waits for up to the given duration.
+--
+-- /Throws/:
+--
+--   * 'ThreadFailed' if the __thread__ threw an exception and was created with 'fork'.
+awaitFor :: Ki.Thread.Thread a -> Duration -> IO (Maybe a)
+awaitFor =
+  Ki.Thread.awaitFor
+
 -- | Return whether the current __context__ is /cancelled/.
 --
 -- __Threads__ running in a /cancelled/ __context__ should terminate as soon as possible. The cancel token may be thrown
@@ -113,8 +145,9 @@ cancelledSTM =
 
 -- | Create a __thread__ within a __scope__ to compute a value concurrently.
 --
--- If the __thread__ throws an exception, the exception is propagated up the call tree to the __thread__ that opened its
--- __scope__, unless that exception is a 'CancelToken' that fulfills a /cancellation/ request.
+-- If the __thread__ throws an exception, the exception is wrapped in 'ThreadFailed' and immediately propagated up the
+-- call tree to the __thread__ that opened its __scope__, unless that exception is a 'CancelToken' that fulfills a
+-- /cancellation/ request.
 --
 -- /Throws/:
 --
@@ -155,12 +188,9 @@ globalContext :: (Context => IO a) -> IO a
 globalContext action =
   let ?context = Ki.Context.globalContext in action
 
--- | Open a __scope__, perform an @IO@ action with it, then close it.
+-- | Open a __scope__, perform an @IO@ action with it, then close the __scope__.
 --
 -- When the __scope__ is closed, all remaining __threads__ created within it are killed.
---
--- It is generally not advised to pass a __scope__ into a function, or share it amongst __threads__, as this takes the
--- "structure" out of "structured concurrency".
 --
 -- /Throws/:
 --
@@ -188,8 +218,8 @@ sleep :: Context => Duration -> IO ()
 sleep duration =
   timeoutSTM duration yieldSTM (pure ())
 
--- | Variant of 'wait' that waits for up to the given duration. This is useful for giving __threads__ some time to
--- fulfill a cancellation request before killing them.
+-- | Variant of 'Ki.Scope.wait' that waits for up to the given duration. This is useful for giving __threads__ some time
+-- to fulfill a cancellation request before killing them.
 waitFor :: Scope -> Duration -> IO ()
 waitFor =
   Ki.Scope.waitFor

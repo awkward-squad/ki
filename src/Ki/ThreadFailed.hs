@@ -7,8 +7,11 @@ where
 import Control.Exception (Exception (..), asyncExceptionFromException, asyncExceptionToException)
 import Ki.Prelude
 
-data ThreadFailed
-  = ThreadFailed ThreadId SomeException
+-- | A __thread__ failed, either by throwing or being thrown an exception.
+data ThreadFailed = ThreadFailed
+  { threadId :: ThreadId,
+    exception :: SomeException
+  }
   deriving stock (Show)
   deriving anyclass (Exception)
 

@@ -65,7 +65,6 @@ asyncWithRestore scope action = do
       putTMVarIO resultVar (first (ThreadFailed childThreadId) result)
   pure (Thread childThreadId (readTMVar resultVar))
 
--- | Wait for a __thread__ to finish.
 await :: Thread a -> IO a
 await =
   atomically . awaitSTM
@@ -97,8 +96,8 @@ kill thread = do
 
 -- | Create a __thread__ within a __scope__ to compute a value concurrently.
 --
--- If the __thread__ throws an exception, the exception is propagated up the call tree to the __thread__ that opened its
--- __scope__.
+-- If the __thread__ throws an exception, the exception is wrapped in 'ThreadFailed' and immediately propagated up the
+-- call tree to the __thread__ that opened its __scope__.
 --
 -- /Throws/:
 --
