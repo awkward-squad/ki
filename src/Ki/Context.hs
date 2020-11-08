@@ -1,13 +1,12 @@
 module Ki.Context
   ( Context (..),
-    deriveCtx,
-    dummy,
-    global,
+    dummyContext,
+    globalContext,
   )
 where
 
 import Ki.CancelToken (CancelToken)
-import Ki.Context.Internal
+import Ki.Ctx
 import Ki.Prelude
 
 data Context = Context
@@ -23,27 +22,27 @@ data Context = Context
     derive :: STM Context
   }
 
-deriveCtx :: Ctx -> Context
-deriveCtx ctx =
+deriveContext :: Ctx -> Context
+deriveContext ctx =
   Context
-    { cancel = ctxCancel ctx,
-      cancelled = ctxCancelled ctx,
-      derive = deriveCtx <$> ctxDerive ctx
+    { cancel = cancelCtx ctx,
+      cancelled = ctxCancelToken ctx,
+      derive = deriveContext <$> deriveCtx ctx
     }
 
-dummy :: Context
-dummy =
+dummyContext :: Context
+dummyContext =
   Context
     { cancel = pure (),
       cancelled = retry,
-      derive = pure dummy
+      derive = pure dummyContext
     }
 
 -- | The global context. It cannot be cancelled.
-global :: Context
-global =
+globalContext :: Context
+globalContext =
   Context
     { cancel = pure (),
       cancelled = retry,
-      derive = deriveCtx <$> ctxNewSTM
+      derive = deriveContext <$> newCtxSTM
     }

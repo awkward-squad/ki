@@ -1,13 +1,13 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Ki.Context.Internal
+module Ki.Ctx
   ( Ctx (..),
-    ctxNewSTM,
-    ctxDerive,
-    ctxCancel,
-    ctxCancelSTM,
-    ctxCancelled,
+    newCtxSTM,
+    deriveCtx,
+    cancelCtx,
+    cancelCtxSTM,
+    ctxCancelToken,
   )
 where
 
@@ -34,55 +34,59 @@ data Ctx = Ctx
     onCancel :: STM ()
   }
 
-ctxNewSTM :: STM Ctx
-ctxNewSTM =
-  newWith (pure ())
+newCtxSTM :: STM Ctx
+newCtxSTM =
+  newCtxSTM_ (pure ())
 
-newWith :: STM () -> STM Ctx
-newWith onCancel = do
+newCtxSTM_ :: STM () -> STM Ctx
+newCtxSTM_ onCancel = do
   cancelTokenVar <- newTVar Nothing
   childrenVar <- newTVar IntMap.empty
   nextIdVar <- newTVar 0
   pure Ctx {cancelTokenVar, childrenVar, nextIdVar, onCancel}
 
-ctxDerive :: Ctx -> STM Ctx
-ctxDerive context@Ctx {cancelTokenVar, childrenVar, nextIdVar} =
+deriveCtx :: Ctx -> STM Ctx
+deriveCtx context@Ctx {cancelTokenVar, childrenVar, nextIdVar} =
   readTVar cancelTokenVar >>= \case
     Nothing -> do
       childId <- readTVar nextIdVar
       writeTVar nextIdVar $! childId + 1
-      child <- newWith (modifyTVar' childrenVar (IntMap.delete childId))
+      child <- newCtxSTM_ (modifyTVar' childrenVar (IntMap.delete childId))
       children <- readTVar childrenVar
       writeTVar childrenVar $! IntMap.insert childId child children
       pure child
-    Just _ -> pure context
+    Just (CancelToken _) -> pure context
 
-ctxCancel :: Ctx -> IO ()
-ctxCancel context = do
+cancelCtx :: Ctx -> IO ()
+cancelCtx context = do
   token <- newCancelToken
-  atomically (ctxCancelSTM context token)
+  atomically (cancelCtxSTM context token)
 
-ctxCancelSTM :: Ctx -> CancelToken -> STM ()
-ctxCancelSTM Ctx {cancelTokenVar, childrenVar, onCancel} token =
+cancelCtxSTM :: Ctx -> CancelToken -> STM ()
+cancelCtxSTM ctx@Ctx {onCancel} token =
+  whenCanceling ctx token do
+    cancelChildren ctx token
+    onCancel
+
+ctxCancelSTM_ :: CancelToken -> Ctx -> STM ()
+ctxCancelSTM_ token ctx =
+  whenCanceling ctx token (cancelChildren ctx token)
+
+whenCanceling :: Ctx -> CancelToken -> STM () -> STM ()
+whenCanceling Ctx {cancelTokenVar} token action =
   readTVar cancelTokenVar >>= \case
     Nothing -> do
       writeTVar cancelTokenVar $! Just token
-      children <- readTVar childrenVar
-      for_ (IntMap.elems children) (cancelSTM_ token)
-      onCancel
-    Just _ -> pure ()
+      action
+    Just (CancelToken _) -> pure ()
 
-cancelSTM_ :: CancelToken -> Ctx -> STM ()
-cancelSTM_ token Ctx {cancelTokenVar, childrenVar} =
-  readTVar cancelTokenVar >>= \case
-    Nothing -> do
-      writeTVar cancelTokenVar $! Just token
-      children <- readTVar childrenVar
-      for_ (IntMap.elems children) (cancelSTM_ token)
-    Just _ -> pure ()
+cancelChildren :: Ctx -> CancelToken -> STM ()
+cancelChildren Ctx {childrenVar} token = do
+  children <- readTVar childrenVar
+  for_ (IntMap.elems children) (ctxCancelSTM_ token)
 
-ctxCancelled :: Ctx -> STM CancelToken
-ctxCancelled Ctx {cancelTokenVar} =
+ctxCancelToken :: Ctx -> STM CancelToken
+ctxCancelToken Ctx {cancelTokenVar} =
   readTVar cancelTokenVar >>= \case
     Nothing -> retry
     Just token -> pure token

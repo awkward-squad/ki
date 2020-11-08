@@ -3,9 +3,9 @@
 
 module Ki.Scope
   ( Scope (..),
-    cancel,
-    cancelledSTM,
-    fork,
+    cancelScope,
+    scopeCancelledSTM,
+    scopeFork,
     scoped,
     wait,
     waitFor,
@@ -37,13 +37,21 @@ data Scope = Scope
     startingVar :: TVar Int
   }
 
+newScope :: Context -> IO Scope
+newScope parentContext = do
+  context <- atomically (Ki.Context.derive parentContext)
+  closedVar <- newTVarIO False
+  runningVar <- newTVarIO Set.empty
+  startingVar <- newTVarIO 0
+  pure Scope {context, closedVar, runningVar, startingVar}
+
 -- | /Cancel/ all __contexts__ derived from a __scope__.
-cancel :: Scope -> IO ()
-cancel Scope {context} =
+cancelScope :: Scope -> IO ()
+cancelScope Scope {context} =
   Ki.Context.cancel context
 
-cancelledSTM :: Scope -> STM (IO a)
-cancelledSTM Scope {context} =
+scopeCancelledSTM :: Scope -> STM (IO a)
+scopeCancelledSTM Scope {context} =
   throwIO <$> Ki.Context.cancelled context
 
 -- | Close a scope, kill all of the running threads, and return the first async exception delivered to us while doing
@@ -63,8 +71,8 @@ close scope@Scope {closedVar, runningVar} = do
   atomically (blockUntilNoneRunning scope)
   pure exception
 
-fork :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> (ThreadId -> Either SomeException a -> IO ()) -> IO ThreadId
-fork scope action k =
+scopeFork :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> (ThreadId -> Either SomeException a -> IO ()) -> IO ThreadId
+scopeFork scope action k =
   uninterruptibleMask \restore -> do
     atomically (incrementStarting scope)
     childThreadId <-
@@ -78,17 +86,9 @@ fork scope action k =
       insertRunning scope childThreadId
     pure childThreadId
 
-new :: Context -> IO Scope
-new parentContext = do
-  context <- atomically (Ki.Context.derive parentContext)
-  closedVar <- newTVarIO False
-  runningVar <- newTVarIO Set.empty
-  startingVar <- newTVarIO 0
-  pure Scope {context, closedVar, runningVar, startingVar}
-
 scoped :: Context -> (Scope -> IO a) -> IO a
 scoped context f = do
-  scope <- new context
+  scope <- newScope context
   uninterruptibleMask \restore -> do
     result <- try (restore (f scope))
     closeScopeException <- close scope

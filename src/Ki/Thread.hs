@@ -61,7 +61,7 @@ asyncWithRestore :: forall a. Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO 
 asyncWithRestore scope action = do
   resultVar <- newEmptyTMVarIO
   childThreadId <-
-    Ki.Scope.fork scope action \childThreadId result ->
+    Ki.Scope.scopeFork scope action \childThreadId result ->
       putTMVarIO resultVar (first (ThreadFailed childThreadId) result)
   pure (Thread childThreadId (readTMVar resultVar))
 
@@ -139,7 +139,7 @@ forkWithRestore scope action = do
   parentThreadId <- myThreadId
   resultVar <- newEmptyTMVarIO
   childThreadId <-
-    Ki.Scope.fork scope action \childThreadId -> \case
+    Ki.Scope.scopeFork scope action \childThreadId -> \case
       Left exception -> do
         whenM
           (shouldPropagateException (Ki.Scope.context scope) exception)
@@ -156,7 +156,7 @@ forkWithRestore_ :: Scope -> ((forall x. IO x -> IO x) -> IO ()) -> IO ()
 forkWithRestore_ scope action = do
   parentThreadId <- myThreadId
   _childThreadId <-
-    Ki.Scope.fork scope action \childThreadId ->
+    Ki.Scope.scopeFork scope action \childThreadId ->
       onLeft \exception -> do
         whenM
           (shouldPropagateException (Ki.Scope.context scope) exception)

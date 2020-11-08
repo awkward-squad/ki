@@ -2,7 +2,7 @@
 
 module Ki.Implicit
   ( -- * Context
-    global,
+    globalContext,
     Context,
 
     -- * Scope
@@ -27,7 +27,7 @@ module Ki.Implicit
     -- kill,
 
     -- * Soft-cancellation
-    Ki.Scope.cancel,
+    Ki.Scope.cancelScope,
     cancelled,
     cancelledSTM,
     yield,
@@ -151,9 +151,9 @@ forkWithUnmask_ scope action =
   Ki.Thread.forkWithUnmask_ scope (let ?context = Ki.Scope.context scope in action)
 
 -- | Perform an @IO@ action in the global __context__. The global __context__ cannot be /cancelled/.
-global :: (Context => IO a) -> IO a
-global action =
-  let ?context = Ki.Context.global in action
+globalContext :: (Context => IO a) -> IO a
+globalContext action =
+  let ?context = Ki.Context.globalContext in action
 
 -- | Open a __scope__, perform an @IO@ action with it, then close it.
 --
@@ -165,14 +165,14 @@ global action =
 -- /Throws/:
 --
 --   * The exception thrown by the callback to 'scoped' itself, if any.
---   * 'ThreadFailed' containing the first exception a __thread__ created with 'Ki.Fork.fork' throws, if any.
+--   * 'ThreadFailed' containing the first exception a __thread__ created with 'fork' throws, if any.
 --
 -- ==== __Examples__
 --
 -- @
 -- 'scoped' \\scope -> do
---   _ <- 'fork' scope worker1
---   _ <- 'fork' scope worker2
+--   'fork_' scope worker1
+--   'fork_' scope worker2
 --   'Ki.Scope.wait' scope
 -- @
 scoped :: Context => (Context => Scope -> IO a) -> IO a

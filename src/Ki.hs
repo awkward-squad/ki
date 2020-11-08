@@ -39,7 +39,7 @@ import Ki.Prelude
 import Ki.Scope (Scope)
 import qualified Ki.Scope
 import qualified Ki.Thread
-import Ki.ThreadFailed (ThreadFailed(..))
+import Ki.ThreadFailed (ThreadFailed (..))
 import qualified Ki.Timeout
 
 -- $spawning-threads
@@ -62,19 +62,19 @@ import qualified Ki.Timeout
 -- /Throws/:
 --
 --   * The exception thrown by the callback to 'scoped' itself, if any.
---   * 'ThreadFailed' containing the first exception a __thread__ created with 'Ki.Fork.fork' throws, if any.
+--   * 'ThreadFailed' containing the first exception a __thread__ created with 'Ki.Thread.fork' throws, if any.
 --
 -- ==== __Examples__
 --
 -- @
 -- 'scoped' \\scope -> do
---   _ <- 'Ki.Fork.fork' scope worker1
---   _ <- 'Ki.Fork.fork' scope worker2
+--   'Ki.Thread.fork_' scope worker1
+--   'Ki.Thread.fork_' scope worker2
 --   'Ki.Scope.wait' scope
 -- @
 scoped :: (Scope -> IO a) -> IO a
 scoped =
-  Ki.Scope.scoped Ki.Context.dummy
+  Ki.Scope.scoped Ki.Context.dummyContext
 
 -- | @threadDelay@.
 sleep :: Duration -> IO ()

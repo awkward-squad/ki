@@ -8,13 +8,13 @@ module Ki.Prelude
   )
 where
 
-import Control.Applicative as X ((<|>), optional)
+import Control.Applicative as X (optional, (<|>))
 import Control.Exception as X (Exception, SomeException)
 import Control.Monad as X (join, unless)
 import Data.Coerce as X (coerce)
 import Data.Foldable as X (for_)
 import Data.Function as X (fix)
-import Data.Functor as X (($>), (<&>), void)
+import Data.Functor as X (void, ($>), (<&>))
 import Data.IntMap.Strict as X (IntMap)
 import Data.Map.Strict as X (Map)
 import Data.Maybe as X (fromMaybe)

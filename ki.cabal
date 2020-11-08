@@ -105,7 +105,7 @@ library
     Ki.CancelToken
     Ki.Concurrency
     Ki.Context
-    Ki.Context.Internal
+    Ki.Ctx
     Ki.Debug
     Ki.Duration
     Ki.Prelude
