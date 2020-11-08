@@ -75,18 +75,31 @@ closeScope scope@Scope {closedVar, runningVar} = do
   pure exception
 
 scopeFork :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> (ThreadId -> Either SomeException a -> IO ()) -> IO ThreadId
-scopeFork scope action k =
+scopeFork Scope {closedVar, runningVar, startingVar} action k =
   uninterruptibleMask \restore -> do
-    atomically (incrementStarting scope)
+    -- Record the thread as being about to start
+    atomically do
+      readTVar closedVar >>= \case
+        False -> modifyTVar' startingVar (+ 1)
+        True -> throwSTM (ErrorCall "ki: scope closed")
+
+    -- Fork the thread
     childThreadId <-
       forkIO do
         childThreadId <- myThreadId
         result <- try (action restore)
         k childThreadId result
-        atomically (deleteRunning scope childThreadId)
+        atomically do
+          running <- readTVar runningVar
+          case Set.splitMember childThreadId running of
+            (xs, True, ys) -> writeTVar runningVar $! Set.union xs ys
+            _ -> retry
+
+    -- Record the thread as having started
     atomically do
-      decrementStarting scope
-      insertRunning scope childThreadId
+      modifyTVar' startingVar \n -> n -1
+      modifyTVar' runningVar (Set.insert childThreadId)
+
     pure childThreadId
 
 scoped :: Context -> (Scope -> IO a) -> IO a
@@ -128,27 +141,6 @@ waitSTM scope = do
 
 --------------------------------------------------------------------------------
 -- Scope helpers
-
-incrementStarting :: Scope -> STM ()
-incrementStarting Scope {closedVar, startingVar} =
-  readTVar closedVar >>= \case
-    False -> modifyTVar' startingVar (+ 1)
-    True -> throwSTM (ErrorCall "ki: scope closed")
-
-decrementStarting :: Scope -> STM ()
-decrementStarting Scope {startingVar} =
-  modifyTVar' startingVar (subtract 1)
-
-insertRunning :: Scope -> ThreadId -> STM ()
-insertRunning Scope {runningVar} threadId =
-  modifyTVar' runningVar (Set.insert threadId)
-
-deleteRunning :: Scope -> ThreadId -> STM ()
-deleteRunning Scope {runningVar} threadId = do
-  running <- readTVar runningVar
-  case Set.splitMember threadId running of
-    (xs, True, ys) -> writeTVar runningVar $! Set.union xs ys
-    _ -> retry
 
 blockUntilNoneRunning :: Scope -> STM ()
 blockUntilNoneRunning Scope {runningVar} =
