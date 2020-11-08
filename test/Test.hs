@@ -5,10 +5,8 @@ module Main (main) where
 
 import Control.Concurrent.Classy hiding (fork, forkWithUnmask, wait)
 import Control.Exception
-  ( AsyncException (ThreadKilled),
-    Exception (..),
+  ( Exception (..),
     MaskingState (..),
-    SomeAsyncException (..),
     SomeException (..),
     asyncExceptionFromException,
     asyncExceptionToException,
@@ -28,54 +26,54 @@ main = do
 
   test "new scope doesn't start out cancelled" (returns False) (scoped \_ -> isJust <$> cancelled)
 
-  test "`cancel` observable by scope's `cancelled`" (returns True) do
+  test "`cancelScope` observable by scope's `cancelled`" (returns True) do
     scoped \scope -> do
-      cancel scope
+      cancelScope scope
       isJust <$> cancelled
 
-  test "`cancel` observable by inner scope's `cancelled`" (returns True) do
+  test "`cancelScope` observable by inner scope's `cancelled`" (returns True) do
     scoped \scope1 -> do
       scoped \_ -> do
-        cancel scope1
+        cancelScope scope1
         isJust <$> cancelled
 
-  test "`cancel` observable by child's `cancelled`" (returns True) do
+  test "`cancelScope` observable by child's `cancelled`" (returns True) do
     scoped \scope1 -> do
       thread <-
         async scope1 do
-          cancel scope1
+          cancelScope scope1
           isJust <$> cancelled
       await' thread
 
-  test "`cancel` observable by child's inner `cancelled`" (returns True) do
+  test "`cancelScope` observable by child's inner `cancelled`" (returns True) do
     scoped \scope1 -> do
       thread <-
         async scope1 do
           scoped \_ -> do
-            cancel scope1
+            cancelScope scope1
             isJust <$> cancelled
       await' thread
 
-  test "`cancel` observable by grandchild's `cancelled`" (returns True) do
+  test "`cancelScope` observable by grandchild's `cancelled`" (returns True) do
     scoped \scope1 -> do
       thread1 <-
         async scope1 do
           scoped \scope2 -> do
             thread2 <-
               async scope2 do
-                cancel scope1
+                cancelScope scope1
                 isJust <$> cancelled
             await' thread2
       await' thread1
 
   test "inner scope inherits cancellation" (returns True) do
     scoped \scope1 -> do
-      cancel scope1
+      cancelScope scope1
       scoped \_ -> isJust <$> cancelled
 
   test "inner thread inherits cancellation" (returns True) do
     scoped \scope -> do
-      cancel scope
+      cancelScope scope
       thread <- async scope cancelled
       isJust <$> await' thread
 
@@ -182,7 +180,7 @@ main = do
 
   test "`fork` doesn't propagate `CancelToken`" (returns ()) do
     scoped \scope -> do
-      cancel scope
+      cancelScope scope
       fork_ scope do
         cancelled >>= \case
           Nothing -> throw A
@@ -307,10 +305,6 @@ isLeft =
 isRight :: Either a b -> Bool
 isRight =
   either (const False) (const True)
-
-overLeft :: (a -> b) -> Either a x -> Either b x
-overLeft f =
-  either (Left . f) Right
 
 -- finally :: P a -> P b -> P a
 -- finally action after =

@@ -6,12 +6,13 @@ module Ki.Context
 where
 
 import Ki.CancelToken (CancelToken)
-import Ki.Ctx
+import Ki.Ctx (Ctx)
+import qualified Ki.Ctx as Ctx
 import Ki.Prelude
 
 data Context = Context
-  { cancel :: IO (),
-    cancelled :: STM CancelToken,
+  { cancelContext :: IO (),
+    contextCancelTokenSTM :: STM CancelToken,
     -- | Derive a child context from a parent context.
     --
     --   * If the parent is already cancelled, so is the child.
@@ -19,30 +20,30 @@ data Context = Context
     --     parent such that:
     --       * When the parent is cancelled, so is the child
     --       * When the child is cancelled, it removes the parent's reference to it
-    derive :: STM Context
+    deriveContext :: STM Context
   }
 
-deriveContext :: Ctx -> Context
-deriveContext ctx =
+newContext :: Ctx -> Context
+newContext ctx =
   Context
-    { cancel = cancelCtx ctx,
-      cancelled = ctxCancelToken ctx,
-      derive = deriveContext <$> deriveCtx ctx
+    { cancelContext = Ctx.cancelCtx ctx,
+      contextCancelTokenSTM = Ctx.ctxCancelToken ctx,
+      deriveContext = newContext <$> Ctx.deriveCtx ctx
     }
 
 dummyContext :: Context
 dummyContext =
   Context
-    { cancel = pure (),
-      cancelled = retry,
-      derive = pure dummyContext
+    { cancelContext = pure (),
+      contextCancelTokenSTM = retry,
+      deriveContext = pure dummyContext
     }
 
 -- | The global context. It cannot be cancelled.
 globalContext :: Context
 globalContext =
   Context
-    { cancel = pure (),
-      cancelled = retry,
-      derive = deriveContext <$> newCtxSTM
+    { cancelContext = pure (),
+      contextCancelTokenSTM = retry,
+      deriveContext = newContext <$> Ctx.newCtxSTM
     }

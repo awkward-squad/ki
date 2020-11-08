@@ -1,5 +1,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE UnboxedTuples #-}
 
 module Ki.Concurrency
@@ -50,7 +51,7 @@ where
 
 #ifdef TEST
 
-import Control.Concurrent.Classy (atomically, catch, check, modifyTVar', myThreadId, newMVar, newTVar, putTMVar, readTBQueue, readTQueue, writeTQueue, readTMVar, readTVar, retry, threadDelay, throwSTM, uninterruptibleMask, unsafeUnmask, withMVar, writeTBQueue, writeTVar)
+import Control.Concurrent.Classy hiding (IO, MVar, STM, TBQueue, TMVar, TQueue, TVar, ThreadId, registerDelay)
 import qualified Control.Concurrent.Classy
 import Control.Exception (Exception, SomeException)
 import Numeric.Natural (Natural)
@@ -84,50 +85,50 @@ type TVar =
 
 forkIO :: IO () -> IO ThreadId
 forkIO =
-  Control.Concurrent.Classy.fork
+  fork
 
 newTBQueueIO :: Natural -> IO (TBQueue a)
 newTBQueueIO =
-  Control.Concurrent.Classy.atomically . Control.Concurrent.Classy.newTBQueue
+  atomically . newTBQueue
 
 newTQueueIO :: IO (TQueue a)
 newTQueueIO =
-  Control.Concurrent.Classy.atomically Control.Concurrent.Classy.newTQueue
+  atomically newTQueue
 
 newEmptyTMVarIO :: IO (TMVar a)
 newEmptyTMVarIO =
-  Control.Concurrent.Classy.atomically Control.Concurrent.Classy.newEmptyTMVar
+  atomically newEmptyTMVar
 
 newTVarIO :: a -> IO (TVar a)
 newTVarIO =
-  Control.Concurrent.Classy.atomically . Control.Concurrent.Classy.newTVar
+  atomically . newTVar
 
 onException :: IO a -> IO b -> IO a
 onException action cleanup =
-  Control.Concurrent.Classy.catch action \exception -> do
+  catch @_ @SomeException action \exception -> do
     _ <- cleanup
-    throwIO (exception :: SomeException)
+    throwIO exception
 
 putTMVarIO :: TMVar a -> a -> IO ()
 putTMVarIO var x =
   atomically (putTMVar var x)
 
+readTVarIO :: TVar a -> IO a
+readTVarIO =
+  atomically . readTVar
+
 registerDelay :: Int -> IO (STM (), IO ())
 registerDelay micros = do
   var <- Control.Concurrent.Classy.registerDelay micros
-  pure (Control.Concurrent.Classy.readTVar var >>= Control.Concurrent.Classy.check, pure ())
+  pure (readTVar var >>= check, pure ())
 
 throwIO :: Exception e => e -> IO a
 throwIO =
-  Control.Concurrent.Classy.throw
-
-throwTo :: Exception e => ThreadId -> e -> IO ()
-throwTo =
-  Control.Concurrent.Classy.throwTo
+  throw
 
 try :: Exception e => IO a -> IO (Either e a)
 try action =
-  Control.Concurrent.Classy.catch (Right <$> action) (pure . Left)
+  catch (Right <$> action) (pure . Left)
 
 uniqueInt :: IO Int
 uniqueInt =

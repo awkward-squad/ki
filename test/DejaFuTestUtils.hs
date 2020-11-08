@@ -33,7 +33,7 @@ type P =
 
 test :: (Eq a, Show a) => String -> DejaFu.Predicate a -> (Context => P a) -> IO ()
 test name predicate t = do
-  result <- DejaFu.runTestWithSettings settings (DejaFu.representative predicate) (global t)
+  result <- DejaFu.runTestWithSettings settings (DejaFu.representative predicate) (globalContext t)
   printf "[%s] %s\n" (if DejaFu._pass result then "x" else " ") name
   for_ (DejaFu._failures result) \(value, trace) -> prettyPrintTrace value trace
   unless (DejaFu._pass result) exitFailure

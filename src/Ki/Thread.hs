@@ -15,11 +15,11 @@ where
 
 import Control.Exception (AsyncException (ThreadKilled), Exception (fromException))
 import Data.Bifunctor (first)
-import qualified Ki.Context
+import qualified Ki.Context as Context
 import Ki.Duration (Duration)
 import Ki.Prelude
 import Ki.Scope (Scope (Scope))
-import qualified Ki.Scope
+import qualified Ki.Scope as Scope
 import Ki.ScopeClosing (ScopeClosing (ScopeClosing))
 import Ki.ThreadFailed (ThreadFailed (ThreadFailed), ThreadFailedAsync (ThreadFailedAsync))
 import Ki.Timeout (timeoutSTM)
@@ -61,7 +61,7 @@ asyncWithRestore :: forall a. Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO 
 asyncWithRestore scope action = do
   resultVar <- newEmptyTMVarIO
   childThreadId <-
-    Ki.Scope.scopeFork scope action \childThreadId result ->
+    Scope.scopeFork scope action \childThreadId result ->
       putTMVarIO resultVar (first (ThreadFailed childThreadId) result)
   pure (Thread childThreadId (readTMVar resultVar))
 
@@ -138,7 +138,7 @@ forkWithRestore scope action = do
   parentThreadId <- myThreadId
   resultVar <- newEmptyTMVarIO
   childThreadId <-
-    Ki.Scope.scopeFork scope action \childThreadId -> \case
+    Scope.scopeFork scope action \childThreadId -> \case
       Left exception -> do
         whenM
           (shouldPropagateException scope exception)
@@ -155,7 +155,7 @@ forkWithRestore_ :: Scope -> ((forall x. IO x -> IO x) -> IO ()) -> IO ()
 forkWithRestore_ scope action = do
   parentThreadId <- myThreadId
   _childThreadId <-
-    Ki.Scope.scopeFork scope action \childThreadId ->
+    Scope.scopeFork scope action \childThreadId ->
       onLeft \exception -> do
         whenM
           (shouldPropagateException scope exception)
@@ -173,5 +173,5 @@ shouldPropagateException Scope {closedVar, context} exception =
         -- We (presumably) are honoring our own cancellation request, so don't propagate that either.
         -- It's a bit complicated looking because we *do* want to throw this token if we (somehow) threw it
         -- "inappropriately" in the sense that it wasn't ours to throw - it was smuggled from elsewhere.
-        Just token -> atomically ((/= token) <$> Ki.Context.cancelled context <|> pure True)
+        Just token -> atomically ((/= token) <$> Context.contextCancelTokenSTM context <|> pure True)
         Nothing -> pure True

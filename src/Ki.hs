@@ -2,23 +2,23 @@ module Ki
   ( -- * Scope
     Scope,
     scoped,
-    Ki.Scope.wait,
-    Ki.Scope.waitSTM,
-    Ki.Scope.waitFor,
+    Scope.wait,
+    Scope.waitSTM,
+    Scope.waitFor,
 
     -- * Spawning threads
     -- $spawning-threads
-    Ki.Thread.Thread,
+    Thread,
 
     -- ** Fork
-    Ki.Thread.fork,
-    Ki.Thread.fork_,
-    Ki.Thread.forkWithUnmask,
-    Ki.Thread.forkWithUnmask_,
+    Thread.fork,
+    Thread.fork_,
+    Thread.forkWithUnmask,
+    Thread.forkWithUnmask_,
 
     -- ** Async
-    Ki.Thread.async,
-    Ki.Thread.asyncWithUnmask,
+    Thread.async,
+    Thread.asyncWithUnmask,
 
     -- ** Await
     await,
@@ -28,52 +28,53 @@ module Ki
     -- * Miscellaneous
     sleep,
     Duration,
-    Ki.Timeout.timeoutSTM,
-    Ki.Duration.microseconds,
-    Ki.Duration.milliseconds,
-    Ki.Duration.seconds,
+    Timeout.timeoutSTM,
+    Duration.microseconds,
+    Duration.milliseconds,
+    Duration.seconds,
 
     -- * Exceptions
     ThreadFailed (..),
   )
 where
 
-import qualified Ki.Context
+import qualified Ki.Context as Context
 import Ki.Duration (Duration)
-import qualified Ki.Duration
+import qualified Ki.Duration as Duration
 import Ki.Prelude
 import Ki.Scope (Scope)
-import qualified Ki.Scope
-import qualified Ki.Thread
+import qualified Ki.Scope as Scope
+import Ki.Thread (Thread)
+import qualified Ki.Thread as Thread
 import Ki.ThreadFailed (ThreadFailed (..))
-import qualified Ki.Timeout
+import qualified Ki.Timeout as Timeout
 
 -- | Wait for a __thread__ to finish.
 --
 -- /Throws/:
 --
 --   * 'ThreadFailed' if the __thread__ threw an exception and was created with 'Ki.Thread.fork'.
-await :: Ki.Thread.Thread a -> IO a
+await :: Thread a -> IO a
 await =
-  Ki.Thread.await
+  Thread.await
 
 -- | @STM@ variant of 'await'.
 --
 -- /Throws/:
 --
 --   * 'ThreadFailed' if the __thread__ threw an exception and was created with 'Ki.Thread.fork'.
-awaitSTM :: Ki.Thread.Thread a -> STM a
+awaitSTM :: Thread a -> STM a
 awaitSTM =
-  Ki.Thread.awaitSTM
+  Thread.awaitSTM
 
 -- | Variant of 'await' that waits for up to the given duration.
 --
 -- /Throws/:
 --
 --   * 'ThreadFailed' if the __thread__ threw an exception and was created with 'Ki.Thread.fork'.
-awaitFor :: Ki.Thread.Thread a -> Duration -> IO (Maybe a)
+awaitFor :: Thread a -> Duration -> IO (Maybe a)
 awaitFor =
-  Ki.Thread.awaitFor
+  Thread.awaitFor
 
 -- $spawning-threads
 --
@@ -104,9 +105,9 @@ awaitFor =
 -- @
 scoped :: (Scope -> IO a) -> IO a
 scoped =
-  Ki.Scope.scoped Ki.Context.dummyContext
+  Scope.scoped Context.dummyContext
 
 -- | @threadDelay@.
 sleep :: Duration -> IO ()
 sleep duration =
-  threadDelay (Ki.Duration.toMicroseconds duration)
+  threadDelay (Duration.toMicroseconds duration)

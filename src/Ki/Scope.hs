@@ -17,7 +17,7 @@ import Control.Exception (fromException, pattern ErrorCall)
 import qualified Data.Monoid as Monoid
 import qualified Data.Set as Set
 import Ki.Context (Context)
-import qualified Ki.Context
+import qualified Ki.Context as Context
 import Ki.Duration (Duration)
 import Ki.Prelude
 import Ki.ScopeClosing (ScopeClosing (..))
@@ -42,7 +42,7 @@ data Scope = Scope
 
 newScope :: Context -> IO Scope
 newScope parentContext = do
-  context <- atomically (Ki.Context.derive parentContext)
+  context <- atomically (Context.deriveContext parentContext)
   closedVar <- newTVarIO False
   runningVar <- newTVarIO Set.empty
   startingVar <- newTVarIO 0
@@ -51,11 +51,11 @@ newScope parentContext = do
 -- | /Cancel/ all __contexts__ derived from a __scope__.
 cancelScope :: Scope -> IO ()
 cancelScope Scope {context} =
-  Ki.Context.cancel context
+  Context.cancelContext context
 
 scopeCancelledSTM :: Scope -> STM (IO a)
 scopeCancelledSTM Scope {context} =
-  throwIO <$> Ki.Context.cancelled context
+  throwIO <$> Context.contextCancelTokenSTM context
 
 -- | Close a scope, kill all of the running threads, and return the first async exception delivered to us while doing
 -- so, if any.
