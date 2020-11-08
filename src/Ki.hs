@@ -26,29 +26,21 @@ module Ki
     Ki.Duration.microseconds,
     Ki.Duration.milliseconds,
     Ki.Duration.seconds,
-    {-
-    -- * Experimental
-    -- $experimental
-    Ki.Experimental.Puller.puller,
-    Ki.Experimental.Pusher.pusher,
-    -}
+
+    -- * Exceptions
+    ThreadFailed (..),
   )
 where
 
 import qualified Ki.Context
-import qualified Ki.Duration
 import Ki.Duration (Duration)
--- import qualified Ki.Experimental.Puller
--- import qualified Ki.Experimental.Pusher
+import qualified Ki.Duration
 import Ki.Prelude
 import Ki.Scope (Scope)
 import qualified Ki.Scope
 import qualified Ki.Thread
+import Ki.ThreadFailed (ThreadFailed(..))
 import qualified Ki.Timeout
-
--- $experimental
--- Badly-documented zone. Please play with these attempts at higher-level concurrency abstractions if you wish, but you
--- may need to peek at the source to understand how they work. PVP not followed here.
 
 -- $spawning-threads
 --
@@ -69,8 +61,8 @@ import qualified Ki.Timeout
 --
 -- /Throws/:
 --
---   * The first exception a __thread__ created with 'Ki.Fork.fork' throws, if any.
 --   * The exception thrown by the callback to 'scoped' itself, if any.
+--   * 'ThreadFailed' containing the first exception a __thread__ created with 'Ki.Fork.fork' throws, if any.
 --
 -- ==== __Examples__
 --

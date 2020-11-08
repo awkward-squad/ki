@@ -13,15 +13,14 @@ module Ki.Scope
   )
 where
 
-import Control.Exception (AsyncException (ThreadKilled), pattern ErrorCall)
+import Control.Exception (AsyncException (ThreadKilled), fromException, pattern ErrorCall)
 import qualified Data.Monoid as Monoid
 import qualified Data.Set as Set
-import qualified Ki.AsyncThreadFailed
 import Ki.Context (Context)
 import qualified Ki.Context
 import Ki.Duration (Duration)
 import Ki.Prelude
-import qualified Ki.SyncException
+import Ki.ThreadFailed (ThreadFailedAsync (..))
 import Ki.Timeout (timeoutSTM)
 
 -- | A __scope__ delimits the lifetime of all __threads__ created within it.
@@ -64,15 +63,15 @@ close scope@Scope {closedVar, runningVar} = do
   atomically (blockUntilNoneRunning scope)
   pure exception
 
-fork :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> (Either SomeException a -> IO ()) -> IO ThreadId
+fork :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> (ThreadId -> Either SomeException a -> IO ()) -> IO ThreadId
 fork scope action k =
   uninterruptibleMask \restore -> do
     atomically (incrementStarting scope)
     childThreadId <-
       forkIO do
-        result <- try (action restore)
-        k result
         childThreadId <- myThreadId
+        result <- try (action restore)
+        k childThreadId result
         atomically (deleteRunning scope childThreadId)
     atomically do
       decrementStarting scope
@@ -93,9 +92,6 @@ scoped context f = do
   uninterruptibleMask \restore -> do
     result <- try (restore (f scope))
     closeScopeException <- close scope
-    let throw :: SomeException -> IO a
-        throw =
-          Ki.SyncException.throw . Ki.AsyncThreadFailed.unwrap
     case result of
       -- If the callback failed, we don't care if we were thrown an async exception while closing the scope
       Left exception -> throw exception
@@ -103,6 +99,12 @@ scoped context f = do
       Right value -> do
         whenJust closeScopeException throw
         pure value
+  where
+    throw :: SomeException -> IO a
+    throw exception =
+      case fromException exception of
+        Just (ThreadFailedAsync threadFailedException) -> throwIO threadFailedException
+        Nothing -> throwIO exception
 
 -- | Wait until all __threads__ created within a __scope__ finish.
 wait :: Scope -> IO ()

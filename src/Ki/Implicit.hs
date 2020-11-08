@@ -41,31 +41,23 @@ module Ki.Implicit
     Ki.Duration.microseconds,
     Ki.Duration.milliseconds,
     Ki.Duration.seconds,
-    {-
-    -- * Experimental
-    -- $experimental
-    puller,
-    pusher,
-    -}
+
+    -- * Exceptions
+    ThreadFailed (..),
   )
 where
 
 import Ki.CancelToken (CancelToken)
 import qualified Ki.Context
-import qualified Ki.Duration
 import Ki.Duration (Duration)
--- import qualified Ki.Experimental.Puller
--- import qualified Ki.Experimental.Pusher
+import qualified Ki.Duration
 import Ki.Prelude
 import Ki.Scope (Scope)
 import qualified Ki.Scope
 import Ki.Thread (Thread)
 import qualified Ki.Thread
+import Ki.ThreadFailed (ThreadFailed (..))
 import Ki.Timeout (timeoutSTM)
-
--- $experimental
--- Badly-documented zone. Please play with these attempts at higher-level concurrency abstractions if you wish, but you
--- may need to peek at the source to understand how they work. PVP not followed here.
 
 -- $spawning-threads
 --
@@ -92,7 +84,7 @@ type Context =
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-async :: Scope -> (Context => IO a) -> IO (Thread (Either SomeException a))
+async :: Scope -> (Context => IO a) -> IO (Thread (Either ThreadFailed a))
 async scope action =
   Ki.Thread.async scope (with scope action)
 
@@ -101,7 +93,7 @@ async scope action =
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-asyncWithUnmask :: Scope -> (Context => (forall x. IO x -> IO x) -> IO a) -> IO (Thread (Either SomeException a))
+asyncWithUnmask :: Scope -> (Context => (forall x. IO x -> IO x) -> IO a) -> IO (Thread (Either ThreadFailed a))
 asyncWithUnmask scope action =
   Ki.Thread.asyncWithUnmask scope (let ?context = Ki.Scope.context scope in action)
 
@@ -163,14 +155,6 @@ global :: (Context => IO a) -> IO a
 global action =
   let ?context = Ki.Context.global in action
 
--- puller :: Scope -> (Context => IO a -> IO b) -> IO (a -> STM (), Thread b)
--- puller scope action =
---   Ki.Experimental.Puller.puller scope (with scope action)
-
--- pusher :: Scope -> (Context => (a -> IO ()) -> IO b) -> IO (STM (Maybe a), Thread b)
--- pusher scope action =
---   Ki.Experimental.Pusher.pusher scope (with scope action)
-
 -- | Open a __scope__, perform an @IO@ action with it, then close it.
 --
 -- When the __scope__ is closed, all remaining __threads__ created within it are killed.
@@ -180,8 +164,8 @@ global action =
 --
 -- /Throws/:
 --
---   * The first exception a __thread__ created with 'fork' throws, if any.
 --   * The exception thrown by the callback to 'scoped' itself, if any.
+--   * 'ThreadFailed' containing the first exception a __thread__ created with 'Ki.Fork.fork' throws, if any.
 --
 -- ==== __Examples__
 --

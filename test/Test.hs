@@ -6,9 +6,12 @@ module Main (main) where
 import Control.Concurrent.Classy hiding (fork, forkWithUnmask, wait)
 import Control.Exception
   ( AsyncException (ThreadKilled),
-    Exception,
+    Exception (..),
     MaskingState (..),
-    SomeException,
+    SomeAsyncException (..),
+    SomeException (..),
+    asyncExceptionFromException,
+    asyncExceptionToException,
     pattern ErrorCall,
   )
 import Control.Monad
@@ -110,7 +113,7 @@ main = do
       thread <- async scope (pure ())
       isRight <$> await thread
 
-  test "`await` waits for exception" (returns True) do
+  test "`await` re-throws synchronous exceptions" (returns True) do
     scoped \scope -> do
       thread <- async scope (throw A)
       isLeft <$> await thread
@@ -151,9 +154,39 @@ main = do
       uninterruptibleMask_ (fork_ scope (getMaskingState >>= putMVar var3))
       (,,) <$> takeMVar var1 <*> takeMVar var2 <*> takeMVar var3
 
-  test "`fork` propagates sync exceptions to parent" (throws A) do
+  test "`fork` propagates synchronous exceptions to parent" (returns (Just A)) do
+    catch
+      ( scoped \scope -> do
+          fork_ scope (throw A)
+          wait scope
+          pure Nothing
+      )
+      ( \exception ->
+          pure do
+            ThreadFailed _threadId exception' <- fromException exception
+            fromException exception'
+      )
+
+  test "`fork` propagates asynchronous exceptions to parent" (returns (Just B)) do
+    catch
+      ( scoped \scope -> do
+          fork_ scope (throw B)
+          wait scope
+          pure Nothing
+      )
+      ( \exception ->
+          pure do
+            ThreadFailed _threadId exception' <- fromException exception
+            fromException exception'
+      )
+
+  test "`fork` doesn't propagate `CancelToken`" (returns ()) do
     scoped \scope -> do
-      fork_ scope (throw A)
+      cancel scope
+      fork_ scope do
+        cancelled >>= \case
+          Nothing -> throw A
+          Just cancelToken -> throw cancelToken
       wait scope
 
   {- seems like a dejafu bug
@@ -169,10 +202,19 @@ main = do
 
   test "`async` doesn't propagate exceptions" (returns ()) (scoped \scope -> void (async scope (throw A)))
 
-  test "`await` returns Left if thread throws" (returns True) do
+  test "`await` returns synchronous exceptions" (returns (Left (Just A))) do
     scoped \scope -> do
       thread <- async scope (throw A)
-      isLeft <$> await thread
+      await thread <&> \case
+        Left (ThreadFailed _threadId exception) -> Left (fromException exception)
+        Right () -> Right ()
+
+  test "`await` returns asynchronous exceptions" (returns (Left (Just B))) do
+    scoped \scope -> do
+      thread <- async scope (throw @_ @_ @() B)
+      await thread <&> \case
+        Left (ThreadFailed _threadId exception) -> Left (fromException exception)
+        Right () -> Right ()
 
   test "`async` inherits masking state" (returns (Unmasked, MaskedInterruptible, MaskedUninterruptible)) do
     scoped \scope -> do
@@ -205,23 +247,33 @@ main = do
 
   todo "`scoped` wraps async exceptions it throws in SyncException"
 
-  test "`scoped` kills threads when it throws" (returns ()) do
+  test "`scoped` kills threads when it throws" (returns True) do
+    ref <- newIORef False
     ignoring @A do
       scoped \scope -> do
         var <- newEmptyMVar
         uninterruptibleMask_ do
           forkWithUnmask_ scope \unmask -> do
             putMVar var ()
-            unmask block
+            unmask block `onException` writeIORef ref True
         takeMVar var
         void (throw A)
+    readIORef ref
 
-  test "`scoped` kills threads when `fork` throws" (returns ()) do
-    ignoring @A do
-      scoped \scope -> do
-        fork_ scope block
-        fork_ scope (void (throw A))
-        wait scope
+  test "`scoped` kills threads when `fork` throws" (returns True) do
+    ref <- newIORef False
+    catch
+      ( scoped \scope -> do
+          uninterruptibleMask_ (forkWithUnmask_ scope \unmask -> unmask block `onException` writeIORef ref True)
+          fork_ scope (void (throw A))
+          wait scope
+          pure False
+      )
+      ( \exception ->
+          case fromException exception of
+            Just (ThreadFailed _threadId (fromException -> Just A)) -> readIORef ref
+            _ -> pure False
+      )
 
   test "thread waiting on its own scope deadlocks" deadlocks do
     scoped \scope -> do
@@ -231,21 +283,20 @@ main = do
   test "thread waiting on its own scope allows async exceptions" (returns ()) do
     scoped \scope -> fork_ scope (wait scope)
 
-  test "`fork` doesn't propagate `CancelToken`" (returns ()) do
-    scoped \scope -> do
-      cancel scope
-      fork_ scope do
-        cancelled >>= \case
-          Nothing -> throw A
-          Just cancelToken -> throw cancelToken
-      wait scope
-
 data A
   = A
   deriving stock (Eq, Show)
   deriving anyclass (Exception)
 
-await' :: Thread (Either SomeException a) -> P a
+data B
+  = B
+  deriving stock (Eq, Show)
+
+instance Exception B where
+  toException = asyncExceptionToException
+  fromException = asyncExceptionFromException
+
+await' :: Thread (Either ThreadFailed a) -> P a
 await' =
   await >=> either throw pure
 
@@ -257,6 +308,10 @@ isRight :: Either a b -> Bool
 isRight =
   either (const False) (const True)
 
+overLeft :: (a -> b) -> Either a x -> Either b x
+overLeft f =
+  either (Left . f) Right
+
 -- finally :: P a -> P b -> P a
 -- finally action after =
 --   mask \restore -> do
@@ -264,8 +319,8 @@ isRight =
 --     _ <- after
 --     pure result
 
--- onException :: P a -> P b -> P a
--- onException action cleanup =
---   catch @_ @SomeException action \ex -> do
---     _ <- cleanup
---     throw ex
+onException :: P a -> P b -> P a
+onException action cleanup =
+  catch @_ @SomeException action \ex -> do
+    _ <- cleanup
+    throw ex

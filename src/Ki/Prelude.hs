@@ -1,5 +1,6 @@
 module Ki.Prelude
   ( atomicallyIO,
+    onLeft,
     whenJust,
     whenLeft,
     whenM,
@@ -27,15 +28,17 @@ atomicallyIO :: STM (IO a) -> IO a
 atomicallyIO =
   join . atomically
 
+onLeft :: Applicative m => (a -> m b) -> Either a b -> m b
+onLeft f =
+  either f pure
+
 whenJust :: Applicative m => Maybe a -> (a -> m ()) -> m ()
 whenJust x f =
   maybe (pure ()) f x
 
-whenLeft :: Applicative m => Either a b -> (a -> m ()) -> m ()
+whenLeft :: Applicative m => Either a b -> (a -> m b) -> m b
 whenLeft x f =
-  case x of
-    Left y -> f y
-    Right _ -> pure ()
+  either f pure x
 
 whenM :: Monad m => m Bool -> m () -> m ()
 whenM x y =

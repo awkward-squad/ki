@@ -102,19 +102,16 @@ library
     Ki.Internal,
   hs-source-dirs: src
   other-modules:
-    Ki.AsyncThreadFailed
     Ki.CancelToken
     Ki.Concurrency
     Ki.Context
     Ki.Context.Internal
     Ki.Debug
     Ki.Duration
-    Ki.Experimental.Puller
-    Ki.Experimental.Pusher
     Ki.Prelude
     Ki.Scope
-    Ki.SyncException
     Ki.Thread
+    Ki.ThreadFailed
     Ki.Timeout
   if flag(test)
     build-depends:

@@ -14,13 +14,14 @@ module Ki.Thread
 where
 
 import Control.Exception (AsyncException (ThreadKilled), Exception (fromException))
-import Ki.AsyncThreadFailed (AsyncThreadFailed (AsyncThreadFailed))
+import Data.Bifunctor (first)
 import Ki.Context (Context)
 import qualified Ki.Context
 import Ki.Duration (Duration)
 import Ki.Prelude
 import Ki.Scope (Scope)
 import qualified Ki.Scope
+import Ki.ThreadFailed (ThreadFailed (ThreadFailed), ThreadFailedAsync (ThreadFailedAsync))
 import Ki.Timeout (timeoutSTM)
 
 -- | A running __thread__.
@@ -43,7 +44,7 @@ instance Ord (Thread a) where
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-async :: Scope -> IO a -> IO (Thread (Either SomeException a))
+async :: Scope -> IO a -> IO (Thread (Either ThreadFailed a))
 async scope action =
   asyncWithRestore scope \restore -> restore action
 
@@ -52,14 +53,16 @@ async scope action =
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-asyncWithUnmask :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread (Either SomeException a))
+asyncWithUnmask :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread (Either ThreadFailed a))
 asyncWithUnmask scope action =
   asyncWithRestore scope \restore -> restore (action unsafeUnmask)
 
-asyncWithRestore :: forall a. Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread (Either SomeException a))
+asyncWithRestore :: forall a. Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread (Either ThreadFailed a))
 asyncWithRestore scope action = do
   resultVar <- newEmptyTMVarIO
-  childThreadId <- Ki.Scope.fork scope action (putTMVarIO resultVar)
+  childThreadId <-
+    Ki.Scope.fork scope action \childThreadId result ->
+      putTMVarIO resultVar (first (ThreadFailed childThreadId) result)
   pure (Thread childThreadId (readTMVar resultVar))
 
 -- | Wait for a __thread__ to finish.
@@ -136,23 +139,29 @@ forkWithRestore scope action = do
   parentThreadId <- myThreadId
   resultVar <- newEmptyTMVarIO
   childThreadId <-
-    Ki.Scope.fork scope action \result -> do
-      whenLeft result \exception -> do
+    Ki.Scope.fork scope action \childThreadId -> \case
+      Left exception -> do
         whenM
           (shouldPropagateException (Ki.Scope.context scope) exception)
-          (throwTo parentThreadId (AsyncThreadFailed exception))
-      putTMVarIO resultVar result
+          (throwTo parentThreadId (ThreadFailedAsync threadFailedException))
+        putTMVarIO resultVar (Left threadFailedException)
+        where
+          threadFailedException :: ThreadFailed
+          threadFailedException =
+            ThreadFailed childThreadId exception
+      Right result -> putTMVarIO resultVar (Right result)
   pure (Thread childThreadId (readTMVar resultVar >>= either throwSTM pure))
 
 forkWithRestore_ :: Scope -> ((forall x. IO x -> IO x) -> IO ()) -> IO ()
 forkWithRestore_ scope action = do
   parentThreadId <- myThreadId
-  void do
-    Ki.Scope.fork scope action \result -> do
-      whenLeft result \exception -> do
+  _childThreadId <-
+    Ki.Scope.fork scope action \childThreadId ->
+      onLeft \exception -> do
         whenM
           (shouldPropagateException (Ki.Scope.context scope) exception)
-          (throwTo parentThreadId (AsyncThreadFailed exception))
+          (throwTo parentThreadId (ThreadFailedAsync (ThreadFailed childThreadId exception)))
+  pure ()
 
 shouldPropagateException :: Context -> SomeException -> IO Bool
 shouldPropagateException context exception =
