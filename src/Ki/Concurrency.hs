@@ -30,6 +30,7 @@ module Ki.Concurrency
     readTMVar,
     readTQueue,
     readTVar,
+    readTVarIO,
     registerDelay,
     retry,
     threadDelay,

@@ -28,19 +28,19 @@ atomicallyIO :: STM (IO a) -> IO a
 atomicallyIO =
   join . atomically
 
-onLeft :: Applicative m => (a -> m b) -> Either a b -> m b
+onLeft :: (a -> IO b) -> Either a b -> IO b
 onLeft f =
   either f pure
 
-whenJust :: Applicative m => Maybe a -> (a -> m ()) -> m ()
+whenJust :: Maybe a -> (a -> IO ()) -> IO ()
 whenJust x f =
   maybe (pure ()) f x
 
-whenLeft :: Applicative m => Either a b -> (a -> m b) -> m b
+whenLeft :: Either a b -> (a -> IO b) -> IO b
 whenLeft x f =
   either f pure x
 
-whenM :: Monad m => m Bool -> m () -> m ()
+whenM :: IO Bool -> IO () -> IO ()
 whenM x y =
   x >>= \case
     False -> pure ()

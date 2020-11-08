@@ -15,6 +15,9 @@ data ThreadFailed = ThreadFailed
   deriving stock (Show)
   deriving anyclass (Exception)
 
+-- | An async wrapper around 'ThreadFailed', used when a child __thread__ communicates its failure to its parent. This
+-- is preferred to throwing 'ThreadFailed' directly, so that client code (outside of this library) can follow
+-- best-practices when encountering a mysterious async exception: clean up resources and re-throw it.
 newtype ThreadFailedAsync
   = ThreadFailedAsync ThreadFailed
   deriving stock (Show)

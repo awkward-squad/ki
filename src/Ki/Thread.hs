@@ -15,12 +15,12 @@ where
 
 import Control.Exception (AsyncException (ThreadKilled), Exception (fromException))
 import Data.Bifunctor (first)
-import Ki.Context (Context)
 import qualified Ki.Context
 import Ki.Duration (Duration)
 import Ki.Prelude
-import Ki.Scope (Scope)
+import Ki.Scope (Scope (Scope))
 import qualified Ki.Scope
+import Ki.ScopeClosing (ScopeClosing (ScopeClosing))
 import Ki.ThreadFailed (ThreadFailed (ThreadFailed), ThreadFailedAsync (ThreadFailedAsync))
 import Ki.Timeout (timeoutSTM)
 
@@ -141,7 +141,7 @@ forkWithRestore scope action = do
     Ki.Scope.scopeFork scope action \childThreadId -> \case
       Left exception -> do
         whenM
-          (shouldPropagateException (Ki.Scope.context scope) exception)
+          (shouldPropagateException scope exception)
           (throwTo parentThreadId (ThreadFailedAsync threadFailedException))
         putTMVarIO resultVar (Left threadFailedException)
         where
@@ -158,16 +158,20 @@ forkWithRestore_ scope action = do
     Ki.Scope.scopeFork scope action \childThreadId ->
       onLeft \exception -> do
         whenM
-          (shouldPropagateException (Ki.Scope.context scope) exception)
+          (shouldPropagateException scope exception)
           (throwTo parentThreadId (ThreadFailedAsync (ThreadFailed childThreadId exception)))
   pure ()
 
-shouldPropagateException :: Context -> SomeException -> IO Bool
-shouldPropagateException context exception =
+shouldPropagateException :: Scope -> SomeException -> IO Bool
+shouldPropagateException Scope {closedVar, context} exception =
   case fromException exception of
-    Just ThreadKilled -> pure False
-    Just _ -> pure True
+    -- Our scope is (presumably) closing, so don't propagate this exception that presumably just came from our parent.
+    -- But if our scope's closedVar isn't True, that means this 'ScopeClosing' definitely came from somewhere else...
+    Just ScopeClosing -> not <$> readTVarIO closedVar
     Nothing ->
       case fromException exception of
+        -- We (presumably) are honoring our own cancellation request, so don't propagate that either.
+        -- It's a bit complicated looking because we *do* want to throw this token if we (somehow) threw it
+        -- "inappropriately" in the sense that it wasn't ours to throw - it was smuggled from elsewhere.
         Just token -> atomically ((/= token) <$> Ki.Context.cancelled context <|> pure True)
         Nothing -> pure True

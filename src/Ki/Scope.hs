@@ -13,13 +13,14 @@ module Ki.Scope
   )
 where
 
-import Control.Exception (AsyncException (ThreadKilled), fromException, pattern ErrorCall)
+import Control.Exception (fromException, pattern ErrorCall)
 import qualified Data.Monoid as Monoid
 import qualified Data.Set as Set
 import Ki.Context (Context)
 import qualified Ki.Context
 import Ki.Duration (Duration)
 import Ki.Prelude
+import Ki.ScopeClosing (ScopeClosing (..))
 import Ki.ThreadFailed (ThreadFailedAsync (..))
 import Ki.Timeout (timeoutSTM)
 
@@ -31,9 +32,11 @@ data Scope = Scope
     closedVar :: TVar Bool,
     -- | The set of threads that are currently running
     runningVar :: TVar (Set ThreadId),
-    -- | The number of threads that are guaranteed to be just about to start. If this number is non-zero, and that's
-    -- problematic (e.g. if we're about to cancel this scope), we always respect it and wait for it to drop to zero
-    -- before proceeding.
+    -- | The number of threads that are *guaranteed* to be about to start, in the sense that only the GHC scheduler can
+    -- continue to delay; no async exception can strike here and prevent one of these threads from starting.
+    --
+    -- If this number is non-zero, and that's problematic (e.g. because we're trying to cancel this scope), we always
+    -- respect it and wait for it to drop to zero before proceeding.
     startingVar :: TVar Int
   }
 
@@ -60,8 +63,8 @@ scopeCancelledSTM Scope {context} =
 -- Preconditions:
 --   * The set of threads doesn't include us
 --   * We're uninterruptibly masked
-close :: Scope -> IO (Maybe SomeException)
-close scope@Scope {closedVar, runningVar} = do
+closeScope :: Scope -> IO (Maybe SomeException)
+closeScope scope@Scope {closedVar, runningVar} = do
   threads <-
     atomically do
       blockUntilNoneStarting scope
@@ -91,15 +94,16 @@ scoped context f = do
   scope <- newScope context
   uninterruptibleMask \restore -> do
     result <- try (restore (f scope))
-    closeScopeException <- close scope
+    closeScopeException <- closeScope scope
+    -- If the callback failed, we don't care if we were thrown an async exception while closing the scope.
+    -- Otherwise, throw that exception (if it exists).
     case result of
-      -- If the callback failed, we don't care if we were thrown an async exception while closing the scope
       Left exception -> throw exception
-      -- Otherwise, throw that exception (if it exists)
       Right value -> do
         whenJust closeScopeException throw
         pure value
   where
+    -- If applicable, unwrap the 'AsyncThreadFailed' (assumed to have come from one of our children).
     throw :: SomeException -> IO a
     throw exception =
       case fromException exception of
@@ -165,9 +169,9 @@ killThreads =
       -- We unmask because we don't want to deadlock with a thread
       -- that is concurrently trying to throw an exception to us with
       -- exceptions masked.
-      try (unsafeUnmask (throwTo threadId ThreadKilled)) >>= \case
-        -- don't drop thread we didn't kill
-        Left exception -> loop (acc <> pure exception) (threadId : threadIds)
+      try (unsafeUnmask (throwTo threadId ScopeClosing)) >>= \case
+        -- don't drop thread we didn't (necessarily) deliver the exception to
+        Left exception -> loop (acc <> Monoid.First (Just exception)) (threadId : threadIds)
         Right () -> loop acc threadIds
 
 blockUntilTVar :: TVar a -> (a -> Bool) -> STM ()

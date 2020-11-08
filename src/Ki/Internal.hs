@@ -1,33 +1,15 @@
 module Ki.Internal
-  ( -- * CancelToken
-    module Ki.CancelToken,
-
-    -- * Concurrency
+  ( module Ki.CancelToken,
     module Ki.Concurrency,
-
-    -- * Context
     module Ki.Context,
-
-    -- * Ctx
     module Ki.Ctx,
-
-    -- * Duration
     module Ki.Duration,
-
-    -- * Prelude
-    module Ki.Prelude,
-
-    -- * Scope
     module Ki.Scope,
-
-    -- * Thread
+    module Ki.ScopeClosing,
     module Ki.Thread,
-
-    -- * ThreadFailed
     module Ki.ThreadFailed,
-
-    -- * Timeout
     module Ki.Timeout,
+    module Ki.Prelude,
   )
 where
 
@@ -38,6 +20,7 @@ import Ki.Ctx
 import Ki.Duration
 import Ki.Prelude
 import Ki.Scope
+import Ki.ScopeClosing
 import Ki.Thread
 import Ki.ThreadFailed
 import Ki.Timeout

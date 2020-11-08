@@ -110,6 +110,7 @@ library
     Ki.Duration
     Ki.Prelude
     Ki.Scope
+    Ki.ScopeClosing
     Ki.Thread
     Ki.ThreadFailed
     Ki.Timeout
