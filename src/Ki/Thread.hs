@@ -5,7 +5,6 @@ module Ki.Thread
     await,
     awaitSTM,
     awaitFor,
-    kill,
     fork,
     fork_,
     forkWithUnmask,
@@ -13,7 +12,7 @@ module Ki.Thread
   )
 where
 
-import Control.Exception (AsyncException (ThreadKilled), Exception (fromException))
+import Control.Exception (Exception (fromException))
 import Data.Bifunctor (first)
 import qualified Ki.Context as Context
 import Ki.Duration (Duration)
@@ -83,16 +82,6 @@ awaitSTM Thread {action} =
 awaitFor :: Thread a -> Duration -> IO (Maybe a)
 awaitFor thread duration =
   timeoutSTM duration (pure . Just <$> awaitSTM thread) (pure Nothing)
-
--- | Kill a __thread__ wait for it to finish.
---
--- /Throws/:
---
---   * 'ThreadKilled' if a __thread__ attempts to kill itself.
-kill :: Thread a -> IO ()
-kill thread = do
-  throwTo (threadId thread) ThreadKilled
-  void (await thread)
 
 -- | Create a __thread__ within a __scope__ to compute a value concurrently.
 --

@@ -51,7 +51,7 @@ where
 
 #ifdef TEST
 
-import Control.Concurrent.Classy hiding (IO, MVar, STM, TBQueue, TMVar, TQueue, TVar, ThreadId, registerDelay)
+import Control.Concurrent.Classy hiding (MVar, STM, TBQueue, TMVar, TQueue, TVar, ThreadId, registerDelay)
 import qualified Control.Concurrent.Classy
 import Control.Exception (Exception, SomeException)
 import Numeric.Natural (Natural)

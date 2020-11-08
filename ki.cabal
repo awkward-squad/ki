@@ -123,7 +123,7 @@ library
     build-depends:
       atomic-primops,
 
-test-suite tests
+test-suite dejafu-tests
   import: component
   build-depends:
     base,
@@ -131,8 +131,22 @@ test-suite tests
     dejafu,
     ki,
   ghc-options: -rtsopts -threaded
-  hs-source-dirs: test
-  main-is: Test.hs
+  hs-source-dirs: test/dejafu-tests
+  main-is: DejaFuTests.hs
   other-modules:
     DejaFuTestUtils
   type: exitcode-stdio-1.0
+
+test-suite unit-tests
+  import: component
+  build-depends:
+    base,
+    ki,
+    stm,
+  ghc-options: -rtsopts -threaded
+  hs-source-dirs: test/unit-tests
+  main-is: Tests.hs
+  other-modules:
+    TestUtils
+  type: exitcode-stdio-1.0
+

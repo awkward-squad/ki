@@ -21,7 +21,7 @@ import Data.Foldable
 import Data.Function
 import Data.List (intercalate)
 import Data.Maybe
-import Ki.Implicit
+import qualified Ki.Implicit as Ki
 import System.Exit
 import qualified Test.DejaFu as DejaFu
 import qualified Test.DejaFu.Types as DejaFu
@@ -31,9 +31,9 @@ import Prelude
 type P =
   DejaFu.Program DejaFu.Basic IO
 
-test :: (Eq a, Show a) => String -> DejaFu.Predicate a -> (Context => P a) -> IO ()
+test :: (Eq a, Show a) => String -> DejaFu.Predicate a -> (Ki.Context => P a) -> IO ()
 test name predicate t = do
-  result <- DejaFu.runTestWithSettings settings (DejaFu.representative predicate) (globalContext t)
+  result <- DejaFu.runTestWithSettings settings (DejaFu.representative predicate) (Ki.withGlobalContext t)
   printf "[%s] %s\n" (if DejaFu._pass result then "x" else " ") name
   for_ (DejaFu._failures result) \(value, trace) -> prettyPrintTrace value trace
   unless (DejaFu._pass result) exitFailure

@@ -2,4 +2,3 @@
 .ghc.environment.*
 .ghcid
 dist-newstyle/
-hie.yaml

@@ -1,7 +1,10 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Main (main) where
+module DejaFuTests
+  ( main,
+  )
+where
 
 import Control.Concurrent.Classy hiding (fork, forkWithUnmask, wait)
 import Control.Exception
@@ -18,69 +21,11 @@ import Data.Functor
 import Data.Maybe
 import DejaFuTestUtils
 import Ki.Implicit
+import qualified Ki.Internal as Internal
 import Prelude
 
 main :: IO ()
 main = do
-  test "background context isn't cancelled" (returns False) (isJust <$> cancelled)
-
-  test "new scope doesn't start out cancelled" (returns False) (scoped \_ -> isJust <$> cancelled)
-
-  test "`cancelScope` observable by scope's `cancelled`" (returns True) do
-    scoped \scope -> do
-      cancelScope scope
-      isJust <$> cancelled
-
-  test "`cancelScope` observable by inner scope's `cancelled`" (returns True) do
-    scoped \scope1 -> do
-      scoped \_ -> do
-        cancelScope scope1
-        isJust <$> cancelled
-
-  test "`cancelScope` observable by child's `cancelled`" (returns True) do
-    scoped \scope1 -> do
-      thread <-
-        async scope1 do
-          cancelScope scope1
-          isJust <$> cancelled
-      await' thread
-
-  test "`cancelScope` observable by child's inner `cancelled`" (returns True) do
-    scoped \scope1 -> do
-      thread <-
-        async scope1 do
-          scoped \_ -> do
-            cancelScope scope1
-            isJust <$> cancelled
-      await' thread
-
-  test "`cancelScope` observable by grandchild's `cancelled`" (returns True) do
-    scoped \scope1 -> do
-      thread1 <-
-        async scope1 do
-          scoped \scope2 -> do
-            thread2 <-
-              async scope2 do
-                cancelScope scope1
-                isJust <$> cancelled
-            await' thread2
-      await' thread1
-
-  test "inner scope inherits cancellation" (returns True) do
-    scoped \scope1 -> do
-      cancelScope scope1
-      scoped \_ -> isJust <$> cancelled
-
-  test "inner thread inherits cancellation" (returns True) do
-    scoped \scope -> do
-      cancelScope scope
-      thread <- async scope cancelled
-      isJust <$> await' thread
-
-  todo "cancelled child context removes parent's ref to it"
-
-  test "`wait` succeeds when no threads are alive" (returns ()) (scoped wait)
-
   test "`wait` waits for `fork`" (returns True) do
     ref <- newIORef False
     scoped \scope -> do
@@ -122,19 +67,6 @@ main = do
       wait scope
       pure thread
     isRight <$> await thread
-
-  -- test "thread can be killed" do
-  --   returns () do
-  --     scoped \scope -> do
-  --       thread <- async scope block
-  --       kill thread
-
-  -- test "thread can be killed after it's finished" do
-  --   returns () do
-  --     scoped \scope -> do
-  --       thread <- async scope (pure ())
-  --       _ <- await thread
-  --       kill thread
 
   test "`fork` forks a background thread" (returns True) do
     scoped \scope -> do
