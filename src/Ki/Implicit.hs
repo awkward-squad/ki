@@ -35,8 +35,6 @@ module Ki.Implicit
     Scope.cancelScope,
     cancelled,
     cancelledSTM,
-    yield,
-    yieldSTM,
     CancelToken,
 
     -- * Miscellaneous
@@ -216,31 +214,13 @@ scoped action =
 --   * Throws 'CancelToken' if the current __context__ is /cancelled/.
 sleep :: Context => Duration -> IO ()
 sleep duration =
-  timeoutSTM duration yieldSTM (pure ())
+  timeoutSTM duration (cancelledSTM >>= throwSTM) (pure ())
 
 -- | Variant of 'Ki.Scope.wait' that waits for up to the given duration. This is useful for giving __threads__ some time
 -- to fulfill a cancellation request before killing them.
 waitFor :: Scope -> Duration -> IO ()
 waitFor =
   Scope.waitFor
-
--- | Variant of 'cancelled' that throws the cancel token, if any.
---
--- /Throws/:
---
---   * Throws 'CancelToken' if the current __context__ is /cancelled/.
-yield :: Context => IO ()
-yield =
-  atomically (yieldSTM <|> pure ())
-
--- | @STM@ variant of 'yield'.
---
--- /Throws/:
---
---   * Throws 'CancelToken' if the current __context__ is /cancelled/.
-yieldSTM :: Context => STM a
-yieldSTM =
-  cancelledSTM >>= throwSTM
 
 --
 

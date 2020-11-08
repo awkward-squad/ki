@@ -27,10 +27,10 @@ import Ki.Timeout (timeoutSTM)
 -- | A __scope__ delimits the lifetime of all __threads__ created within it.
 data Scope = Scope
   { context :: Context,
-    -- | Whether this scope is closed
-    -- Invariant: if closed, no threads are starting
+    -- | Whether this scope is closed.
+    -- Invariant: if closed, no threads are starting.
     closedVar :: TVar Bool,
-    -- | The set of threads that are currently running
+    -- | The set of threads that are currently running.
     runningVar :: TVar (Set ThreadId),
     -- | The number of threads that are *guaranteed* to be about to start, in the sense that only the GHC scheduler can
     -- continue to delay; no async exception can strike here and prevent one of these threads from starting.
