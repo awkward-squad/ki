@@ -18,7 +18,7 @@ case "$@" in
   "dev tests")
     exec \
       ghcid \
-        -c 'cabal repl ki:test:dejafu-tests --constraint "ki +test" --disable-optimization --enable-tests' \
+        -c 'cabal repl ki:test:dejafu-tests --constraint "ki +test" --disable-optimization' \
         -T ':main' \
         -W \
         --restart ki.cabal
@@ -26,12 +26,15 @@ case "$@" in
   "docs")
     exec cabal haddock --disable-optimization --haddock-hyperlink-source --haddock-quickjump
     ;;
+  "format")
+    exec ormolu -i $(ls src/**/*.hs test/**/*.hs)
+    ;;
   "repl")
     exec cabal repl ki:lib:ki --disable-optimization
     ;;
   "test")
-    cabal run ki:test:unit-tests --disable-optimization --enable-tests
-    cabal run ki:test:dejafu-tests --constraint "ki +test" --disable-optimization --enable-tests
+    cabal run ki:test:unit-tests --disable-optimization
+    cabal run ki:test:dejafu-tests --constraint "ki +test" --disable-optimization
     ;;
   "upload candidate")
     cabal sdist

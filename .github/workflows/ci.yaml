@@ -40,20 +40,30 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.ghc }}-dist-${{ github.sha }}
           restore-keys: ${{ runner.os }}-${{ matrix.ghc }}-dist-
 
-      - name: Set path
+      - name: Add non-system GHC to path
         run: |
-          echo "::add-path::/opt/cabal/3.2/bin"
           echo "::add-path::/opt/ghc/${{ matrix.ghc }}/bin"
+          cabal --version
+          ghc --version
 
       - name: cabal update
         if: steps.cache-cabal.outputs.cache-hit != 'true'
         run: cabal update
 
-      - name: Build
+      - name: Build library
         run: cabal build ki:lib:ki --disable-optimization
 
-      - name: Build tests
-        run: cabal build ki:test:tests --constraint "ki +test" --disable-optimization --enable-tests
+      - name: Build unit tests
+        run: cabal build ki:test:unit-tests --disable-optimization
 
-      - name: Run tests
-        run: cabal run ki:test:tests --constraint "ki +test" --disable-optimization --enable-tests
+      - name: Run unit tests
+        run: cabal run ki:test:unit-tests --disable-optimization
+
+      - name: Build library with 'test' flag
+        run: cabal build ki:lib:ki --constraint "ki +test" --disable-optimization
+
+      - name: Build dejafu tests
+        run: cabal build ki:test:dejafu-tests --constraint "ki +test" --disable-optimization
+
+      - name: Run dejafu tests
+        run: cabal run ki:test:dejafu-tests --constraint "ki +test" --disable-optimization

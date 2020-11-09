@@ -64,7 +64,7 @@ deadlocks =
     Left DejaFu.Deadlock -> True
     _ -> False
 
-nondeterministic :: (Eq a, Show a ) => [Either DejaFu.Condition a] -> DejaFu.Predicate a
+nondeterministic :: (Eq a, Show a) => [Either DejaFu.Condition a] -> DejaFu.Predicate a
 nondeterministic =
   DejaFu.gives
 
