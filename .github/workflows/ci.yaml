@@ -41,10 +41,8 @@ jobs:
           restore-keys: ${{ runner.os }}-${{ matrix.ghc }}-dist-
 
       - name: Add non-system GHC to path
-        run: |
-          echo "::add-path::/opt/ghc/${{ matrix.ghc }}/bin"
-          cabal --version
-          ghc --version
+        if: ${{ runner.os }} == 'ubuntu-latest'
+        run: echo "/opt/ghc/${{ matrix.ghc }}/bin" >> $GITHUB_PATH
 
       - name: cabal update
         if: steps.cache-cabal.outputs.cache-hit != 'true'
