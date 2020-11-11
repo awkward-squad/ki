@@ -26,12 +26,12 @@ module Ki
     awaitFor,
 
     -- * Miscellaneous
-    sleep,
     Duration,
-    Timeout.timeoutSTM,
     Duration.microseconds,
     Duration.milliseconds,
     Duration.seconds,
+    Timeout.timeoutSTM,
+    sleep,
 
     -- * Exceptions
     ThreadFailed (..),
@@ -53,7 +53,7 @@ import qualified Ki.Timeout as Timeout
 --
 -- /Throws/:
 --
---   * 'ThreadFailed' if the __thread__ threw an exception and was created with 'Ki.Thread.fork'.
+--   * 'ThreadFailed' if the __thread__ threw an exception and was created with 'Ki.fork'.
 await :: Thread a -> IO a
 await =
   Thread.await
@@ -62,7 +62,7 @@ await =
 --
 -- /Throws/:
 --
---   * 'ThreadFailed' if the __thread__ threw an exception and was created with 'Ki.Thread.fork'.
+--   * 'ThreadFailed' if the __thread__ threw an exception and was created with 'Ki.fork'.
 awaitSTM :: Thread a -> STM a
 awaitSTM =
   Thread.awaitSTM
@@ -71,7 +71,7 @@ awaitSTM =
 --
 -- /Throws/:
 --
---   * 'ThreadFailed' if the __thread__ threw an exception and was created with 'Ki.Thread.fork'.
+--   * 'ThreadFailed' if the __thread__ threw an exception and was created with 'Ki.fork'.
 awaitFor :: Thread a -> Duration -> IO (Maybe a)
 awaitFor =
   Thread.awaitFor
@@ -80,11 +80,11 @@ awaitFor =
 --
 -- There are two variants of __thread__-creating functions with different exception-propagation semantics.
 --
--- * If a __thread__ created with 'Ki.Thread.fork' throws an exception, it is immediately propagated up the call tree to
--- the __thread__ that created its __scope__.
+-- * If a __thread__ created with 'Ki.fork' throws an exception, it is immediately propagated up the call tree to the
+-- __thread__ that created its __scope__.
 --
--- * If a __thread__ created with 'Ki.Thread.async' throws an exception, it is not propagated up the call tree, but can
--- be observed by 'Ki.Thread.await'.
+-- * If a __thread__ created with 'Ki.async' throws an exception, it is not propagated up the call tree, but can be
+-- observed by 'Ki.await'.
 
 -- | Open a __scope__, perform an @IO@ action with it, then close the __scope__.
 --
@@ -93,21 +93,21 @@ awaitFor =
 -- /Throws/:
 --
 --   * The exception thrown by the callback to 'scoped' itself, if any.
---   * 'ThreadFailed' containing the first exception a __thread__ created with 'Ki.Thread.fork' throws, if any.
+--   * 'ThreadFailed' containing the first exception a __thread__ created with 'Ki.fork' throws, if any.
 --
 -- ==== __Examples__
 --
 -- @
 -- 'scoped' \\scope -> do
---   'Ki.Thread.fork_' scope worker1
---   'Ki.Thread.fork_' scope worker2
---   'Ki.Scope.wait' scope
+--   'Ki.fork_' scope worker1
+--   'Ki.fork_' scope worker2
+--   'Ki.wait' scope
 -- @
 scoped :: (Scope -> IO a) -> IO a
 scoped =
   Scope.scoped Context.dummyContext
 
--- | @threadDelay@.
+-- | Duration-based @threadDelay@.
 sleep :: Duration -> IO ()
 sleep duration =
   threadDelay (Duration.toMicroseconds duration)

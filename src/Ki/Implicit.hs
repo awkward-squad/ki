@@ -6,7 +6,7 @@ module Ki.Implicit
     withGlobalContext,
 
     -- * Scope
-    Scope.Scope,
+    Scope,
     scoped,
     Scope.wait,
     Scope.waitSTM,
@@ -14,7 +14,7 @@ module Ki.Implicit
 
     -- * Spawning threads
     -- $spawning-threads
-    Thread.Thread,
+    Thread,
 
     -- ** Fork
     fork,
@@ -38,12 +38,12 @@ module Ki.Implicit
     CancelToken,
 
     -- * Miscellaneous
-    sleep,
-    timeoutSTM,
     Duration,
     Duration.microseconds,
     Duration.milliseconds,
     Duration.seconds,
+    timeoutSTM,
+    sleep,
 
     -- * Exceptions
     ThreadFailed (..),
@@ -70,7 +70,7 @@ import Ki.Timeout (timeoutSTM)
 -- __thread__ that created its __scope__.
 --
 -- * If a __thread__ created with 'async' throws an exception, it is not propagated up the call tree, but can be
--- observed by 'Ki.Thread.await'.
+-- observed by 'Ki.Implicit.await'.
 
 -- | A __context__ models a program's call tree, and is used as a mechanism to propagate /cancellation/ requests to
 -- every __thread__ created within a __scope__.
@@ -105,7 +105,7 @@ asyncWithUnmask scope action =
 -- /Throws/:
 --
 --   * 'ThreadFailed' if the __thread__ threw an exception and was created with 'fork'.
-await :: Ki.Thread.Thread a -> IO a
+await :: Thread a -> IO a
 await =
   Thread.await
 
@@ -114,7 +114,7 @@ await =
 -- /Throws/:
 --
 --   * 'ThreadFailed' if the __thread__ threw an exception and was created with 'fork'.
-awaitSTM :: Ki.Thread.Thread a -> STM a
+awaitSTM :: Thread a -> STM a
 awaitSTM =
   Thread.awaitSTM
 
@@ -123,7 +123,7 @@ awaitSTM =
 -- /Throws/:
 --
 --   * 'ThreadFailed' if the __thread__ threw an exception and was created with 'fork'.
-awaitFor :: Ki.Thread.Thread a -> Duration -> IO (Maybe a)
+awaitFor :: Thread a -> Duration -> IO (Maybe a)
 awaitFor =
   Thread.awaitFor
 
@@ -201,13 +201,13 @@ withGlobalContext action =
 -- 'scoped' \\scope -> do
 --   'fork_' scope worker1
 --   'fork_' scope worker2
---   'Ki.Scope.wait' scope
+--   'Ki.Implicit.wait' scope
 -- @
 scoped :: Context => (Context => Scope -> IO a) -> IO a
 scoped action =
   Scope.scoped ?context \scope -> with scope (action scope)
 
--- | __Context__-aware @threadDelay@.
+-- | __Context__-aware, duration-based @threadDelay@.
 --
 -- /Throws/:
 --
@@ -216,8 +216,8 @@ sleep :: Context => Duration -> IO ()
 sleep duration =
   timeoutSTM duration (cancelledSTM >>= throwSTM) (pure ())
 
--- | Variant of 'Ki.Scope.wait' that waits for up to the given duration. This is useful for giving __threads__ some time
--- to fulfill a cancellation request before killing them.
+-- | Variant of 'Ki.Implicit.wait' that waits for up to the given duration. This is useful for giving __threads__ some
+-- time to fulfill a /cancellation/ request before killing them.
 waitFor :: Scope -> Duration -> IO ()
 waitFor =
   Scope.waitFor

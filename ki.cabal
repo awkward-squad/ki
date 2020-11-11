@@ -11,10 +11,10 @@ maintainer: Mitchell Rosen <mitchellwrosen@gmail.com>
 name: ki
 stability: experimental
 synopsis: A lightweight, structured concurrency library
-version: 0
+version: 0.1.0
 
 description:
-  A lightweight, structured concurrency library.
+  A lightweight, structured-concurrency library.
 
   This package comes in two variants:
 
@@ -44,6 +44,7 @@ description:
   @
 
 extra-source-files:
+  CHANGELOG.md
   README.md
 
 source-repository head
@@ -86,6 +87,7 @@ common component
       -Wno-prepositive-qualified-module
 
 flag test
+  description: Internal flag used by DejaFu test suite
   default: False
   manual: True
 
