@@ -11,7 +11,6 @@ maintainer: Mitchell Rosen <mitchellwrosen@gmail.com>
 name: ki
 stability: experimental
 synopsis: A lightweight, structured concurrency library
-tested-with: GHC == 8.6.5, GHC == 8.8.3, GHC == 8.10.1
 version: 0
 
 description:
