@@ -12,33 +12,34 @@ name: ki
 stability: experimental
 synopsis: A lightweight, structured concurrency library
 version: 0.1.0.1
+x-revision: 1
 
 description:
   A lightweight, structured-concurrency library.
-
+  .
   This package comes in two variants:
-
+  .
   * "Ki" exposes the most stripped-down variant; start here.
-
+  .
   * "Ki.Implicit" extends "Ki" with an implicit context that's used to
     propagate soft cancellation signals.
-
+  .
       Using this variant comes at a cost:
-
+  .
         * You must manually add constraints to propagate the implicit context to
           where it's needed.
-
+  .
         * To remain warning-free, you must delete the implicit context constraints
           where they are no longer needed.
-
+  .
     If you don't need soft-cancellation, there is no benefit to using this
     variant, and you should stick with "Ki".
-
+  .
   Because you'll only ever need one variant at a time, I recommend using a
   <https://www.haskell.org/cabal/users-guide/developing-packages.html#pkg-field-mixins mixin stanza>
   to rename one module to @Ki@ while hiding the others. This also simplifies the
   process of upgrading from "Ki.Implicit" to "Ki" if necessary.
-
+  .
   @
   mixins: ki (Ki.Implicit as Ki)
   @
