@@ -140,7 +140,7 @@ import Control.Concurrent hiding (forkIO)
 import Control.Concurrent.STM hiding (registerDelay)
 import Control.Exception
 import Control.Monad (unless)
-import Data.Atomics.Counter
+import Data.IORef (IORef, atomicModifyIORef', newIORef)
 import GHC.Conc (ThreadId (ThreadId))
 #if defined(mingw32_HOST_OS)
 import GHC.Conc.Windows
@@ -177,11 +177,11 @@ registerDelay micros = do
 
 uniqueInt :: IO Int
 uniqueInt =
-  incrCounter 1 counter
+  atomicModifyIORef' counter \n -> let n' = n + 1 in (n', n')
 
-counter :: AtomicCounter
+counter :: IORef Int
 counter =
-  unsafePerformIO (newCounter 0)
+  unsafePerformIO (newIORef 0)
 {-# NOINLINE counter #-}
 
 #endif

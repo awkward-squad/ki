@@ -8,7 +8,8 @@ and this project adheres to the [Haskell Package Versioning Policy](https://pvp.
 ## Unreleased
 
 ### Changed
-- Lowered `cabal-version` from 3.0 to 2.2 because `stack` cannot parse 3.0
+- Lower `cabal-version` from 3.0 to 2.2 because `stack` cannot parse 3.0
+- Replace `AtomicCounter` with `Int` (to drop the `atomic-primops` dependency)
 
 ## [0.1.0] - 2020-11-11
 
