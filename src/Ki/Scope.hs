@@ -3,25 +3,30 @@
 
 module Ki.Scope
   ( Scope (..),
-    cancelScope,
+    cancel,
     scopeCancelledSTM,
     scopeFork,
     scoped,
     wait,
     waitFor,
     waitSTM,
+    ScopeClosing (..),
+    ThreadFailed (..),
   )
 where
 
-import Control.Exception (fromException, pattern ErrorCall)
+import Control.Exception
+  ( Exception (fromException, toException),
+    asyncExceptionFromException,
+    asyncExceptionToException,
+    pattern ErrorCall,
+  )
 import qualified Data.Monoid as Monoid
 import qualified Data.Set as Set
 import Ki.Context (Context)
 import qualified Ki.Context as Context
 import Ki.Duration (Duration)
 import Ki.Prelude
-import Ki.ScopeClosing (ScopeClosing (..))
-import Ki.ThreadFailed (ThreadFailedAsync (..))
 import Ki.Timeout (timeoutSTM)
 
 -- | A __scope__ delimits the lifetime of all __threads__ created within it.
@@ -49,8 +54,8 @@ newScope parentContext = do
   pure Scope {context, closedVar, runningVar, startingVar}
 
 -- | /Cancel/ all __contexts__ derived from a __scope__.
-cancelScope :: Scope -> IO ()
-cancelScope Scope {context} =
+cancel :: Scope -> IO ()
+cancel Scope {context} =
   Context.cancelContext context
 
 scopeCancelledSTM :: Scope -> STM (IO a)
@@ -74,7 +79,7 @@ closeScope scope@Scope {closedVar, runningVar} = do
   atomically (blockUntilNoneRunning scope)
   pure exception
 
-scopeFork :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> (ThreadId -> Either SomeException a -> IO ()) -> IO ThreadId
+scopeFork :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> (Either SomeException a -> IO ()) -> IO ThreadId
 scopeFork Scope {closedVar, runningVar, startingVar} action k =
   uninterruptibleMask \restore -> do
     -- Record the thread as being about to start
@@ -88,7 +93,7 @@ scopeFork Scope {closedVar, runningVar, startingVar} action k =
       forkIO do
         childThreadId <- myThreadId
         result <- try (action restore)
-        k childThreadId result
+        k result
         atomically do
           running <- readTVar runningVar
           case Set.splitMember childThreadId running of
@@ -116,11 +121,11 @@ scoped context f = do
         whenJust closeScopeException throw
         pure value
   where
-    -- If applicable, unwrap the 'AsyncThreadFailed' (assumed to have come from one of our children).
+    -- If applicable, unwrap the 'ThreadFailed' (assumed to have come from one of our children).
     throw :: SomeException -> IO a
     throw exception =
       case fromException exception of
-        Just (ThreadFailedAsync threadFailedException) -> throwIO threadFailedException
+        Just (ThreadFailed threadFailedException) -> throwIO threadFailedException
         Nothing -> throwIO exception
 
 -- | Wait until all __threads__ created within a __scope__ finish.
@@ -149,6 +154,27 @@ blockUntilNoneRunning Scope {runningVar} =
 blockUntilNoneStarting :: Scope -> STM ()
 blockUntilNoneStarting Scope {startingVar} =
   blockUntilTVar startingVar (== 0)
+
+--------------------------------------------------------------------------------
+-- Internal exception types
+
+-- | Exception thrown by a parent __thread__ to its children when the __scope__ is closing.
+data ScopeClosing
+  = ScopeClosing
+  deriving stock (Eq, Show)
+
+instance Exception ScopeClosing where
+  toException = asyncExceptionToException
+  fromException = asyncExceptionFromException
+
+-- | Exception thrown by a child __thread__ to its parent, if it fails unexpectedly.
+newtype ThreadFailed
+  = ThreadFailed SomeException
+  deriving stock (Show)
+
+instance Exception ThreadFailed where
+  toException = asyncExceptionToException
+  fromException = asyncExceptionFromException
 
 --------------------------------------------------------------------------------
 -- Misc. utils

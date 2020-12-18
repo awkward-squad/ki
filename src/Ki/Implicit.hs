@@ -27,15 +27,15 @@ module Ki.Implicit
     asyncWithUnmask,
 
     -- ** Await
-    await,
-    awaitSTM,
-    awaitFor,
+    Thread.await,
+    Thread.awaitSTM,
+    Thread.awaitFor,
 
     -- * Soft-cancellation
-    Scope.cancelScope,
+    CancelToken,
+    Scope.cancel,
     cancelled,
     cancelledSTM,
-    CancelToken,
 
     -- * Miscellaneous
     Duration,
@@ -44,9 +44,6 @@ module Ki.Implicit
     Duration.seconds,
     timeoutSTM,
     sleep,
-
-    -- * Exceptions
-    ThreadFailed (..),
   )
 where
 
@@ -59,7 +56,6 @@ import Ki.Scope (Scope)
 import qualified Ki.Scope as Scope
 import Ki.Thread (Thread)
 import qualified Ki.Thread as Thread
-import Ki.ThreadFailed (ThreadFailed (..))
 import Ki.Timeout (timeoutSTM)
 
 -- $spawning-threads
@@ -82,12 +78,12 @@ import Ki.Timeout (timeoutSTM)
 type Context =
   ?context :: Context.Context
 
--- | Create a __thread__ within a __scope__ to compute a value concurrently.
+-- | Create a __thread__ within a __scope__.
 --
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-async :: Scope -> (Context => IO a) -> IO (Thread (Either ThreadFailed a))
+async :: Scope -> (Context => IO a) -> IO (Thread (Either SomeException a))
 async scope action =
   Thread.async scope (with scope action)
 
@@ -96,36 +92,9 @@ async scope action =
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-asyncWithUnmask :: Scope -> (Context => (forall x. IO x -> IO x) -> IO a) -> IO (Thread (Either ThreadFailed a))
+asyncWithUnmask :: Scope -> (Context => (forall x. IO x -> IO x) -> IO a) -> IO (Thread (Either SomeException a))
 asyncWithUnmask scope action =
   Thread.asyncWithUnmask scope (let ?context = Scope.context scope in action)
-
--- | Wait for a __thread__ to finish.
---
--- /Throws/:
---
---   * 'ThreadFailed' if the __thread__ threw an exception and was created with 'fork'.
-await :: Thread a -> IO a
-await =
-  Thread.await
-
--- | @STM@ variant of 'await'.
---
--- /Throws/:
---
---   * 'ThreadFailed' if the __thread__ threw an exception and was created with 'fork'.
-awaitSTM :: Thread a -> STM a
-awaitSTM =
-  Thread.awaitSTM
-
--- | Variant of 'await' that waits for up to the given duration.
---
--- /Throws/:
---
---   * 'ThreadFailed' if the __thread__ threw an exception and was created with 'fork'.
-awaitFor :: Thread a -> Duration -> IO (Maybe a)
-awaitFor =
-  Thread.awaitFor
 
 -- | Return whether the current __context__ is /cancelled/.
 --
@@ -141,11 +110,10 @@ cancelledSTM :: Context => STM CancelToken
 cancelledSTM =
   Context.contextCancelTokenSTM ?context
 
--- | Create a __thread__ within a __scope__ to compute a value concurrently.
+-- | Create a __thread__ within a __scope__.
 --
--- If the __thread__ throws an exception, the exception is wrapped in 'ThreadFailed' and immediately propagated up the
--- call tree to the __thread__ that opened its __scope__, unless that exception is a 'CancelToken' that fulfills a
--- /cancellation/ request.
+-- If the __thread__ throws an exception, the exception is immediately propagated up the call tree to the __thread__
+-- that opened its __scope__, unless that exception is a 'CancelToken' that fulfills a /cancellation/ request.
 --
 -- /Throws/:
 --
@@ -193,7 +161,7 @@ withGlobalContext action =
 -- /Throws/:
 --
 --   * The exception thrown by the callback to 'scoped' itself, if any.
---   * 'ThreadFailed' containing the first exception a __thread__ created with 'fork' throws, if any.
+--   * The first exception thrown by or to a __thread__ created with 'fork', if any.
 --
 -- ==== __Examples__
 --
@@ -211,7 +179,7 @@ scoped action =
 --
 -- /Throws/:
 --
---   * Throws 'CancelToken' if the current __context__ is /cancelled/.
+--   * Throws 'CancelToken' if the current __context__ is (or becomes) /cancelled/.
 sleep :: Context => Duration -> IO ()
 sleep duration =
   timeoutSTM duration (cancelledSTM >>= throwSTM) (pure ())

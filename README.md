@@ -88,7 +88,7 @@ The core API is extended with two functions to soft-cancel a scope, and to obser
 canceled.
 
 ```haskell
-cancelScope :: Scope -> IO ()
+cancel :: Scope -> IO ()
 
 cancelled :: Context => IO (Maybe CancelToken)
 ```

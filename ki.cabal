@@ -10,9 +10,8 @@ license-file: LICENSE
 maintainer: Mitchell Rosen <mitchellwrosen@gmail.com>
 name: ki
 stability: experimental
-synopsis: A lightweight, structured concurrency library
-version: 0.1.0.1
-x-revision: 1
+synopsis: A lightweight, structured-concurrency library
+version: 0.2.0
 
 description:
   A lightweight, structured-concurrency library.
@@ -36,7 +35,7 @@ description:
     variant, and you should stick with "Ki".
   .
   Because you'll only ever need one variant at a time, I recommend using a
-  <https://www.haskell.org/cabal/users-guide/developing-packages.html#pkg-field-mixins mixin stanza>
+  <https://cabal.readthedocs.io/en/latest/cabal-package.html#pkg-field-mixins mixin stanza>
   to rename one module to @Ki@ while hiding the others. This also simplifies the
   process of upgrading from "Ki.Implicit" to "Ki" if necessary.
   .
@@ -69,6 +68,7 @@ common component
     LambdaCase
     NamedFieldPuns
     NoImplicitPrelude
+    NumericUnderscores
     RankNTypes
     RoleAnnotations
     ScopedTypeVariables
@@ -112,9 +112,7 @@ library
     Ki.Duration
     Ki.Prelude
     Ki.Scope
-    Ki.ScopeClosing
     Ki.Thread
-    Ki.ThreadFailed
     Ki.Timeout
   if flag(test)
     build-depends:

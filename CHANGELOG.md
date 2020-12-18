@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to the [Haskell Package Versioning Policy](https://pvp.haskell.org/).
 
+## [0.2.0] - 2020-12-17
+
+### Changed
+- Rename `cancelScope` to `cancel`.
+
+### Removed
+- Remove `ThreadFailed` exception wrapper.
+
 ## [0.1.0.1] - 2020-11-30
 
 ### Changed

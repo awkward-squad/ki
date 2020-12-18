@@ -23,33 +23,33 @@ main = do
   test "new scope doesn't start out cancelled" do
     Ki.scoped \_ -> (isJust <$> Ki.cancelled) `shouldReturn` False
 
-  test "`cancelScope` observable by scope's `cancelled`" do
+  test "`cancel` observable by scope's `cancelled`" do
     Ki.scoped \scope -> do
-      Ki.cancelScope scope
+      Ki.cancel scope
       (isJust <$> Ki.cancelled) `shouldReturn` True
 
-  test "`cancelScope` observable by inner scope's `cancelled`" do
+  test "`cancel` observable by inner scope's `cancelled`" do
     Ki.scoped \scope ->
       Ki.scoped \_ -> do
-        Ki.cancelScope scope
+        Ki.cancel scope
         (isJust <$> Ki.cancelled) `shouldReturn` True
 
-  childtest "`cancelScope` observable by child's `cancelled`" \fork -> do
+  childtest "`cancel` observable by child's `cancelled`" \fork -> do
     ref <- newIORef Nothing
     Ki.scoped \scope -> do
       fork scope do
-        Ki.cancelScope scope
+        Ki.cancel scope
         Ki.cancelled >>= writeIORef ref
       Ki.wait scope
     (isJust <$> readIORef ref) `shouldReturn` True
 
-  childtest "`cancelScope` observable by grandchild's `cancelled`" \fork -> do
+  childtest "`cancel` observable by grandchild's `cancelled`" \fork -> do
     ref <- newIORef Nothing
     Ki.scoped \scope1 -> do
       fork scope1 do
         Ki.scoped \scope2 -> do
           fork scope2 do
-            Ki.cancelScope scope1
+            Ki.cancel scope1
             Ki.cancelled >>= writeIORef ref
           Ki.wait scope2
       Ki.wait scope1
@@ -57,13 +57,13 @@ main = do
 
   test "inner scope inherits cancellation" do
     Ki.scoped \scope1 -> do
-      Ki.cancelScope scope1
+      Ki.cancel scope1
       Ki.scoped \_ -> (isJust <$> Ki.cancelled) `shouldReturn` True
 
   childtest "child thread inherits cancellation" \fork -> do
     ref <- newIORef Nothing
     Ki.scoped \scope -> do
-      Ki.cancelScope scope
+      Ki.cancel scope
       fork scope (Ki.cancelled >>= writeIORef ref)
       Ki.wait scope
     (isJust <$> readIORef ref) `shouldReturn` True
@@ -90,74 +90,72 @@ main = do
         when (parentThreadId == childThreadId) (fail "didn't create a thread")
       Ki.wait scope
 
-  forktest "propagates sync exceptions" \fork -> do
-    shouldThrowSuchThat
-      ( Ki.scoped \scope -> do
-          fork scope (throwIO A)
-          Ki.wait scope
-      )
-      (\(Ki.ThreadFailed _threadId exception) -> fromException exception == Just A)
+  forktest "propagates sync exceptions" \fork ->
+    ( Ki.scoped \scope -> do
+        fork scope (throwIO A)
+        Ki.wait scope
+    )
+      `shouldThrow` A
 
-  forktest "propagates async exceptions" \fork -> do
-    shouldThrowSuchThat
-      ( Ki.scoped \scope -> do
-          fork scope (throwIO B)
-          Ki.wait scope
-      )
-      (\(Ki.ThreadFailed _threadId exception) -> fromException exception == Just B)
+  forktest "propagates async exceptions" \fork ->
+    ( Ki.scoped \scope -> do
+        fork scope (throwIO B)
+        Ki.wait scope
+    )
+      `shouldThrow` B
 
   forktest "doesn't propagate own cancel token exceptions" \fork ->
     Ki.scoped \scope -> do
-      Ki.cancelScope scope
+      Ki.cancel scope
       fork scope (atomically Ki.cancelledSTM >>= throwIO)
       Ki.wait scope
 
   forktest "propagates ScopeClosing if it isn't ours" \fork ->
-    shouldThrowSuchThat
-      ( Ki.scoped \scope -> do
-          fork scope (throwIO Ki.Internal.ScopeClosing)
-          Ki.wait scope
-      )
-      (\(Ki.ThreadFailed _threadId exception) -> fromException exception == Just Ki.Internal.ScopeClosing)
+    ( Ki.scoped \scope -> do
+        fork scope (throwIO Ki.Internal.ScopeClosing)
+        Ki.wait scope
+    )
+      `shouldThrow` Ki.Internal.ScopeClosing
 
   forktest "propagates others' cancel token exceptions" \fork ->
-    shouldThrowSuchThat
-      ( Ki.scoped \scope -> do
-          Ki.cancelScope scope
-          fork scope (throwIO (Ki.Internal.CancelToken 0))
-          Ki.wait scope
-      )
-      (\(Ki.ThreadFailed _threadId exception) -> fromException exception == Just (Ki.Internal.CancelToken 0))
+    ( Ki.scoped \scope -> do
+        Ki.cancel scope
+        fork scope (throwIO (Ki.Internal.CancelToken 0))
+        Ki.wait scope
+    )
+      `shouldThrow` Ki.Internal.CancelToken 0
 
   test "`async` returns sync exceptions" do
     Ki.scoped \scope -> do
       result <- Ki.async @() scope (throw A)
       Ki.await result `shouldReturnSuchThat` \case
-        Left (Ki.ThreadFailed _threadId exception) -> fromException exception == Just A
+        Left (fromException -> Just A) -> True
         _ -> False
 
   test "`async` returns async exceptions" do
     Ki.scoped \scope -> do
       result <- Ki.async @() scope (throw B)
       Ki.await result `shouldReturnSuchThat` \case
-        Left (Ki.ThreadFailed _threadId exception) -> fromException exception == Just B
+        Left (fromException -> Just B) -> True
         _ -> False
 
-  test "awaiting a failed `fork`ed thread throws the sync exception it failed with" do
+  test "awaiting a failed `fork`ed thread blocks" do
     Ki.scoped \scope -> do
       mask \unmask -> do
         thread <- Ki.fork @() scope (throw A)
-        unmask (Ki.wait scope) `catch` \(Ki.Internal.ThreadFailedAsync _) -> pure ()
-        Ki.await thread
-          `shouldThrowSuchThat` \(Ki.ThreadFailed _threadId exception) -> fromException exception == Just A
+        unmask (Ki.wait scope) `catch` \(Ki.Internal.ThreadFailed _) -> pure ()
+        Ki.await thread `shouldThrowSuchThat` \case
+          (fromException -> Just BlockedIndefinitelyOnSTM) -> True
+          _ -> False
 
-  test "awaiting a failed `fork`ed thread throws the async exception it failed with" do
+  test "awaiting a failed `fork`ed thread blocks" do
     Ki.scoped \scope -> do
       mask \unmask -> do
         thread <- Ki.fork @() scope (throw B)
-        unmask (Ki.wait scope) `catch` \(Ki.Internal.ThreadFailedAsync _) -> pure ()
-        Ki.await thread
-          `shouldThrowSuchThat` \(Ki.ThreadFailed _threadId exception) -> fromException exception == Just B
+        unmask (Ki.wait scope) `catch` \(Ki.Internal.ThreadFailed _) -> pure ()
+        Ki.await thread `shouldThrowSuchThat` \case
+          (fromException -> Just BlockedIndefinitelyOnSTM) -> True
+          _ -> False
 
   childtest "inherits masking state" \fork -> do
     Ki.scoped \scope -> do
@@ -188,6 +186,29 @@ main = do
         Ki.wait scope
         pure thread
     Ki.await thread `shouldReturn` ()
+
+  test "parent kills children when it throws" do
+    ref <- newIORef False
+    ignoring @A do
+      Ki.scoped \scope -> do
+        var <- newEmptyMVar
+        uninterruptibleMask_ do
+          Ki.forkWithUnmask_ scope \unmask -> do
+            putMVar var ()
+            unmask (threadDelay 1_000_000) `onException` writeIORef ref True
+        takeMVar var
+        void (throw A)
+    readIORef ref `shouldReturn` True
+
+  test "parent kills children when child throws" do
+    ref <- newIORef False
+    ignoring @A do
+      Ki.scoped \scope -> do
+        uninterruptibleMask_ do
+          (Ki.forkWithUnmask_ scope \unmask -> unmask (threadDelay 1_000_000) `onException` writeIORef ref True)
+        Ki.fork_ scope (throw A)
+        Ki.wait scope
+    readIORef ref `shouldReturn` True
 
 forktest :: String -> (Ki.Context => (Ki.Scope -> (Ki.Context => IO ()) -> IO ()) -> IO ()) -> IO ()
 forktest name theTest = do

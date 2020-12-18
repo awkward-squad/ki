@@ -21,9 +21,9 @@ module Ki
     Thread.asyncWithUnmask,
 
     -- ** Await
-    await,
-    awaitSTM,
-    awaitFor,
+    Thread.await,
+    Thread.awaitSTM,
+    Thread.awaitFor,
 
     -- * Miscellaneous
     Duration,
@@ -32,9 +32,6 @@ module Ki
     Duration.seconds,
     Timeout.timeoutSTM,
     sleep,
-
-    -- * Exceptions
-    ThreadFailed (..),
   )
 where
 
@@ -46,35 +43,7 @@ import Ki.Scope (Scope)
 import qualified Ki.Scope as Scope
 import Ki.Thread (Thread)
 import qualified Ki.Thread as Thread
-import Ki.ThreadFailed (ThreadFailed (..))
 import qualified Ki.Timeout as Timeout
-
--- | Wait for a __thread__ to finish.
---
--- /Throws/:
---
---   * 'ThreadFailed' if the __thread__ threw an exception and was created with 'Ki.fork'.
-await :: Thread a -> IO a
-await =
-  Thread.await
-
--- | @STM@ variant of 'await'.
---
--- /Throws/:
---
---   * 'ThreadFailed' if the __thread__ threw an exception and was created with 'Ki.fork'.
-awaitSTM :: Thread a -> STM a
-awaitSTM =
-  Thread.awaitSTM
-
--- | Variant of 'await' that waits for up to the given duration.
---
--- /Throws/:
---
---   * 'ThreadFailed' if the __thread__ threw an exception and was created with 'Ki.fork'.
-awaitFor :: Thread a -> Duration -> IO (Maybe a)
-awaitFor =
-  Thread.awaitFor
 
 -- $spawning-threads
 --
@@ -93,7 +62,7 @@ awaitFor =
 -- /Throws/:
 --
 --   * The exception thrown by the callback to 'scoped' itself, if any.
---   * 'ThreadFailed' containing the first exception a __thread__ created with 'Ki.fork' throws, if any.
+--   * The first exception thrown by or to a __thread__ created with 'Ki.fork', if any.
 --
 -- ==== __Examples__
 --

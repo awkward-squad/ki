@@ -1,7 +1,8 @@
 {-# LANGUAGE TypeApplications #-}
 
 module TestUtils
-  ( fail,
+  ( ignoring,
+    fail,
     shouldReturn,
     shouldReturnSuchThat,
     shouldThrow,
@@ -25,6 +26,10 @@ newtype TestFailure
 instance Exception TestFailure where
   displayException (TestFailure message) =
     message
+
+ignoring :: forall e. Exception e => IO () -> IO ()
+ignoring action =
+  catch action \(_ :: e) -> pure ()
 
 fail :: String -> IO ()
 fail =
