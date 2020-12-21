@@ -18,7 +18,7 @@ case "$@" in
   "dev tests")
     exec \
       ghcid \
-        -c 'cabal repl ki:test:dejafu-tests --constraint "ki +test" --disable-optimization' \
+        -c 'cabal repl ki:test:dejafu-tests --constraint "ki +dejafu-tests" --disable-optimization' \
         -T ':main' \
         -W \
         --restart ki.cabal
@@ -34,7 +34,7 @@ case "$@" in
     ;;
   "test")
     cabal run ki:test:unit-tests --disable-optimization
-    cabal run ki:test:dejafu-tests --constraint "ki +test" --disable-optimization
+    cabal run ki:test:dejafu-tests --constraint "ki +dejafu-tests" --disable-optimization
     ;;
   "upload candidate")
     cabal sdist
