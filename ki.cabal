@@ -69,6 +69,7 @@ common component
     NamedFieldPuns
     NoImplicitPrelude
     NumericUnderscores
+    PartialTypeSignatures
     RankNTypes
     RoleAnnotations
     ScopedTypeVariables
@@ -104,6 +105,9 @@ library
     Ki,
     Ki.Implicit,
     Ki.Internal
+  if !flag(dejafu-tests)
+    exposed-modules:
+      Ki.Reader
   hs-source-dirs: src
   other-modules:
     Ki.CancelToken

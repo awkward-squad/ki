@@ -24,7 +24,7 @@ import Ki.Timeout (timeoutSTM)
 -- | A running __thread__.
 data Thread a
   = Thread !ThreadId !(STM a)
-  deriving stock (Functor, Generic)
+  deriving stock (Functor)
 
 instance Eq (Thread a) where
   Thread id1 _ == Thread id2 _ =

@@ -68,6 +68,8 @@ import Ki.Timeout (timeoutSTM)
 -- * If a __thread__ created with 'async' throws an exception, it is not propagated up the call tree, but can be
 -- observed by 'Ki.Implicit.await'.
 
+-- Note: keep this haddock up-to-date with Ki.Context.Context
+
 -- | A __context__ models a program's call tree, and is used as a mechanism to propagate /cancellation/ requests to
 -- every __thread__ created within a __scope__.
 --

@@ -12,6 +12,15 @@ import Ki.Ctx (CancelState, Ctx)
 import qualified Ki.Ctx as Ctx
 import Ki.Prelude
 
+-- Note: keep this haddock up-to-date with Ki.Implicit.Context
+
+-- | A __context__ models a program's call tree, and is used as a mechanism to propagate /cancellation/ requests to
+-- every __thread__ created within a __scope__.
+--
+-- Every __thread__ is provided its own __context__, which is derived from its __scope__.
+--
+-- A __thread__ can query whether its __context__ has been /cancelled/, which is a suggestion to perform a graceful
+-- termination.
 data Context = Context
   { cancelContext :: IO (),
     -- | Get this content's current cancel state. This action never retries.
