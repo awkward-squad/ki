@@ -1,49 +1,46 @@
 module Ki
   ( -- * Scope
-    Scope,
+    Ki.Scope.Scope,
     scoped,
-    Scope.wait,
-    Scope.waitSTM,
-    Scope.waitFor,
+    Ki.Scope.wait,
+    Ki.Scope.waitSTM,
+    Ki.Scope.waitFor,
 
     -- * Spawning threads
     -- $spawning-threads
-    Thread,
+    Ki.Thread.Thread,
 
     -- ** Fork
-    Thread.fork,
-    Thread.fork_,
-    Thread.forkWithUnmask,
-    Thread.forkWithUnmask_,
+    Ki.Thread.fork,
+    Ki.Thread.fork_,
+    Ki.Thread.forkWithUnmask,
+    Ki.Thread.forkWithUnmask_,
 
     -- ** Async
-    Thread.async,
-    Thread.asyncWithUnmask,
+    Ki.Thread.async,
+    Ki.Thread.asyncWithUnmask,
 
     -- ** Await
-    Thread.await,
-    Thread.awaitSTM,
-    Thread.awaitFor,
+    Ki.Thread.await,
+    Ki.Thread.awaitSTM,
+    Ki.Thread.awaitFor,
 
     -- * Miscellaneous
-    Duration,
-    Duration.microseconds,
-    Duration.milliseconds,
-    Duration.seconds,
-    Timeout.timeoutSTM,
+    Ki.Duration.Duration,
+    Ki.Duration.microseconds,
+    Ki.Duration.milliseconds,
+    Ki.Duration.seconds,
+    Ki.Timeout.timeoutSTM,
     sleep,
   )
 where
 
-import qualified Ki.Context as Context
-import Ki.Duration (Duration)
-import qualified Ki.Duration as Duration
+import qualified Ki.Context
+import qualified Ki.Duration
 import Ki.Prelude
-import Ki.Scope (Scope)
-import qualified Ki.Scope as Scope
-import Ki.Thread (Thread)
-import qualified Ki.Thread as Thread
-import qualified Ki.Timeout as Timeout
+import qualified Ki.Scope
+import qualified Ki.Thread
+import qualified Ki.Timeout
 
 -- $spawning-threads
 --
@@ -72,11 +69,11 @@ import qualified Ki.Timeout as Timeout
 --   'Ki.fork_' scope worker2
 --   'Ki.wait' scope
 -- @
-scoped :: (Scope -> IO a) -> IO a
+scoped :: (Ki.Scope.Scope -> IO a) -> IO a
 scoped =
-  Scope.scoped Context.dummyContext
+  Ki.Scope.scoped Ki.Context.dummyContext
 
 -- | Duration-based @threadDelay@.
-sleep :: Duration -> IO ()
+sleep :: Ki.Duration.Duration -> IO ()
 sleep duration =
-  threadDelay (Duration.toMicroseconds duration)
+  threadDelay (Ki.Duration.toMicroseconds duration)

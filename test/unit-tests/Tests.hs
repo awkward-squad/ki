@@ -75,9 +75,9 @@ main = do
   test "cancelled child context removes parent's ref to it" do
     ctx0 <- atomically Ki.Internal.newCtxSTM
     ctx1 <- atomically (Ki.Internal.deriveCtx ctx0)
-    (length <$> readTVarIO (Ki.Internal.childrenVar ctx0)) `shouldReturn` 1
+    (length <$> readTVarIO (Ki.Internal.ctx'childrenVar ctx0)) `shouldReturn` 1
     Ki.Internal.cancelCtx ctx1
-    (length <$> readTVarIO (Ki.Internal.childrenVar ctx0)) `shouldReturn` 0
+    (length <$> readTVarIO (Ki.Internal.ctx'childrenVar ctx0)) `shouldReturn` 0
 
   test "`wait` succeeds when no threads are alive" do
     Ki.scoped Ki.wait

@@ -13,26 +13,29 @@ module Ki.Thread
 where
 
 import Control.Exception (Exception (fromException))
-import qualified Ki.Context as Context
-import qualified Ki.Ctx as Ctx
+import Data.Function (on)
+import Data.Ord (comparing)
+import Ki.Context
+import Ki.Ctx
 import Ki.Duration (Duration)
 import Ki.Prelude
-import Ki.Scope (Scope (Scope))
-import qualified Ki.Scope as Scope
+import Ki.Scope (Scope (..), ScopeClosing (..), ThreadFailed (..), scopeFork)
 import Ki.Timeout (timeoutSTM)
 
 -- | A running __thread__.
-data Thread a
-  = Thread !ThreadId !(STM a)
+data Thread a = Thread
+  { thread'Await :: !(STM a),
+    thread'Id :: {-# UNPACK #-} !ThreadId
+  }
   deriving stock (Functor)
 
 instance Eq (Thread a) where
-  Thread id1 _ == Thread id2 _ =
-    id1 == id2
+  (==) =
+    (==) `on` thread'Id
 
 instance Ord (Thread a) where
-  compare (Thread id1 _) (Thread id2 _) =
-    compare id1 id2
+  compare =
+    comparing thread'Id
 
 -- | Create a __thread__ within a __scope__.
 --
@@ -55,8 +58,12 @@ asyncWithUnmask scope action =
 asyncWithRestore :: forall a. Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread (Either SomeException a))
 asyncWithRestore scope action = do
   resultVar <- newEmptyTMVarIO
-  childThreadId <- Scope.scopeFork scope action (putTMVarIO resultVar)
-  pure (Thread childThreadId (readTMVar resultVar))
+  thread'Id <- scopeFork scope action (putTMVarIO resultVar)
+  pure
+    Thread
+      { thread'Await = readTMVar resultVar,
+        thread'Id
+      }
 
 -- | Wait for a __thread__ to finish.
 await :: Thread a -> IO a
@@ -65,8 +72,8 @@ await =
 
 -- | @STM@ variant of 'await'.
 awaitSTM :: Thread a -> STM a
-awaitSTM (Thread _ action) =
-  action
+awaitSTM =
+  thread'Await
 
 -- | Variant of 'await' that gives up after the given duration.
 awaitFor :: Thread a -> Duration -> IO (Maybe a)
@@ -117,7 +124,7 @@ forkWithRestore scope action = do
   parentThreadId <- myThreadId
   resultVar <- newEmptyTMVarIO
   childThreadId <-
-    Scope.scopeFork scope action \case
+    scopeFork scope action \case
       Left exception ->
         -- Intentionally don't fill the result var.
         --
@@ -133,25 +140,29 @@ forkWithRestore scope action = do
         -- Might GHC deliver a BlockedIndefinitelyOnSTM in the meantime, though?
         maybePropagateException scope parentThreadId exception
       Right result -> putTMVarIO resultVar result
-  pure (Thread childThreadId (readTMVar resultVar))
+  pure
+    Thread
+      { thread'Await = readTMVar resultVar,
+        thread'Id = childThreadId
+      }
 
 forkWithRestore_ :: Scope -> ((forall x. IO x -> IO x) -> IO ()) -> IO ()
 forkWithRestore_ scope action = do
   parentThreadId <- myThreadId
-  _childThreadId <- Scope.scopeFork scope action (onLeft (maybePropagateException scope parentThreadId))
+  _childThreadId <- scopeFork scope action (onLeft (maybePropagateException scope parentThreadId))
   pure ()
 
 maybePropagateException :: Scope -> ThreadId -> SomeException -> IO ()
-maybePropagateException Scope {closedVar, context} parentThreadId exception =
-  whenM shouldPropagateException (throwTo parentThreadId (Scope.ThreadFailed exception))
+maybePropagateException scope parentThreadId exception =
+  whenM shouldPropagateException (throwTo parentThreadId (ThreadFailed exception))
   where
     shouldPropagateException :: IO Bool
     shouldPropagateException =
       case fromException exception of
-        -- Our scope is (presumably) closing, so don't propagate this exception that presumably just came from our
+        -- Our scope is (presumably) closing, so don't propagate this exception that (presumably) just came from our
         -- parent. But if our scope's closedVar isn't True, that means this 'ScopeClosing' definitely came from
         -- somewhere else...
-        Just Scope.ScopeClosing -> not <$> readTVarIO closedVar
+        Just ScopeClosing -> not <$> readTVarIO (scope'closedVar scope)
         Nothing ->
           case fromException exception of
             -- We (presumably) are honoring our own cancellation request, so don't propagate that either.
@@ -159,10 +170,10 @@ maybePropagateException Scope {closedVar, context} parentThreadId exception =
             -- "inappropriately" in the sense that it wasn't ours to throw - it was smuggled from elsewhere.
             Just thrownToken ->
               atomically do
-                Context.contextCancelStateSTM context <&> \case
-                  Ctx.CancelState'NotCancelled -> True
-                  Ctx.CancelState'Cancelled ourToken way ->
+                context'cancelState (scope'context scope) <&> \case
+                  CancelState'NotCancelled -> True
+                  CancelState'Cancelled ourToken way ->
                     case way of
-                      Ctx.CancelWay'Direct -> thrownToken /= ourToken
-                      Ctx.CancelWay'Indirect -> True
+                      CancelWay'Direct -> thrownToken /= ourToken
+                      CancelWay'Indirect -> True
             Nothing -> pure True

@@ -1,5 +1,4 @@
 {-# LANGUAGE PatternSynonyms #-}
-{-# LANGUAGE TypeApplications #-}
 
 module Ki.Scope
   ( Scope (..),
@@ -23,47 +22,46 @@ import Control.Exception
   )
 import qualified Data.Monoid as Monoid
 import qualified Data.Set as Set
-import Ki.Context (Context)
-import qualified Ki.Context as Context
-import qualified Ki.Ctx as Ctx
+import Ki.Context
+import Ki.Ctx
 import Ki.Duration (Duration)
 import Ki.Prelude
 import Ki.Timeout (timeoutSTM)
 
 -- | A __scope__ delimits the lifetime of all __threads__ created within it.
 data Scope = Scope
-  { context :: Context,
+  { scope'context :: Context,
     -- | Whether this scope is closed.
     -- Invariant: if closed, no threads are starting.
-    closedVar :: TVar Bool,
+    scope'closedVar :: TVar Bool,
     -- | The set of threads that are currently running.
-    runningVar :: TVar (Set ThreadId),
+    scope'runningVar :: TVar (Set ThreadId),
     -- | The number of threads that are *guaranteed* to be about to start, in the sense that only the GHC scheduler can
     -- continue to delay; no async exception can strike here and prevent one of these threads from starting.
     --
     -- If this number is non-zero, and that's problematic (e.g. because we're trying to cancel this scope), we always
     -- respect it and wait for it to drop to zero before proceeding.
-    startingVar :: TVar Int
+    scope'startingVar :: TVar Int
   }
 
 newScope :: Context -> IO Scope
-newScope parentContext = do
-  context <- atomically (Context.deriveContext parentContext)
-  closedVar <- newTVarIO False
-  runningVar <- newTVarIO Set.empty
-  startingVar <- newTVarIO 0
-  pure Scope {context, closedVar, runningVar, startingVar}
+newScope parentContext =
+  Scope
+    <$> atomically (context'derive parentContext)
+    <*> newTVarIO False
+    <*> newTVarIO Set.empty
+    <*> newTVarIO 0
 
 -- | /Cancel/ all __contexts__ derived from a __scope__.
 cancel :: Scope -> IO ()
-cancel Scope {context} =
-  Context.cancelContext context
+cancel =
+  context'cancel . scope'context
 
 scopeCancelledSTM :: Scope -> STM (IO a)
-scopeCancelledSTM Scope {context} =
-  Context.contextCancelStateSTM context >>= \case
-    Ctx.CancelState'NotCancelled -> retry
-    Ctx.CancelState'Cancelled token _way -> pure (throwIO token)
+scopeCancelledSTM scope =
+  context'cancelState (scope'context scope) >>= \case
+    CancelState'NotCancelled -> retry
+    CancelState'Cancelled token _way -> pure (throwIO token)
 
 -- | Close a scope, kill all of the running threads, and return the first async exception delivered to us while doing
 -- so, if any.
@@ -72,23 +70,23 @@ scopeCancelledSTM Scope {context} =
 --   * The set of threads doesn't include us
 --   * We're uninterruptibly masked
 closeScope :: Scope -> IO (Maybe SomeException)
-closeScope scope@Scope {closedVar, runningVar} = do
+closeScope scope = do
   threads <-
     atomically do
       blockUntilNoneStarting scope
-      writeTVar closedVar True
-      readTVar runningVar
+      writeTVar (scope'closedVar scope) True
+      readTVar (scope'runningVar scope)
   exception <- killThreads (Set.toList threads)
   atomically (blockUntilNoneRunning scope)
   pure exception
 
 scopeFork :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> (Either SomeException a -> IO ()) -> IO ThreadId
-scopeFork Scope {closedVar, runningVar, startingVar} action k =
+scopeFork scope action k =
   uninterruptibleMask \restore -> do
     -- Record the thread as being about to start
     atomically do
-      readTVar closedVar >>= \case
-        False -> modifyTVar' startingVar (+ 1)
+      readTVar (scope'closedVar scope) >>= \case
+        False -> modifyTVar' (scope'startingVar scope) (+ 1)
         True -> throwSTM (ErrorCall "ki: scope closed")
 
     -- Fork the thread
@@ -98,15 +96,15 @@ scopeFork Scope {closedVar, runningVar, startingVar} action k =
         result <- try (action restore)
         k result
         atomically do
-          running <- readTVar runningVar
+          running <- readTVar (scope'runningVar scope)
           case Set.splitMember childThreadId running of
-            (xs, True, ys) -> writeTVar runningVar $! Set.union xs ys
+            (xs, True, ys) -> writeTVar (scope'runningVar scope) $! Set.union xs ys
             _ -> retry
 
     -- Record the thread as having started
     atomically do
-      modifyTVar' startingVar \n -> n -1
-      modifyTVar' runningVar (Set.insert childThreadId)
+      modifyTVar' (scope'startingVar scope) \n -> n -1
+      modifyTVar' (scope'runningVar scope) (Set.insert childThreadId)
 
     pure childThreadId
 
@@ -151,12 +149,12 @@ waitSTM scope = do
 -- Scope helpers
 
 blockUntilNoneRunning :: Scope -> STM ()
-blockUntilNoneRunning Scope {runningVar} =
-  blockUntilTVar runningVar Set.null
+blockUntilNoneRunning scope =
+  blockUntilTVar (scope'runningVar scope) Set.null
 
 blockUntilNoneStarting :: Scope -> STM ()
-blockUntilNoneStarting Scope {startingVar} =
-  blockUntilTVar startingVar (== 0)
+blockUntilNoneStarting scope =
+  blockUntilTVar (scope'startingVar scope) (== 0)
 
 --------------------------------------------------------------------------------
 -- Internal exception types

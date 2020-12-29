@@ -17,12 +17,12 @@ import Ki.CancelToken
 import Ki.Prelude
 
 data Ctx = Ctx
-  { cancelStateVar :: TVar CancelState,
-    childrenVar :: TVar (IntMap Ctx),
+  { ctx'cancelStateVar :: TVar CancelState,
+    ctx'childrenVar :: TVar (IntMap Ctx),
     -- | The next id to assign to a child context. The child needs a unique identifier so it can delete itself from its
     -- parent's children map if it's cancelled independently. Wrap-around seems ok; that's a *lot* of children for one
     -- parent to have.
-    nextIdVar :: TVar Int,
+    ctx'nextIdVar :: TVar Int,
     -- | When I'm cancelled, this action removes myself from my parent's context. This isn't simply a pointer to the
     -- parent 'Ctx' for three reasons:
     --
@@ -32,7 +32,7 @@ data Ctx = Ctx
     --     a bit indirect.
     --   * If we stored a reference to the parent, we'd also have to store our own id, rather than just currying it into
     --     this action.
-    onCancel :: STM ()
+    ctx'onCancel :: STM ()
   }
 
 data CancelState
@@ -49,25 +49,25 @@ newCtxSTM = do
   newCtxSTM_ cancelStateVar (pure ())
 
 newCtxSTM_ :: TVar CancelState -> STM () -> STM Ctx
-newCtxSTM_ cancelStateVar onCancel = do
-  childrenVar <- newTVar IntMap.empty
-  nextIdVar <- newTVar 0
-  pure Ctx {cancelStateVar, childrenVar, nextIdVar, onCancel}
+newCtxSTM_ ctx'cancelStateVar ctx'onCancel = do
+  ctx'childrenVar <- newTVar IntMap.empty
+  ctx'nextIdVar <- newTVar 0
+  pure Ctx {ctx'cancelStateVar, ctx'childrenVar, ctx'nextIdVar, ctx'onCancel}
 
 deriveCtx :: Ctx -> STM Ctx
-deriveCtx Ctx {cancelStateVar, childrenVar, nextIdVar} = do
-  childId <- readTVar nextIdVar
-  writeTVar nextIdVar $! childId + 1
+deriveCtx ctx = do
+  childId <- readTVar (ctx'nextIdVar ctx)
+  writeTVar (ctx'nextIdVar ctx) $! childId + 1
   child <- do
     derivedCancelStateVar <- do
       derivedCancelState <-
-        readTVar cancelStateVar <&> \case
+        readTVar (ctx'cancelStateVar ctx) <&> \case
           CancelState'NotCancelled -> CancelState'NotCancelled
           CancelState'Cancelled token _cancelWay -> CancelState'Cancelled token CancelWay'Indirect
       newTVar derivedCancelState
-    newCtxSTM_ derivedCancelStateVar (modifyTVar' childrenVar (IntMap.delete childId))
-  children <- readTVar childrenVar
-  writeTVar childrenVar $! IntMap.insert childId child children
+    newCtxSTM_ derivedCancelStateVar (modifyTVar' (ctx'childrenVar ctx) (IntMap.delete childId))
+  children <- readTVar (ctx'childrenVar ctx)
+  writeTVar (ctx'childrenVar ctx) $! IntMap.insert childId child children
   pure child
 
 cancelCtx :: Ctx -> IO ()
@@ -77,16 +77,16 @@ cancelCtx context = do
 
 cancelCtxSTM :: Ctx -> CancelToken -> STM ()
 cancelCtxSTM ctx token =
-  readTVar (cancelStateVar ctx) >>= \case
+  readTVar (ctx'cancelStateVar ctx) >>= \case
     CancelState'NotCancelled -> do
       cancelChildren ctx
-      writeTVar (cancelStateVar ctx) $! CancelState'Cancelled token CancelWay'Direct
-      onCancel ctx
+      writeTVar (ctx'cancelStateVar ctx) $! CancelState'Cancelled token CancelWay'Direct
+      ctx'onCancel ctx
     CancelState'Cancelled _token _way -> pure ()
   where
     cancelChildren :: Ctx -> STM ()
-    cancelChildren Ctx {childrenVar} = do
-      children <- readTVar childrenVar
+    cancelChildren Ctx {ctx'childrenVar} = do
+      children <- readTVar ctx'childrenVar
       for_ (IntMap.elems children) \child -> do
         cancelChildren child
-        writeTVar (cancelStateVar child) $! CancelState'Cancelled token CancelWay'Indirect
+        writeTVar (ctx'cancelStateVar child) $! CancelState'Cancelled token CancelWay'Indirect

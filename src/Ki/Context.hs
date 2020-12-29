@@ -3,13 +3,12 @@ module Ki.Context
     dummyContext,
     globalContext,
     newContext,
-    contextCancelTokenSTM,
+    contextCancelToken,
   )
 where
 
 import Ki.CancelToken (CancelToken)
-import Ki.Ctx (CancelState, Ctx)
-import qualified Ki.Ctx as Ctx
+import Ki.Ctx
 import Ki.Prelude
 
 -- Note: keep this haddock up-to-date with Ki.Implicit.Context
@@ -22,9 +21,9 @@ import Ki.Prelude
 -- A __thread__ can query whether its __context__ has been /cancelled/, which is a suggestion to perform a graceful
 -- termination.
 data Context = Context
-  { cancelContext :: IO (),
+  { context'cancel :: IO (),
     -- | Get this content's current cancel state. This action never retries.
-    contextCancelStateSTM :: STM CancelState,
+    context'cancelState :: STM CancelState,
     -- | Derive a child context from a parent context.
     --
     --   * If the parent is already cancelled, so is the child.
@@ -32,36 +31,36 @@ data Context = Context
     --     parent such that:
     --       * When the parent is cancelled, so is the child
     --       * When the child is cancelled, it removes the parent's reference to it
-    deriveContext :: STM Context
+    context'derive :: STM Context
   }
 
 newContext :: Ctx -> Context
 newContext ctx =
   Context
-    { cancelContext = Ctx.cancelCtx ctx,
-      contextCancelStateSTM = readTVar (Ctx.cancelStateVar ctx),
-      deriveContext = newContext <$> Ctx.deriveCtx ctx
+    { context'cancel = cancelCtx ctx,
+      context'cancelState = readTVar (ctx'cancelStateVar ctx),
+      context'derive = newContext <$> deriveCtx ctx
     }
 
 dummyContext :: Context
 dummyContext =
   Context
-    { cancelContext = pure (),
-      contextCancelStateSTM = retry,
-      deriveContext = pure dummyContext
+    { context'cancel = pure (),
+      context'cancelState = retry,
+      context'derive = pure dummyContext
     }
 
 -- | The global context. It cannot be cancelled.
 globalContext :: Context
 globalContext =
   Context
-    { cancelContext = pure (),
-      contextCancelStateSTM = pure Ctx.CancelState'NotCancelled,
-      deriveContext = newContext <$> Ctx.newCtxSTM
+    { context'cancel = pure (),
+      context'cancelState = pure CancelState'NotCancelled,
+      context'derive = newContext <$> newCtxSTM
     }
 
-contextCancelTokenSTM :: Context -> STM CancelToken
-contextCancelTokenSTM Context {contextCancelStateSTM} =
-  contextCancelStateSTM >>= \case
-    Ctx.CancelState'NotCancelled -> retry
-    Ctx.CancelState'Cancelled token _way -> pure token
+contextCancelToken :: Context -> STM CancelToken
+contextCancelToken context =
+  context'cancelState context >>= \case
+    CancelState'NotCancelled -> retry
+    CancelState'Cancelled token _way -> pure token

@@ -6,15 +6,15 @@ module Ki.Implicit
     withGlobalContext,
 
     -- * Scope
-    Scope,
+    Ki.Scope.Scope,
     scoped,
-    Scope.wait,
-    Scope.waitSTM,
+    Ki.Scope.wait,
+    Ki.Scope.waitSTM,
     waitFor,
 
     -- * Spawning threads
     -- $spawning-threads
-    Thread,
+    Ki.Thread.Thread,
 
     -- ** Fork
     fork,
@@ -27,36 +27,33 @@ module Ki.Implicit
     asyncWithUnmask,
 
     -- ** Await
-    Thread.await,
-    Thread.awaitSTM,
-    Thread.awaitFor,
+    Ki.Thread.await,
+    Ki.Thread.awaitSTM,
+    Ki.Thread.awaitFor,
 
     -- * Soft-cancellation
-    CancelToken,
-    Scope.cancel,
+    Ki.CancelToken.CancelToken,
+    Ki.Scope.cancel,
     cancelled,
     cancelledSTM,
 
     -- * Miscellaneous
-    Duration,
-    Duration.microseconds,
-    Duration.milliseconds,
-    Duration.seconds,
-    timeoutSTM,
+    Ki.Duration.Duration,
+    Ki.Duration.microseconds,
+    Ki.Duration.milliseconds,
+    Ki.Duration.seconds,
+    Ki.Timeout.timeoutSTM,
     sleep,
   )
 where
 
-import Ki.CancelToken (CancelToken)
-import qualified Ki.Context as Context
-import Ki.Duration (Duration)
-import qualified Ki.Duration as Duration
+import qualified Ki.CancelToken
+import qualified Ki.Context
+import qualified Ki.Duration
 import Ki.Prelude
-import Ki.Scope (Scope)
-import qualified Ki.Scope as Scope
-import Ki.Thread (Thread)
-import qualified Ki.Thread as Thread
-import Ki.Timeout (timeoutSTM)
+import qualified Ki.Scope
+import qualified Ki.Thread
+import qualified Ki.Timeout
 
 -- $spawning-threads
 --
@@ -78,39 +75,42 @@ import Ki.Timeout (timeoutSTM)
 -- A __thread__ can query whether its __context__ has been /cancelled/, which is a suggestion to perform a graceful
 -- termination.
 type Context =
-  ?context :: Context.Context
+  ?context :: Ki.Context.Context
 
 -- | Create a __thread__ within a __scope__.
 --
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-async :: Scope -> (Context => IO a) -> IO (Thread (Either SomeException a))
+async :: Ki.Scope.Scope -> (Context => IO a) -> IO (Ki.Thread.Thread (Either SomeException a))
 async scope action =
-  Thread.async scope (with scope action)
+  Ki.Thread.async scope (with scope action)
 
 -- | Variant of 'async' that provides the __thread__ a function that unmasks asynchronous exceptions.
 --
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-asyncWithUnmask :: Scope -> (Context => (forall x. IO x -> IO x) -> IO a) -> IO (Thread (Either SomeException a))
+asyncWithUnmask ::
+  Ki.Scope.Scope ->
+  (Context => (forall x. IO x -> IO x) -> IO a) ->
+  IO (Ki.Thread.Thread (Either SomeException a))
 asyncWithUnmask scope action =
-  Thread.asyncWithUnmask scope (let ?context = Scope.context scope in action)
+  Ki.Thread.asyncWithUnmask scope (let ?context = Ki.Scope.scope'context scope in action)
 
 -- | Return whether the current __context__ is /cancelled/.
 --
 -- __Threads__ running in a /cancelled/ __context__ should terminate as soon as possible. The cancel token may be thrown
 -- to fulfill the /cancellation/ request in case the __thread__ is unable or unwilling to terminate normally with a
 -- value.
-cancelled :: Context => IO (Maybe CancelToken)
+cancelled :: Context => IO (Maybe Ki.CancelToken.CancelToken)
 cancelled =
   atomically (optional cancelledSTM)
 
 -- | @STM@ variant of 'cancelled'; blocks until the current __context__ is /cancelled/.
-cancelledSTM :: Context => STM CancelToken
+cancelledSTM :: Context => STM Ki.CancelToken.CancelToken
 cancelledSTM =
-  Context.contextCancelTokenSTM ?context
+  Ki.Context.contextCancelToken ?context
 
 -- | Create a __thread__ within a __scope__.
 --
@@ -120,41 +120,41 @@ cancelledSTM =
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-fork :: Scope -> (Context => IO a) -> IO (Thread a)
+fork :: Ki.Scope.Scope -> (Context => IO a) -> IO (Ki.Thread.Thread a)
 fork scope action =
-  Thread.fork scope (with scope action)
+  Ki.Thread.fork scope (with scope action)
 
 -- | Variant of 'fork' that does not return a handle to the created __thread__.
 --
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-fork_ :: Scope -> (Context => IO ()) -> IO ()
+fork_ :: Ki.Scope.Scope -> (Context => IO ()) -> IO ()
 fork_ scope action =
-  Thread.fork_ scope (with scope action)
+  Ki.Thread.fork_ scope (with scope action)
 
 -- | Variant of 'fork' that provides the __thread__ a function that unmasks asynchronous exceptions.
 --
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-forkWithUnmask :: Scope -> (Context => (forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
+forkWithUnmask :: Ki.Scope.Scope -> (Context => (forall x. IO x -> IO x) -> IO a) -> IO (Ki.Thread.Thread a)
 forkWithUnmask scope action =
-  Thread.forkWithUnmask scope (let ?context = Scope.context scope in action)
+  Ki.Thread.forkWithUnmask scope (let ?context = Ki.Scope.scope'context scope in action)
 
 -- | Variant of 'forkWithUnmask' that does not return a handle to the created __thread__.
 --
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-forkWithUnmask_ :: Scope -> (Context => (forall x. IO x -> IO x) -> IO ()) -> IO ()
+forkWithUnmask_ :: Ki.Scope.Scope -> (Context => (forall x. IO x -> IO x) -> IO ()) -> IO ()
 forkWithUnmask_ scope action =
-  Thread.forkWithUnmask_ scope (let ?context = Scope.context scope in action)
+  Ki.Thread.forkWithUnmask_ scope (let ?context = Ki.Scope.scope'context scope in action)
 
 -- | Perform an @IO@ action in the global __context__. The global __context__ cannot be /cancelled/.
 withGlobalContext :: (Context => IO a) -> IO a
 withGlobalContext action =
-  let ?context = Context.globalContext in action
+  let ?context = Ki.Context.globalContext in action
 
 -- | Open a __scope__, perform an @IO@ action with it, then close the __scope__.
 --
@@ -173,27 +173,27 @@ withGlobalContext action =
 --   'fork_' scope worker2
 --   'Ki.Implicit.wait' scope
 -- @
-scoped :: Context => (Context => Scope -> IO a) -> IO a
+scoped :: Context => (Context => Ki.Scope.Scope -> IO a) -> IO a
 scoped action =
-  Scope.scoped ?context \scope -> with scope (action scope)
+  Ki.Scope.scoped ?context \scope -> with scope (action scope)
 
 -- | __Context__-aware, duration-based @threadDelay@.
 --
 -- /Throws/:
 --
 --   * Throws 'CancelToken' if the current __context__ is (or becomes) /cancelled/.
-sleep :: Context => Duration -> IO ()
+sleep :: Context => Ki.Duration.Duration -> IO ()
 sleep duration =
-  timeoutSTM duration (cancelledSTM >>= throwSTM) (pure ())
+  Ki.Timeout.timeoutSTM duration (cancelledSTM >>= throwSTM) (pure ())
 
 -- | Variant of 'Ki.Implicit.wait' that waits for up to the given duration. This is useful for giving __threads__ some
 -- time to fulfill a /cancellation/ request before killing them.
-waitFor :: Scope -> Duration -> IO ()
+waitFor :: Ki.Scope.Scope -> Ki.Duration.Duration -> IO ()
 waitFor =
-  Scope.waitFor
+  Ki.Scope.waitFor
 
 --
 
-with :: Scope -> (Context => a) -> a
+with :: Ki.Scope.Scope -> (Context => a) -> a
 with scope action =
-  let ?context = Scope.context scope in action
+  let ?context = Ki.Scope.scope'context scope in action
