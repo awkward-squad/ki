@@ -144,27 +144,33 @@ main = do
         Left (fromException -> Just A) -> True
         _ -> False
 
-  test "`async` returns async exceptions" do
+  test "`async` propagates (and also returns) async exceptions" do
+    ref <- newIORef False
     Ki.scoped \scope -> do
-      result <- Ki.async @() scope (throw B)
-      Ki.await result `shouldReturnSuchThat` \case
-        Left (fromException -> Just B) -> True
-        _ -> False
+      mask \restore -> do
+        thread <- Ki.async @() scope (throw B)
+        restore (Ki.wait scope) `catch` \case
+          Ki.Internal.ThreadFailed (fromException -> Just B) -> writeIORef ref True
+          exception -> throwIO exception
+        readIORef ref `shouldReturn` True
+        Ki.await thread `shouldReturnSuchThat` \case
+          Left (fromException -> Just B) -> True
+          _ -> False
 
   test "awaiting a failed `fork`ed thread blocks" do
     Ki.scoped \scope -> do
-      mask \unmask -> do
+      mask \restore -> do
         thread <- Ki.fork @() scope (throw A)
-        unmask (Ki.wait scope) `catch` \(Ki.Internal.ThreadFailed _) -> pure ()
+        restore (Ki.wait scope) `catch` \(Ki.Internal.ThreadFailed _) -> pure ()
         Ki.await thread `shouldThrowSuchThat` \case
           (fromException -> Just BlockedIndefinitelyOnSTM) -> True
           _ -> False
 
   test "awaiting a failed `fork`ed thread blocks" do
     Ki.scoped \scope -> do
-      mask \unmask -> do
+      mask \restore -> do
         thread <- Ki.fork @() scope (throw B)
-        unmask (Ki.wait scope) `catch` \(Ki.Internal.ThreadFailed _) -> pure ()
+        restore (Ki.wait scope) `catch` \(Ki.Internal.ThreadFailed _) -> pure ()
         Ki.await thread `shouldThrowSuchThat` \case
           (fromException -> Just BlockedIndefinitelyOnSTM) -> True
           _ -> False

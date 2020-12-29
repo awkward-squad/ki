@@ -13,7 +13,8 @@ and this project adheres to the [Haskell Package Versioning Policy](https://pvp.
 ### Changed
 - Tweak `CancelToken` propagation semantics: now, a thread will propagate `CancelToken` if its scope was not directly
   cancelled, but instead inherited its cancellation from an ancestor scope.
-- Made `CancelToken` an asynchronous exception
+- Make `CancelToken` an asynchronous exception
+- Make `async` propagate async exceptions
 
 ## [0.2.0.1] - 2020-12-20
 

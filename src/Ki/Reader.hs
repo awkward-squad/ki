@@ -62,6 +62,8 @@ import qualified Ki.Thread
 --
 -- * If a __thread__ created with 'Ki.Reader.async' throws an exception, it is not propagated to its __parent__, but can
 -- be observed by 'Ki.Reader.await'.
+--
+-- If a __thread__ is thrown an asynchronous exception, it is immediately propagated to its __parent__.
 
 class MonadIO m => HasContext m where
   askContext :: m Ki.Context.Context

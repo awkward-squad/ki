@@ -51,6 +51,8 @@ import qualified Ki.Timeout
 --
 -- * If a __thread__ created with 'Ki.async' throws an exception, it is not propagated to its __parent__, but can be
 -- observed by 'Ki.await'.
+--
+-- If a __thread__ is thrown an asynchronous exception, it is immediately propagated to its __parent__.
 
 -- | Open a __scope__, perform an @IO@ action with it, then close the __scope__.
 --

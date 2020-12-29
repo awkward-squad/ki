@@ -64,6 +64,8 @@ import qualified Ki.Timeout
 --
 -- * If a __thread__ created with 'Ki.Implicit.async' throws an exception, it is not propagated to its __parent__, but
 -- can be observed by 'Ki.Implicit.await'.
+--
+-- If a __thread__ is thrown an asynchronous exception, it is immediately propagated to its __parent__.
 
 -- Note: keep this haddock up-to-date with Ki.Context.Context
 

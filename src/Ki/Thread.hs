@@ -1,3 +1,5 @@
+{-# LANGUAGE TypeApplications #-}
+
 module Ki.Thread
   ( Thread (..),
     async,
@@ -12,8 +14,9 @@ module Ki.Thread
   )
 where
 
-import Control.Exception (Exception (fromException))
+import Control.Exception (Exception (fromException), SomeAsyncException)
 import Data.Function (on)
+import Data.Maybe (isJust)
 import Data.Ord (comparing)
 import Ki.Context
 import Ki.Ctx
@@ -57,13 +60,23 @@ asyncWithUnmask scope action =
 
 asyncWithRestore :: forall a. Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread (Either SomeException a))
 asyncWithRestore scope action = do
+  parentThreadId <- myThreadId
   resultVar <- newEmptyTMVarIO
-  thread'Id <- scopeFork scope action (putTMVarIO resultVar)
+  thread'Id <-
+    scopeFork scope action \result -> do
+      case result of
+        Left exception -> maybePropagateException scope parentThreadId exception isAsyncException
+        Right _ -> pure ()
+      putTMVarIO resultVar result -- even put async exceptions that we propagated
   pure
     Thread
       { thread'Await = readTMVar resultVar,
         thread'Id
       }
+  where
+    isAsyncException :: SomeException -> Bool
+    isAsyncException =
+      isJust . fromException @SomeAsyncException
 
 -- | Wait for a __thread__ to finish.
 await :: Thread a -> IO a
@@ -138,7 +151,7 @@ forkWithRestore scope action = do
         -- about to propagate its exception to all callers of 'await' (presumably, its direct parent).
         --
         -- Might GHC deliver a BlockedIndefinitelyOnSTM in the meantime, though?
-        maybePropagateException scope parentThreadId exception
+        maybePropagateException scope parentThreadId exception (const True)
       Right result -> putTMVarIO resultVar result
   pure
     Thread
@@ -149,11 +162,14 @@ forkWithRestore scope action = do
 forkWithRestore_ :: Scope -> ((forall x. IO x -> IO x) -> IO ()) -> IO ()
 forkWithRestore_ scope action = do
   parentThreadId <- myThreadId
-  _childThreadId <- scopeFork scope action (onLeft (maybePropagateException scope parentThreadId))
+  _childThreadId <-
+    scopeFork scope action \case
+      Left exception -> maybePropagateException scope parentThreadId exception (const True)
+      Right () -> pure ()
   pure ()
 
-maybePropagateException :: Scope -> ThreadId -> SomeException -> IO ()
-maybePropagateException scope parentThreadId exception =
+maybePropagateException :: Scope -> ThreadId -> SomeException -> (SomeException -> Bool) -> IO ()
+maybePropagateException scope parentThreadId exception should =
   whenM shouldPropagateException (throwTo parentThreadId (ThreadFailed exception))
   where
     shouldPropagateException :: IO Bool
@@ -176,4 +192,4 @@ maybePropagateException scope parentThreadId exception =
                     case way of
                       CancelWay'Direct -> thrownToken /= ourToken
                       CancelWay'Indirect -> True
-            Nothing -> pure True
+            Nothing -> pure (should exception)
