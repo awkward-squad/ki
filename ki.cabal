@@ -65,6 +65,7 @@ common component
     ExistentialQuantification
     GeneralizedNewtypeDeriving
     ImplicitParams
+    InstanceSigs
     LambdaCase
     NamedFieldPuns
     NoImplicitPrelude

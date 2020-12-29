@@ -25,7 +25,7 @@ import Ki.Prelude
 -- comport with good exception-handling practices, which dictate that asynchronous exceptions should always be
 -- re-thrown.
 newtype CancelToken
-  = CancelToken Int
+  = CancelToken Unique
   deriving stock (Eq, Show)
 
 instance Exception CancelToken where
@@ -34,4 +34,4 @@ instance Exception CancelToken where
 
 newCancelToken :: IO CancelToken
 newCancelToken =
-  coerce uniqueInt
+  coerce newUnique
