@@ -11,6 +11,7 @@ where
 import Control.Applicative as X (optional, (<|>))
 import Control.Exception as X (Exception, SomeException)
 import Control.Monad as X (join, unless)
+import Control.Monad.IO.Class as X (MonadIO (..))
 import Data.Coerce as X (coerce)
 import Data.Foldable as X (for_)
 import Data.Function as X (fix)

@@ -7,6 +7,9 @@ and this project adheres to the [Haskell Package Versioning Policy](https://pvp.
 
 ## Unreleased
 
+### Added
+- `Ki.Reader` module
+
 ### Changed
 - Tweak `CancelToken` propagation semantics: now, a thread will propagate `CancelToken` if its scope was not directly
   cancelled, but instead inherited its cancellation from an ancestor scope.
