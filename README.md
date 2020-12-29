@@ -135,13 +135,6 @@ Ki.scoped \scope -> do
   -- remaining threads by throwing each one an asynchronous exceptions
 ```
 
-### Testing
-
-(Some of) the implementation is tested for deadlocks, race conditions, and other concurrency anomalies by
-[`dejafu`](http://hackage.haskell.org/package/dejafu), a fantastic unit-testing library for concurrent programs.
-
-Nonetheless this library should not considered production-ready!
-
 ## Recommended reading
 
 In chronological order of publication,

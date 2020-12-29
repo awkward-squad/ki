@@ -51,17 +51,8 @@ jobs:
       - name: Build library
         run: cabal build ki:lib:ki --disable-optimization
 
-      - name: Build unit tests
-        run: cabal build ki:test:unit-tests --disable-optimization
+      - name: Build tests
+        run: cabal build ki:test:tests --disable-optimization
 
-      - name: Run unit tests
-        run: cabal run ki:test:unit-tests --disable-optimization
-
-      - name: Build library with 'test' flag
-        run: cabal build ki:lib:ki --constraint "ki +dejafu-tests" --disable-optimization
-
-      - name: Build dejafu tests
-        run: cabal build ki:test:dejafu-tests --constraint "ki +dejafu-tests" --disable-optimization
-
-      - name: Run dejafu tests
-        run: cabal run ki:test:dejafu-tests --constraint "ki +dejafu-tests" --disable-optimization
+      - name: Run tests
+        run: cabal run ki:test:tests --disable-optimization

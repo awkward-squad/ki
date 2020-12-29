@@ -88,30 +88,20 @@ common component
       -Wno-missing-safe-haskell-mode
       -Wno-prepositive-qualified-module
 
-flag dejafu-tests
-  description: Internal flag used by DejaFu test suite
-  default: False
-  manual: True
-
 library
   import: component
   build-depends:
     base >= 4.12.0.0 && < 4.15,
-    containers
-  if !flag(dejafu-tests)
-    build-depends:
-      stm
+    containers,
+    stm
   exposed-modules:
     Ki,
     Ki.Implicit,
-    Ki.Internal
-  if !flag(dejafu-tests)
-    exposed-modules:
-      Ki.Reader
+    Ki.Internal,
+    Ki.Reader
   hs-source-dirs: src
   other-modules:
     Ki.CancelToken
-    Ki.Concurrency
     Ki.Context
     Ki.Ctx
     Ki.Debug
@@ -120,42 +110,15 @@ library
     Ki.Scope
     Ki.Thread
     Ki.Timeout
-  if flag(dejafu-tests)
-    build-depends:
-      concurrency ^>= 1.11.0.0,
-      dejafu ^>= 2.4.0.0,
-    cpp-options: -DTEST
 
-test-suite dejafu-tests
+test-suite tests
   import: component
-  if flag(dejafu-tests)
-    buildable: True
-  else
-    buildable: False
-  build-depends:
-    base,
-    concurrency,
-    dejafu,
-    ki,
-  ghc-options: -rtsopts -threaded
-  hs-source-dirs: test/dejafu-tests
-  main-is: DejaFuTests.hs
-  other-modules:
-    DejaFuTestUtils
-  type: exitcode-stdio-1.0
-
-test-suite unit-tests
-  import: component
-  if flag(dejafu-tests)
-    buildable: False
-  else
-    buildable: True
   build-depends:
     base,
     ki,
     stm,
   ghc-options: -rtsopts -threaded
-  hs-source-dirs: test/unit-tests
+  hs-source-dirs: test
   main-is: Tests.hs
   other-modules:
     TestUtils
