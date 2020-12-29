@@ -35,25 +35,25 @@ main = do
         (isJust <$> Ki.cancelled) `shouldReturn` True
 
   childtest "`cancel` observable by child's `cancelled`" \fork -> do
-    ref <- newIORef Nothing
+    ref <- newIORef False
     Ki.scoped \scope -> do
       fork scope do
         Ki.cancel scope
-        Ki.cancelled >>= writeIORef ref
+        Ki.cancelled >>= writeIORef ref . isJust
       Ki.wait scope
-    (isJust <$> readIORef ref) `shouldReturn` True
+    readIORef ref `shouldReturn` True
 
   childtest "`cancel` observable by grandchild's `cancelled`" \fork -> do
-    ref <- newIORef Nothing
+    ref <- newIORef False
     Ki.scoped \scope1 -> do
       fork scope1 do
         Ki.scoped \scope2 -> do
           fork scope2 do
             Ki.cancel scope1
-            Ki.cancelled >>= writeIORef ref
+            Ki.cancelled >>= writeIORef ref . isJust
           Ki.wait scope2
       Ki.wait scope1
-    (isJust <$> readIORef ref) `shouldReturn` True
+    readIORef ref `shouldReturn` True
 
   test "inner scope inherits cancellation" do
     Ki.scoped \scope1 -> do
@@ -61,12 +61,12 @@ main = do
       Ki.scoped \_ -> (isJust <$> Ki.cancelled) `shouldReturn` True
 
   childtest "child thread inherits cancellation" \fork -> do
-    ref <- newIORef Nothing
+    ref <- newIORef False
     Ki.scoped \scope -> do
       Ki.cancel scope
-      fork scope (Ki.cancelled >>= writeIORef ref)
+      fork scope (Ki.cancelled >>= writeIORef ref . isJust)
       Ki.wait scope
-    (isJust <$> readIORef ref) `shouldReturn` True
+    readIORef ref `shouldReturn` True
 
   childtest "creating a child thread throws ErrorCall when the scope is closed" \fork -> do
     scope <- Ki.scoped pure
@@ -104,11 +104,31 @@ main = do
     )
       `shouldThrow` B
 
-  forktest "doesn't propagate own cancel token exceptions" \fork ->
+  forktest "doesn't propagate own CancelToken" \fork ->
     Ki.scoped \scope -> do
       Ki.cancel scope
       fork scope (atomically Ki.cancelledSTM >>= throwIO)
       Ki.wait scope
+
+  forktest "propagates others' CancelTokens" \fork -> do
+    ref <- newIORef False
+    -- Create an outer scope, just to cancel it.
+    Ki.scoped \scope0 -> do
+      Ki.cancel scope0
+      -- Create an inner scope, which should be cancelled, but by the outer scope's token. So, threads spawned within
+      -- scope1 *should* propagate the CancelToken
+      catch
+        ( Ki.scoped \scope1 -> do
+            var <- newEmptyMVar
+            fork scope1 do
+              takeMVar var -- wait until parent is ready to catch the CancelToken
+              atomically Ki.cancelledSTM >>= throwIO
+            mask \unmask -> do
+              putMVar var ()
+              unmask (Ki.wait scope1)
+        )
+        (\(_ :: Ki.CancelToken) -> writeIORef ref True)
+    readIORef ref `shouldReturn` True
 
   forktest "propagates ScopeClosing if it isn't ours" \fork ->
     ( Ki.scoped \scope -> do
@@ -116,14 +136,6 @@ main = do
         Ki.wait scope
     )
       `shouldThrow` Ki.Internal.ScopeClosing
-
-  forktest "propagates others' cancel token exceptions" \fork ->
-    ( Ki.scoped \scope -> do
-        Ki.cancel scope
-        fork scope (throwIO (Ki.Internal.CancelToken 0))
-        Ki.wait scope
-    )
-      `shouldThrow` Ki.Internal.CancelToken 0
 
   test "`async` returns sync exceptions" do
     Ki.scoped \scope -> do

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/)
 and this project adheres to the [Haskell Package Versioning Policy](https://pvp.haskell.org/).
 
+## Unreleased
+
+### Changed
+- Tweak `CancelToken` propagation semantics: now, a thread will propagate `CancelToken` if its scope was not directly
+  cancelled, but instead inherited its cancellation from an ancestor scope.
+
 ## [0.2.0.1] - 2020-12-20
 
 ### Changed

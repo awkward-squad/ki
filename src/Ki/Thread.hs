@@ -14,6 +14,7 @@ where
 
 import Control.Exception (Exception (fromException))
 import qualified Ki.Context as Context
+import qualified Ki.Ctx as Ctx
 import Ki.Duration (Duration)
 import Ki.Prelude
 import Ki.Scope (Scope (Scope))
@@ -156,5 +157,12 @@ maybePropagateException Scope {closedVar, context} parentThreadId exception =
             -- We (presumably) are honoring our own cancellation request, so don't propagate that either.
             -- It's a bit complicated looking because we *do* want to throw this token if we (somehow) threw it
             -- "inappropriately" in the sense that it wasn't ours to throw - it was smuggled from elsewhere.
-            Just token -> atomically ((/= token) <$> Context.contextCancelTokenSTM context <|> pure True)
+            Just thrownToken ->
+              atomically do
+                Context.contextCancelStateSTM context <&> \case
+                  Ctx.CancelState'NotCancelled -> True
+                  Ctx.CancelState'Cancelled ourToken way ->
+                    case way of
+                      Ctx.CancelWay'Direct -> thrownToken /= ourToken
+                      Ctx.CancelWay'Indirect -> True
             Nothing -> pure True

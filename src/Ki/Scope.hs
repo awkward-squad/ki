@@ -25,6 +25,7 @@ import qualified Data.Monoid as Monoid
 import qualified Data.Set as Set
 import Ki.Context (Context)
 import qualified Ki.Context as Context
+import qualified Ki.Ctx as Ctx
 import Ki.Duration (Duration)
 import Ki.Prelude
 import Ki.Timeout (timeoutSTM)
@@ -60,7 +61,9 @@ cancel Scope {context} =
 
 scopeCancelledSTM :: Scope -> STM (IO a)
 scopeCancelledSTM Scope {context} =
-  throwIO <$> Context.contextCancelTokenSTM context
+  Context.contextCancelStateSTM context >>= \case
+    Ctx.CancelState'NotCancelled -> retry
+    Ctx.CancelState'Cancelled token _way -> pure (throwIO token)
 
 -- | Close a scope, kill all of the running threads, and return the first async exception delivered to us while doing
 -- so, if any.
