@@ -176,9 +176,8 @@ maybePropagateException scope parentThreadId exception should =
     shouldPropagateException =
       case fromException exception of
         -- Our scope is (presumably) closing, so don't propagate this exception that (presumably) just came from our
-        -- parent. But if our scope's closedVar isn't True, that means this 'ScopeClosing' definitely came from
-        -- somewhere else...
-        Just ScopeClosing -> not <$> readTVarIO (scope'closedVar scope)
+        -- parent. But if our scope's not closed, that means this 'ScopeClosing' definitely came from somewhere else...
+        Just ScopeClosing -> (/= -1) <$> readTVarIO (scope'startingVar scope)
         Nothing ->
           case fromException exception of
             -- We (presumably) are honoring our own cancellation request, so don't propagate that either.

@@ -31,9 +31,6 @@ import Ki.Timeout (timeoutSTM)
 -- | A __scope__ delimits the lifetime of all __threads__ created within it.
 data Scope = Scope
   { scope'context :: Context,
-    -- | Whether this scope is closed.
-    -- Invariant: if closed, no threads are starting.
-    scope'closedVar :: TVar Bool,
     -- | The set of threads that are currently running.
     scope'runningVar :: TVar (Set ThreadId),
     -- | The number of threads that are *guaranteed* to be about to start, in the sense that only the GHC scheduler can
@@ -41,6 +38,8 @@ data Scope = Scope
     --
     -- If this number is non-zero, and that's problematic (e.g. because we're trying to cancel this scope), we always
     -- respect it and wait for it to drop to zero before proceeding.
+    --
+    -- Sentinel value: -1 means the scope is closed.
     scope'startingVar :: TVar Int
   }
 
@@ -48,7 +47,6 @@ newScope :: Context -> IO Scope
 newScope parentContext =
   Scope
     <$> atomically (context'derive parentContext)
-    <*> newTVarIO False
     <*> newTVarIO Set.empty
     <*> newTVarIO 0
 
@@ -74,7 +72,7 @@ closeScope scope = do
   threads <-
     atomically do
       blockUntilNoneStarting scope
-      writeTVar (scope'closedVar scope) True
+      writeTVar (scope'startingVar scope) (-1)
       readTVar (scope'runningVar scope)
   exception <- killThreads (Set.toList threads)
   atomically (blockUntilNoneRunning scope)
@@ -85,9 +83,10 @@ scopeFork scope action k =
   uninterruptibleMask \restore -> do
     -- Record the thread as being about to start
     atomically do
-      readTVar (scope'closedVar scope) >>= \case
-        False -> modifyTVar' (scope'startingVar scope) (+ 1)
-        True -> throwSTM (ErrorCall "ki: scope closed")
+      starting <- readTVar (scope'startingVar scope)
+      if starting == -1
+        then throwSTM (ErrorCall "ki: scope closed")
+        else writeTVar (scope'startingVar scope) $! starting + 1
 
     -- Fork the thread
     childThreadId <-
@@ -97,6 +96,7 @@ scopeFork scope action k =
         k result
         atomically do
           running <- readTVar (scope'runningVar scope)
+          -- Why not just delete? We wouldn't want to delete *nothing*, *then* insert from the parent thread.
           case Set.splitMember childThreadId running of
             (xs, True, ys) -> writeTVar (scope'runningVar scope) $! Set.union xs ys
             _ -> retry
