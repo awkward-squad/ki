@@ -11,8 +11,8 @@ module Ki.Reader
     waitSTM,
     waitFor,
 
-    -- * Spawning threads
-    -- $spawning-threads
+    -- * Creating threads
+    -- $creating-threads
     Ki.Thread.Thread,
 
     -- ** Fork
@@ -53,14 +53,14 @@ import Ki.Prelude
 import qualified Ki.Scope
 import qualified Ki.Thread
 
--- $spawning-threads
+-- $creating-threads
 --
 -- There are two variants of __thread__-creating functions with different exception-propagation semantics.
 --
 -- * If a __thread__ created with 'Ki.Reader.fork' throws an exception, it is immediately propagated up the call tree to
--- the __thread__ that created its __scope__.
+-- its __parent__, which is the __thread__ that created its __scope__.
 --
--- * If a __thread__ created with 'Ki.Reader.async' throws an exception, it is not propagated up the call tree, but can
+-- * If a __thread__ created with 'Ki.Reader.async' throws an exception, it is not propagated to its __parent__, but can
 -- be observed by 'Ki.Reader.await'.
 
 class MonadIO m => HasContext m where
@@ -112,9 +112,9 @@ cancel =
 
 -- | Return whether the current __context__ is /cancelled/.
 --
--- __Threads__ running in a /cancelled/ __context__ should terminate as soon as possible. The cancel token may be thrown
--- to fulfill the /cancellation/ request in case the __thread__ is unable or unwilling to terminate normally with a
--- value.
+-- __Threads__ running in a /cancelled/ __context__ should terminate as soon as possible. The __cancel token__ may be
+-- thrown to fulfill the /cancellation/ request in case the __thread__ is unable or unwilling to terminate normally with
+-- a value.
 cancelled :: HasContext m => m (Maybe Ki.CancelToken.CancelToken)
 cancelled = do
   action <- cancelledSTM
@@ -128,7 +128,8 @@ cancelledSTM =
 -- | Create a __thread__ within a __scope__.
 --
 -- If the __thread__ throws an exception, the exception is immediately propagated up the call tree to the __thread__
--- that opened its __scope__, unless that exception is a 'CancelToken' that fulfills a /cancellation/ request.
+-- that opened its __scope__, unless the exception is a __cancel token__ that fulfills a /cancellation/ request that
+-- originated in the __thread__'s __scope__.
 --
 -- /Throws/:
 --
@@ -190,7 +191,7 @@ scoped action = do
 --
 -- /Throws/:
 --
---   * Throws 'CancelToken' if the current __context__ is (or becomes) /cancelled/.
+--   * Throws 'Ki.CancelToken.CancelToken' if the current __context__ is (or becomes) /cancelled/.
 sleep :: HasContext m => Ki.Duration.Duration -> m ()
 sleep duration = do
   context <- askContext

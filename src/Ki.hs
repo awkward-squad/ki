@@ -6,8 +6,8 @@ module Ki
     Ki.Scope.waitSTM,
     Ki.Scope.waitFor,
 
-    -- * Spawning threads
-    -- $spawning-threads
+    -- * Creating threads
+    -- $creating-threads
     Ki.Thread.Thread,
 
     -- ** Fork
@@ -42,14 +42,14 @@ import qualified Ki.Scope
 import qualified Ki.Thread
 import qualified Ki.Timeout
 
--- $spawning-threads
+-- $creating-threads
 --
 -- There are two variants of __thread__-creating functions with different exception-propagation semantics.
 --
--- * If a __thread__ created with 'Ki.fork' throws an exception, it is immediately propagated up the call tree to the
--- __thread__ that created its __scope__.
+-- * If a __thread__ created with 'Ki.fork' throws an exception, it is immediately propagated up the call tree to its
+-- __parent__, which is the __thread__ that created its __scope__.
 --
--- * If a __thread__ created with 'Ki.async' throws an exception, it is not propagated up the call tree, but can be
+-- * If a __thread__ created with 'Ki.async' throws an exception, it is not propagated to its __parent__, but can be
 -- observed by 'Ki.await'.
 
 -- | Open a __scope__, perform an @IO@ action with it, then close the __scope__.
