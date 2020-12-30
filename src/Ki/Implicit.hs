@@ -88,7 +88,7 @@ async :: Ki.Scope.Scope -> (Context => IO a) -> IO (Ki.Thread.Thread (Either Som
 async scope action =
   Ki.Thread.async scope (with scope action)
 
--- | Variant of 'async' that provides the __thread__ a function that unmasks asynchronous exceptions.
+-- | Variant of 'Ki.Implicit.async' that provides the __thread__ a function that unmasks asynchronous exceptions.
 --
 -- /Throws/:
 --
@@ -109,7 +109,7 @@ cancelled :: Context => IO (Maybe Ki.CancelToken.CancelToken)
 cancelled =
   atomically (optional cancelledSTM)
 
--- | @STM@ variant of 'cancelled'; blocks until the current __context__ is /cancelled/.
+-- | @STM@ variant of 'Ki.Implicit.cancelled'; blocks until the current __context__ is /cancelled/.
 cancelledSTM :: Context => STM Ki.CancelToken.CancelToken
 cancelledSTM =
   Ki.Context.contextCancelToken ?context
@@ -127,7 +127,7 @@ fork :: Ki.Scope.Scope -> (Context => IO a) -> IO (Ki.Thread.Thread a)
 fork scope action =
   Ki.Thread.fork scope (with scope action)
 
--- | Variant of 'fork' that does not return a handle to the created __thread__.
+-- | Variant of 'Ki.Implicit.fork' that does not return a handle to the created __thread__.
 --
 -- /Throws/:
 --
@@ -136,7 +136,7 @@ fork_ :: Ki.Scope.Scope -> (Context => IO ()) -> IO ()
 fork_ scope action =
   Ki.Thread.fork_ scope (with scope action)
 
--- | Variant of 'fork' that provides the __thread__ a function that unmasks asynchronous exceptions.
+-- | Variant of 'Ki.Implicit.fork' that provides the __thread__ a function that unmasks asynchronous exceptions.
 --
 -- /Throws/:
 --
@@ -145,7 +145,7 @@ forkWithUnmask :: Ki.Scope.Scope -> (Context => (forall x. IO x -> IO x) -> IO a
 forkWithUnmask scope action =
   Ki.Thread.forkWithUnmask scope (let ?context = Ki.Scope.scope'context scope in action)
 
--- | Variant of 'forkWithUnmask' that does not return a handle to the created __thread__.
+-- | Variant of 'Ki.Implicit.forkWithUnmask' that does not return a handle to the created __thread__.
 --
 -- /Throws/:
 --
@@ -165,15 +165,15 @@ withGlobalContext action =
 --
 -- /Throws/:
 --
---   * The exception thrown by the callback to 'scoped' itself, if any.
---   * The first exception thrown by or to a __thread__ created with 'fork', if any.
+--   * The exception thrown by the callback to 'Ki.Implicit.scoped' itself, if any.
+--   * The first exception thrown by or to a __thread__ created with 'Ki.Implicit.fork', if any.
 --
 -- ==== __Examples__
 --
 -- @
--- 'scoped' \\scope -> do
---   'fork_' scope worker1
---   'fork_' scope worker2
+-- 'Ki.Implicit.scoped' \\scope -> do
+--   'Ki.Implicit.fork_' scope worker1
+--   'Ki.Implicit.fork_' scope worker2
 --   'Ki.Implicit.wait' scope
 -- @
 scoped :: Context => (Context => Ki.Scope.Scope -> IO a) -> IO a

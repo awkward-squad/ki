@@ -14,7 +14,7 @@ module Ki.Thread
   )
 where
 
-import Control.Exception (Exception (fromException), SomeAsyncException)
+import Control.Exception (BlockedIndefinitelyOnSTM (..), Exception (fromException), SomeAsyncException, catch)
 import Data.Function (on)
 import Data.Maybe (isJust)
 import Data.Ord (comparing)
@@ -79,8 +79,14 @@ asyncWithRestore scope action = do
 
 -- | Wait for a __thread__ to finish.
 await :: Thread a -> IO a
-await =
-  atomically . awaitSTM
+await thread =
+  -- If *they* are deadlocked, we will *both* will be delivered a wakeup from the RTS. We want to shrug this exception
+  -- off, because afterwards they'll have put to the result var. But don't shield indefinitely, once will cover this use
+  -- case and prevent any accidental infinite loops.
+  go `catch` \BlockedIndefinitelyOnSTM -> go
+  where
+    go =
+      atomically (awaitSTM thread)
 
 -- | @STM@ variant of 'await'.
 awaitSTM :: Thread a -> STM a

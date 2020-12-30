@@ -18,6 +18,7 @@ and this project adheres to the [Haskell Package Versioning Policy](https://pvp.
 
 ### Fixed
 - Fix small memory leak related to closing a scope
+- Fix subtle bug related to GHC's treatment of deadlocked threads
 
 ## [0.2.0.1] - 2020-12-20
 
