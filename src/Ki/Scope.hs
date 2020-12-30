@@ -75,7 +75,11 @@ closeScope scope = do
       writeTVar (scope'startingVar scope) (-1)
       readTVar (scope'runningVar scope)
   exception <- killThreads (Set.toList threads)
-  atomically (blockUntilNoneRunning scope)
+  atomically do
+    blockUntilNoneRunning scope
+    context'cancelState (scope'context scope) >>= \case
+      CancelState'NotCancelled -> context'removeFromParent (scope'context scope)
+      CancelState'Cancelled _token _way -> pure ()
   pure exception
 
 scopeFork :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> (Either SomeException a -> IO ()) -> IO ThreadId

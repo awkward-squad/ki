@@ -76,7 +76,8 @@ main = do
     ctx0 <- atomically Ki.Internal.newCtxSTM
     ctx1 <- atomically (Ki.Internal.deriveCtx ctx0)
     (length <$> readTVarIO (Ki.Internal.ctx'childrenVar ctx0)) `shouldReturn` 1
-    Ki.Internal.cancelCtx ctx1
+    token <- Ki.Internal.newCancelToken
+    atomically (Ki.Internal.cancelCtx ctx1 token)
     (length <$> readTVarIO (Ki.Internal.ctx'childrenVar ctx0)) `shouldReturn` 0
 
   test "`wait` succeeds when no threads are alive" do

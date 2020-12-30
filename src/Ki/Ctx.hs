@@ -8,7 +8,6 @@ module Ki.Ctx
     newCtxSTM,
     deriveCtx,
     cancelCtx,
-    cancelCtxSTM,
   )
 where
 
@@ -23,8 +22,7 @@ data Ctx = Ctx
     -- parent's children map if it's cancelled independently. Wrap-around seems ok; that's a *lot* of children for one
     -- parent to have.
     ctx'nextIdVar :: TVar Int,
-    -- | When I'm cancelled, this action removes myself from my parent's context. This isn't simply a pointer to the
-    -- parent 'Ctx' for three reasons:
+    -- | Remove myself from my parent's context. This isn't simply a pointer to the parent 'Ctx' for three reasons:
     --
     --   * "Root" contexts don't have a parent, so it'd have to be a Maybe (one more pointer indirection)
     --   * We don't really need a reference to the parent, because we only want to be able to remove ourselves from its
@@ -32,7 +30,7 @@ data Ctx = Ctx
     --     a bit indirect.
     --   * If we stored a reference to the parent, we'd also have to store our own id, rather than just currying it into
     --     this action.
-    ctx'onCancel :: STM ()
+    ctx'removeFromParent :: STM ()
   }
 
 data CancelState
@@ -49,10 +47,10 @@ newCtxSTM = do
   newCtxSTM_ cancelStateVar (pure ())
 
 newCtxSTM_ :: TVar CancelState -> STM () -> STM Ctx
-newCtxSTM_ ctx'cancelStateVar ctx'onCancel = do
+newCtxSTM_ ctx'cancelStateVar ctx'removeFromParent = do
   ctx'childrenVar <- newTVar IntMap.empty
   ctx'nextIdVar <- newTVar 0
-  pure Ctx {ctx'cancelStateVar, ctx'childrenVar, ctx'nextIdVar, ctx'onCancel}
+  pure Ctx {ctx'cancelStateVar, ctx'childrenVar, ctx'nextIdVar, ctx'removeFromParent}
 
 deriveCtx :: Ctx -> STM Ctx
 deriveCtx ctx = do
@@ -70,18 +68,13 @@ deriveCtx ctx = do
   writeTVar (ctx'childrenVar ctx) $! IntMap.insert childId child children
   pure child
 
-cancelCtx :: Ctx -> IO ()
-cancelCtx context = do
-  token <- newCancelToken
-  atomically (cancelCtxSTM context token)
-
-cancelCtxSTM :: Ctx -> CancelToken -> STM ()
-cancelCtxSTM ctx token =
+cancelCtx :: Ctx -> CancelToken -> STM ()
+cancelCtx ctx token =
   readTVar (ctx'cancelStateVar ctx) >>= \case
     CancelState'NotCancelled -> do
       cancelChildren ctx
       writeTVar (ctx'cancelStateVar ctx) $! CancelState'Cancelled token CancelWay'Direct
-      ctx'onCancel ctx
+      ctx'removeFromParent ctx
     CancelState'Cancelled _token _way -> pure ()
   where
     cancelChildren :: Ctx -> STM ()

@@ -7,7 +7,7 @@ module Ki.Context
   )
 where
 
-import Ki.CancelToken (CancelToken)
+import Ki.CancelToken
 import Ki.Ctx
 import Ki.Prelude
 
@@ -31,15 +31,19 @@ data Context = Context
     --     parent such that:
     --       * When the parent is cancelled, so is the child
     --       * When the child is cancelled, it removes the parent's reference to it
-    context'derive :: STM Context
+    context'derive :: STM Context,
+    context'removeFromParent :: STM ()
   }
 
 newContext :: Ctx -> Context
 newContext ctx =
   Context
-    { context'cancel = cancelCtx ctx,
+    { context'cancel = do
+        token <- newCancelToken
+        atomically (cancelCtx ctx token),
       context'cancelState = readTVar (ctx'cancelStateVar ctx),
-      context'derive = newContext <$> deriveCtx ctx
+      context'derive = newContext <$> deriveCtx ctx,
+      context'removeFromParent = ctx'removeFromParent ctx
     }
 
 dummyContext :: Context
@@ -47,7 +51,8 @@ dummyContext =
   Context
     { context'cancel = pure (),
       context'cancelState = retry,
-      context'derive = pure dummyContext
+      context'derive = pure dummyContext,
+      context'removeFromParent = pure ()
     }
 
 -- | The global context. It cannot be cancelled.
@@ -56,7 +61,8 @@ globalContext =
   Context
     { context'cancel = pure (),
       context'cancelState = pure CancelState'NotCancelled,
-      context'derive = newContext <$> newCtxSTM
+      context'derive = newContext <$> newCtxSTM,
+      context'removeFromParent = pure ()
     }
 
 contextCancelToken :: Context -> STM CancelToken
