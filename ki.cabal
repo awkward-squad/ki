@@ -104,7 +104,6 @@ library
   other-modules:
     Ki.CancelToken
     Ki.Context
-    Ki.Ctx
     Ki.Debug
     Ki.Duration
     Ki.Prelude

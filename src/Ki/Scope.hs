@@ -22,8 +22,8 @@ import Control.Exception
   )
 import qualified Data.Monoid as Monoid
 import qualified Data.Set as Set
+import Ki.CancelToken
 import Ki.Context
-import Ki.Ctx
 import Ki.Duration (Duration)
 import Ki.Prelude
 import Ki.Timeout (timeoutSTM)
@@ -46,20 +46,19 @@ data Scope = Scope
 newScope :: Context -> IO Scope
 newScope parentContext =
   Scope
-    <$> atomically (context'derive parentContext)
+    <$> deriveContext parentContext
     <*> newTVarIO Set.empty
     <*> newTVarIO 0
 
 -- | /Cancel/ all __contexts__ derived from a __scope__.
 cancel :: Scope -> IO ()
-cancel =
-  context'cancel . scope'context
+cancel scope = do
+  token <- newCancelToken
+  atomically (cancelContext (scope'context scope) token)
 
 scopeCancelledSTM :: Scope -> STM (IO a)
 scopeCancelledSTM scope =
-  context'cancelState (scope'context scope) >>= \case
-    CancelState'NotCancelled -> retry
-    CancelState'Cancelled token _way -> pure (throwIO token)
+  throwIO <$> contextCancelToken (scope'context scope)
 
 -- | Close a scope, kill all of the running threads, and return the first async exception delivered to us while doing
 -- so, if any.
@@ -77,7 +76,7 @@ closeScope scope = do
   exception <- killThreads (Set.toList threads)
   atomically do
     blockUntilNoneRunning scope
-    context'cancelState (scope'context scope) >>= \case
+    readTVar (context'cancelStateVar (scope'context scope)) >>= \case
       CancelState'NotCancelled -> context'removeFromParent (scope'context scope)
       CancelState'Cancelled _token _way -> pure ()
   pure exception

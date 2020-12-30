@@ -19,7 +19,6 @@ import Data.Function (on)
 import Data.Maybe (isJust)
 import Data.Ord (comparing)
 import Ki.Context
-import Ki.Ctx
 import Ki.Duration (Duration)
 import Ki.Prelude
 import Ki.Scope (Scope (..), ScopeClosing (..), ThreadFailed (..), scopeFork)
@@ -185,7 +184,7 @@ maybePropagateException scope parentThreadId exception should =
             -- "inappropriately" in the sense that it wasn't ours to throw - it was smuggled from elsewhere.
             Just thrownToken ->
               atomically do
-                context'cancelState (scope'context scope) <&> \case
+                readTVar (context'cancelStateVar (scope'context scope)) <&> \case
                   CancelState'NotCancelled -> True
                   CancelState'Cancelled ourToken way ->
                     case way of

@@ -73,7 +73,7 @@ import qualified Ki.Timeout
 -- @
 scoped :: (Ki.Scope.Scope -> IO a) -> IO a
 scoped =
-  Ki.Scope.scoped Ki.Context.dummyContext
+  Ki.Scope.scoped Ki.Context.globalContext
 
 -- | Duration-based @threadDelay@.
 sleep :: Ki.Duration.Duration -> IO ()

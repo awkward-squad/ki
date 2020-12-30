@@ -73,12 +73,12 @@ main = do
     fork scope (pure ()) `shouldThrow` ErrorCall "ki: scope closed"
 
   test "cancelled child context removes parent's ref to it" do
-    ctx0 <- atomically Ki.Internal.newCtxSTM
-    ctx1 <- atomically (Ki.Internal.deriveCtx ctx0)
-    (length <$> readTVarIO (Ki.Internal.ctx'childrenVar ctx0)) `shouldReturn` 1
+    context0 <- Ki.Internal.newContext
+    context1 <- Ki.Internal.deriveContext context0
+    (length <$> readTVarIO (Ki.Internal.context'childrenVar context0)) `shouldReturn` 1
     token <- Ki.Internal.newCancelToken
-    atomically (Ki.Internal.cancelCtx ctx1 token)
-    (length <$> readTVarIO (Ki.Internal.ctx'childrenVar ctx0)) `shouldReturn` 0
+    atomically (Ki.Internal.cancelContext context1 token)
+    (length <$> readTVarIO (Ki.Internal.context'childrenVar context0)) `shouldReturn` 0
 
   test "`wait` succeeds when no threads are alive" do
     Ki.scoped Ki.wait
