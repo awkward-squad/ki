@@ -16,6 +16,9 @@ and this project adheres to the [Haskell Package Versioning Policy](https://pvp.
 - Make `CancelToken` an asynchronous exception
 - Make `async` propagate async exceptions
 
+### Fixed
+- Fix small memory leak related to closing a scope
+
 ## [0.2.0.1] - 2020-12-20
 
 ### Changed

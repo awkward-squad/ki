@@ -10,7 +10,8 @@ module Ki.Context
   )
 where
 
-import qualified Data.IntMap.Strict as IntMap
+import Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
 import Ki.CancelToken
 import Ki.Prelude
 import System.IO.Unsafe (unsafePerformIO)
@@ -27,19 +28,14 @@ import System.IO.Unsafe (unsafePerformIO)
 data Context = Context
   { -- | Get this content's current cancel state. This action never retries.
     context'cancelStateVar :: TVar CancelState,
-    context'childrenVar :: TVar (IntMap Context),
-    -- | The next id to assign to a child context. The child needs a unique identifier so it can delete itself from its
-    -- parent's children map if it's cancelled independently. Wrap-around seems ok; that's a *lot* of children for one
-    -- parent to have.
-    context'nextIdVar :: TVar Int,
-    -- | Remove myself from my parent's context. This isn't simply a pointer to the parent context for three reasons:
+    context'childrenVar :: TVar (Seq Context),
+    context'id :: Unique,
+    -- | Remove myself from my parent's context. This isn't simply a pointer to the parent context for two reasons:
     --
     --   * "Root" contexts don't have a parent, so it'd have to be a Maybe (one more pointer indirection)
     --   * We don't really need a reference to the parent, because we only want to be able to remove ourselves from its
     --     children map, so just storing the STM action that does exactly seems a bit safer, even if conceptually it's
     --     a bit indirect.
-    --   * If we stored a reference to the parent, we'd also have to store our own id, rather than just currying it into
-    --     this action.
     context'removeFromParent :: STM ()
   }
 
@@ -56,22 +52,22 @@ globalContext :: Context
 globalContext =
   Context
     { context'cancelStateVar = unsafePerformIO (newTVarIO CancelState'NotCancelled),
-      context'childrenVar = unsafePerformIO (newTVarIO IntMap.empty),
-      context'nextIdVar = unsafePerformIO (newTVarIO 0),
+      context'childrenVar = unsafePerformIO (newTVarIO Seq.empty),
+      context'id = unsafePerformIO newUnique,
       context'removeFromParent = pure ()
     }
 
 newContext :: IO Context
-newContext =
+newContext = do
+  id_ <- newUnique
   atomically do
     cancelStateVar <- newTVar CancelState'NotCancelled
-    newContextSTM cancelStateVar (pure ())
+    newContextSTM cancelStateVar id_ (pure ())
 
-newContextSTM :: TVar CancelState -> STM () -> STM Context
-newContextSTM context'cancelStateVar context'removeFromParent = do
-  context'childrenVar <- newTVar IntMap.empty
-  context'nextIdVar <- newTVar 0
-  pure Context {context'cancelStateVar, context'childrenVar, context'nextIdVar, context'removeFromParent}
+newContextSTM :: TVar CancelState -> Unique -> STM () -> STM Context
+newContextSTM context'cancelStateVar context'id context'removeFromParent = do
+  context'childrenVar <- newTVar Seq.empty
+  pure Context {context'cancelStateVar, context'childrenVar, context'id, context'removeFromParent}
 
 contextCancelToken :: Context -> STM CancelToken
 contextCancelToken context =
@@ -87,10 +83,9 @@ contextCancelToken context =
 --       * When the parent is cancelled, so is the child
 --       * When the child is cancelled, it removes the parent's reference to it
 deriveContext :: Context -> IO Context
-deriveContext context =
+deriveContext context = do
+  id_ <- newUnique
   atomically do
-    childId <- readTVar (context'nextIdVar context)
-    writeTVar (context'nextIdVar context) $! childId + 1
     child <- do
       derivedCancelStateVar <- do
         derivedCancelState <-
@@ -98,9 +93,19 @@ deriveContext context =
             CancelState'NotCancelled -> CancelState'NotCancelled
             CancelState'Cancelled token _cancelWay -> CancelState'Cancelled token CancelWay'Indirect
         newTVar derivedCancelState
-      newContextSTM derivedCancelStateVar (modifyTVar' (context'childrenVar context) (IntMap.delete childId))
+      newContextSTM
+        derivedCancelStateVar
+        id_
+        ( modifyTVar'
+            (context'childrenVar context)
+            ( \children ->
+                case Seq.findIndexL (\child -> context'id child == id_) children of
+                  Nothing -> children
+                  Just n -> Seq.deleteAt n children
+            )
+        )
     children <- readTVar (context'childrenVar context)
-    writeTVar (context'childrenVar context) $! IntMap.insert childId child children
+    writeTVar (context'childrenVar context) $! children Seq.|> child
     pure child
 
 cancelContext :: Context -> CancelToken -> STM ()
@@ -115,6 +120,6 @@ cancelContext context token =
     cancelChildren :: Context -> STM ()
     cancelChildren Context {context'childrenVar} = do
       children <- readTVar context'childrenVar
-      for_ (IntMap.elems children) \child -> do
+      for_ children \child -> do
         cancelChildren child
         writeTVar (context'cancelStateVar child) $! CancelState'Cancelled token CancelWay'Indirect
