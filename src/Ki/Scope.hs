@@ -3,11 +3,14 @@
 module Ki.Scope
   ( Scope (..),
     scopeCancel,
+    scopeCancelIO,
     scopeCancelledSTM,
     scopeFork,
     scopeScoped,
+    scopeScopedIO,
     scopeWait,
     scopeWaitFor,
+    scopeWaitForIO,
     scopeWaitSTM,
     ScopeClosing (..),
     ThreadFailed (..),
@@ -20,6 +23,7 @@ import Control.Exception
     asyncExceptionToException,
     pattern ErrorCall,
   )
+import Control.Monad.IO.Unlift (MonadUnliftIO (withRunInIO))
 import qualified Data.Monoid as Monoid
 import qualified Data.Set as Set
 import Ki.CancelToken
@@ -50,8 +54,13 @@ newScope parentContext =
     <*> newTVarIO Set.empty
     <*> newTVarIO 0
 
-scopeCancel :: Scope -> IO ()
-scopeCancel scope = do
+scopeCancel :: MonadIO m => Scope -> m ()
+scopeCancel =
+  liftIO . scopeCancelIO
+{-# SPECIALIZE scopeCancel :: Scope -> IO () #-}
+
+scopeCancelIO :: Scope -> IO ()
+scopeCancelIO scope = do
   token <- newCancelToken
   atomically (cancelContext (scope'context scope) token)
 
@@ -110,8 +119,13 @@ scopeFork scope action k =
 
     pure childThreadId
 
-scopeScoped :: Context -> (Scope -> IO a) -> IO a
-scopeScoped context f = do
+scopeScoped :: MonadUnliftIO m => Context -> (Scope -> m a) -> m a
+scopeScoped context action =
+  withRunInIO \unlift -> scopeScopedIO context (unlift . action)
+{-# SPECIALIZE scopeScoped :: Context -> (Scope -> IO a) -> IO a #-}
+
+scopeScopedIO :: Context -> (Scope -> IO a) -> IO a
+scopeScopedIO context f = do
   scope <- newScope context
   uninterruptibleMask \restore -> do
     result <- try (restore (f scope))
@@ -131,12 +145,22 @@ scopeScoped context f = do
         Just (ThreadFailed threadFailedException) -> throwIO threadFailedException
         Nothing -> throwIO exception
 
-scopeWait :: Scope -> IO ()
+scopeWait :: MonadIO m => Scope -> m ()
 scopeWait =
+  liftIO . scopeWaitIO
+{-# SPECIALIZE scopeWait :: Scope -> IO () #-}
+
+scopeWaitIO :: Scope -> IO ()
+scopeWaitIO =
   atomically . scopeWaitSTM
 
-scopeWaitFor :: Scope -> Duration -> IO ()
+scopeWaitFor :: MonadIO m => Scope -> Duration -> m ()
 scopeWaitFor scope duration =
+  liftIO (scopeWaitForIO scope duration)
+{-# SPECIALIZE scopeWaitFor :: Scope -> Duration -> IO () #-}
+
+scopeWaitForIO :: Scope -> Duration -> IO ()
+scopeWaitForIO scope duration =
   timeoutSTM duration (pure <$> scopeWaitSTM scope) (pure ())
 
 scopeWaitSTM :: Scope -> STM ()

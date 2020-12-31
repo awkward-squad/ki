@@ -35,7 +35,7 @@ module Ki
   )
 where
 
-import Control.Monad.IO.Unlift (MonadUnliftIO (withRunInIO))
+import Control.Monad.IO.Unlift (MonadUnliftIO)
 import qualified Ki.Context
 import qualified Ki.Duration
 import Ki.Prelude
@@ -68,8 +68,8 @@ async ::
   m a ->
   m (Ki.Thread.Thread (Either SomeException a))
 async =
-  unliftedFork Ki.Thread.threadAsync
-{-# SPECIALIZE async :: Ki.Scope.Scope -> IO a -> IO (Ki.Thread.Thread (Either SomeException a)) #-}
+  Ki.Thread.threadAsync
+{-# INLINE async #-}
 
 -- | Variant of 'Ki.async' that provides the __thread__ a function that unmasks asynchronous exceptions.
 --
@@ -84,12 +84,8 @@ asyncWithUnmask ::
   ((forall x. m x -> m x) -> m a) ->
   m (Ki.Thread.Thread (Either SomeException a))
 asyncWithUnmask =
-  unliftedForkWithUnmask Ki.Thread.threadAsyncWithUnmask
-{-# SPECIALIZE asyncWithUnmask ::
-  Ki.Scope.Scope ->
-  ((forall x. IO x -> IO x) -> IO a) ->
-  IO (Ki.Thread.Thread (Either SomeException a))
-  #-}
+  Ki.Thread.threadAsyncWithUnmask
+{-# INLINE asyncWithUnmask #-}
 
 -- | Wait for a __thread__ to finish.
 await ::
@@ -98,8 +94,8 @@ await ::
   Ki.Thread.Thread a ->
   m a
 await =
-  liftIO . Ki.Thread.threadAwait
-{-# SPECIALIZE await :: Ki.Thread.Thread a -> IO a #-}
+  Ki.Thread.threadAwait
+{-# INLINE await #-}
 
 -- | @STM@ variant of 'Ki.await'.
 awaitSTM ::
@@ -117,9 +113,9 @@ awaitFor ::
   -- |
   Ki.Duration.Duration ->
   m (Maybe a)
-awaitFor thread duration =
-  liftIO (Ki.Thread.threadAwaitFor thread duration)
-{-# SPECIALIZE awaitFor :: Ki.Thread.Thread a -> Ki.Duration.Duration -> IO (Maybe a) #-}
+awaitFor =
+  Ki.Thread.threadAwaitFor
+{-# INLINE awaitFor #-}
 
 -- | Create a __thread__ within a __scope__.
 --
@@ -137,8 +133,8 @@ fork ::
   m a ->
   m (Ki.Thread.Thread a)
 fork =
-  unliftedFork Ki.Thread.threadFork
-{-# SPECIALIZE fork :: Ki.Scope.Scope -> IO a -> IO (Ki.Thread.Thread a) #-}
+  Ki.Thread.threadFork
+{-# INLINE fork #-}
 
 -- | Variant of 'Ki.fork' that does not return a handle to the created __thread__.
 --
@@ -153,8 +149,8 @@ fork_ ::
   m () ->
   m ()
 fork_ =
-  unliftedFork Ki.Thread.threadFork_
-{-# SPECIALIZE fork_ :: Ki.Scope.Scope -> IO () -> IO () #-}
+  Ki.Thread.threadFork_
+{-# INLINE fork_ #-}
 
 -- | Variant of 'Ki.fork' that provides the __thread__ a function that unmasks asynchronous exceptions.
 --
@@ -169,8 +165,8 @@ forkWithUnmask ::
   ((forall x. m x -> m x) -> m a) ->
   m (Ki.Thread.Thread a)
 forkWithUnmask =
-  unliftedForkWithUnmask Ki.Thread.threadForkWithUnmask
-{-# SPECIALIZE forkWithUnmask :: Ki.Scope.Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Ki.Thread.Thread a) #-}
+  Ki.Thread.threadForkWithUnmask
+{-# INLINE forkWithUnmask #-}
 
 -- | Variant of 'Ki.forkWithUnmask' that does not return a handle to the created __thread__.
 --
@@ -185,8 +181,8 @@ forkWithUnmask_ ::
   ((forall x. m x -> m x) -> m ()) ->
   m ()
 forkWithUnmask_ =
-  unliftedForkWithUnmask Ki.Thread.threadForkWithUnmask_
-{-# SPECIALIZE forkWithUnmask_ :: Ki.Scope.Scope -> ((forall x. IO x -> IO x) -> IO ()) -> IO () #-}
+  Ki.Thread.threadForkWithUnmask_
+{-# INLINE forkWithUnmask_ #-}
 
 -- | Open a __scope__, perform an action with it, then close the __scope__.
 --
@@ -200,52 +196,51 @@ forkWithUnmask_ =
 --   'Ki.fork_' scope worker2
 --   'Ki.wait' scope
 -- @
-scoped :: MonadUnliftIO m => (Ki.Scope.Scope -> m a) -> m a
-scoped action =
-  withRunInIO \unlift -> Ki.Scope.scopeScoped Ki.Context.globalContext \scope -> unlift (action scope)
-{-# SPECIALIZE scoped :: (Ki.Scope.Scope -> IO a) -> IO a #-}
+scoped ::
+  MonadUnliftIO m =>
+  -- |
+  (Ki.Scope.Scope -> m a) ->
+  m a
+scoped =
+  Ki.Scope.scopeScoped Ki.Context.globalContext
+{-# INLINE scoped #-}
 
 -- | Duration-based @threadDelay@.
-sleep :: MonadIO m => Ki.Duration.Duration -> m ()
+sleep ::
+  MonadIO m =>
+  -- |
+  Ki.Duration.Duration ->
+  m ()
 sleep duration =
   liftIO (threadDelay (Ki.Duration.toMicroseconds duration))
 {-# SPECIALIZE sleep :: Ki.Duration.Duration -> IO () #-}
 
 -- | Wait until all __threads__ created within a __scope__ finish.
-wait :: MonadIO m => Ki.Scope.Scope -> m ()
+wait ::
+  MonadIO m =>
+  -- |
+  Ki.Scope.Scope ->
+  m ()
 wait =
-  liftIO . Ki.Scope.scopeWait
-{-# SPECIALIZE wait :: Ki.Scope.Scope -> IO () #-}
+  Ki.Scope.scopeWait
+{-# INLINE wait #-}
 
 -- | Variant of 'Ki.wait' that waits for up to the given duration.
-waitFor :: MonadIO m => Ki.Scope.Scope -> Ki.Duration.Duration -> m ()
-waitFor scope duration =
-  liftIO (Ki.Scope.scopeWaitFor scope duration)
-{-# SPECIALIZE waitFor :: Ki.Scope.Scope -> Ki.Duration.Duration -> IO () #-}
+waitFor ::
+  MonadIO m =>
+  -- |
+  Ki.Scope.Scope ->
+  -- |
+  Ki.Duration.Duration ->
+  m ()
+waitFor =
+  Ki.Scope.scopeWaitFor
+{-# INLINE waitFor #-}
 
 -- | @STM@ variant of 'Ki.wait'.
-waitSTM :: Ki.Scope.Scope -> STM ()
+waitSTM ::
+  -- |
+  Ki.Scope.Scope ->
+  STM ()
 waitSTM =
   Ki.Scope.scopeWaitSTM
-
---
-
-unliftedFork :: MonadUnliftIO m => (Ki.Scope.Scope -> IO a -> IO b) -> Ki.Scope.Scope -> m a -> m b
-unliftedFork forky scope action =
-  withRunInIO \unlift -> forky scope (unlift action)
-{-# SPECIALIZE unliftedFork :: (Ki.Scope.Scope -> IO a -> IO b) -> Ki.Scope.Scope -> IO a -> IO b #-}
-
-unliftedForkWithUnmask ::
-  MonadUnliftIO m =>
-  (Ki.Scope.Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO b) ->
-  Ki.Scope.Scope ->
-  ((forall x. m x -> m x) -> m a) ->
-  m b
-unliftedForkWithUnmask forky scope action =
-  withRunInIO \unlift -> forky scope \unmask -> unlift (action (liftIO . unmask . unlift))
-{-# SPECIALIZE unliftedForkWithUnmask ::
-  (Ki.Scope.Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO b) ->
-  Ki.Scope.Scope ->
-  ((forall x. IO x -> IO x) -> IO a) ->
-  IO b
-  #-}

@@ -3,17 +3,26 @@
 module Ki.Thread
   ( Thread (..),
     threadAsync,
+    threadAsyncIO,
     threadAsyncWithUnmask,
+    threadAsyncWithUnmaskIO,
     threadAwait,
+    threadAwaitIO,
     threadAwaitFor,
+    threadAwaitForIO,
     threadFork,
+    threadForkIO,
     threadFork_,
+    threadForkIO_,
     threadForkWithUnmask,
+    threadForkWithUnmaskIO,
     threadForkWithUnmask_,
+    threadForkWithUnmaskIO_,
   )
 where
 
 import Control.Exception (BlockedIndefinitelyOnSTM (..), Exception (fromException), SomeAsyncException, catch)
+import Control.Monad.IO.Unlift (MonadUnliftIO (withRunInIO))
 import Data.Function (on)
 import Data.Maybe (isJust)
 import Data.Ord (comparing)
@@ -38,16 +47,30 @@ instance Ord (Thread a) where
   compare =
     comparing thread'Id
 
-threadAsync :: Scope -> IO a -> IO (Thread (Either SomeException a))
-threadAsync scope action =
-  threadAsyncWithRestore scope \restore -> restore action
+threadAsync :: MonadUnliftIO m => Scope -> m a -> m (Thread (Either SomeException a))
+threadAsync =
+  unliftedFork threadAsyncIO
+{-# INLINE threadAsync #-}
 
-threadAsyncWithUnmask :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread (Either SomeException a))
-threadAsyncWithUnmask scope action =
-  threadAsyncWithRestore scope \restore -> restore (action unsafeUnmask)
+threadAsyncIO :: Scope -> IO a -> IO (Thread (Either SomeException a))
+threadAsyncIO scope action =
+  threadAsyncWithRestoreIO scope \restore -> restore action
 
-threadAsyncWithRestore :: forall a. Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread (Either SomeException a))
-threadAsyncWithRestore scope action = do
+threadAsyncWithUnmask ::
+  MonadUnliftIO m =>
+  Scope ->
+  ((forall x. m x -> m x) -> m a) ->
+  m (Thread (Either SomeException a))
+threadAsyncWithUnmask =
+  unliftedForkWithUnmask threadAsyncWithUnmaskIO
+{-# INLINE threadAsyncWithUnmask #-}
+
+threadAsyncWithUnmaskIO :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread (Either SomeException a))
+threadAsyncWithUnmaskIO scope action =
+  threadAsyncWithRestoreIO scope \restore -> restore (action unsafeUnmask)
+
+threadAsyncWithRestoreIO :: forall a. Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread (Either SomeException a))
+threadAsyncWithRestoreIO scope action = do
   parentThreadId <- myThreadId
   resultVar <- newEmptyTMVarIO
   thread'Id <-
@@ -66,8 +89,13 @@ threadAsyncWithRestore scope action = do
     isAsyncException =
       isJust . fromException @SomeAsyncException
 
-threadAwait :: Thread a -> IO a
-threadAwait thread =
+threadAwait :: MonadIO m => Thread a -> m a
+threadAwait =
+  liftIO . threadAwaitIO
+{-# SPECIALIZE threadAwait :: Thread a -> IO a #-}
+
+threadAwaitIO :: Thread a -> IO a
+threadAwaitIO thread =
   -- If *they* are deadlocked, we will *both* will be delivered a wakeup from the RTS. We want to shrug this exception
   -- off, because afterwards they'll have put to the result var. But don't shield indefinitely, once will cover this use
   -- case and prevent any accidental infinite loops.
@@ -76,28 +104,53 @@ threadAwait thread =
     go =
       atomically (thread'Await thread)
 
-threadAwaitFor :: Thread a -> Duration -> IO (Maybe a)
+threadAwaitFor :: MonadIO m => Thread a -> Duration -> m (Maybe a)
 threadAwaitFor thread duration =
+  liftIO (threadAwaitForIO thread duration)
+{-# SPECIALIZE threadAwaitFor :: Thread a -> Duration -> IO (Maybe a) #-}
+
+threadAwaitForIO :: Thread a -> Duration -> IO (Maybe a)
+threadAwaitForIO thread duration =
   timeoutSTM duration (pure . Just <$> thread'Await thread) (pure Nothing)
 
-threadFork :: Scope -> IO a -> IO (Thread a)
-threadFork scope action =
-  forkWithRestore scope \restore -> restore action
+threadFork :: MonadUnliftIO m => Scope -> m a -> m (Thread a)
+threadFork =
+  unliftedFork threadForkIO
+{-# INLINE threadFork #-}
 
-threadFork_ :: Scope -> IO () -> IO ()
-threadFork_ scope action =
-  forkWithRestore_ scope \restore -> restore action
+threadForkIO :: Scope -> IO a -> IO (Thread a)
+threadForkIO scope action =
+  threadForkWithRestoreIO scope \restore -> restore action
 
-threadForkWithUnmask :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
-threadForkWithUnmask scope action =
-  forkWithRestore scope \restore -> restore (action unsafeUnmask)
+threadFork_ :: MonadUnliftIO m => Scope -> m () -> m ()
+threadFork_ =
+  unliftedFork threadForkIO_
+{-# INLINE threadFork_ #-}
 
-threadForkWithUnmask_ :: Scope -> ((forall x. IO x -> IO x) -> IO ()) -> IO ()
-threadForkWithUnmask_ scope action =
-  forkWithRestore_ scope \restore -> restore (action unsafeUnmask)
+threadForkIO_ :: Scope -> IO () -> IO ()
+threadForkIO_ scope action =
+  forkWithRestoreIO_ scope \restore -> restore action
 
-forkWithRestore :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
-forkWithRestore scope action = do
+threadForkWithUnmask :: MonadUnliftIO m => Scope -> ((forall x. m x -> m x) -> m a) -> m (Thread a)
+threadForkWithUnmask =
+  unliftedForkWithUnmask threadForkWithUnmaskIO
+{-# INLINE threadForkWithUnmask #-}
+
+threadForkWithUnmaskIO :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
+threadForkWithUnmaskIO scope action =
+  threadForkWithRestoreIO scope \restore -> restore (action unsafeUnmask)
+
+threadForkWithUnmask_ :: MonadUnliftIO m => Scope -> ((forall x. m x -> m x) -> m ()) -> m ()
+threadForkWithUnmask_ =
+  unliftedForkWithUnmask threadForkWithUnmaskIO_
+{-# INLINE threadForkWithUnmask_ #-}
+
+threadForkWithUnmaskIO_ :: Scope -> ((forall x. IO x -> IO x) -> IO ()) -> IO ()
+threadForkWithUnmaskIO_ scope action =
+  forkWithRestoreIO_ scope \restore -> restore (action unsafeUnmask)
+
+threadForkWithRestoreIO :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
+threadForkWithRestoreIO scope action = do
   parentThreadId <- myThreadId
   resultVar <- newEmptyTMVarIO
   childThreadId <-
@@ -123,14 +176,34 @@ forkWithRestore scope action = do
         thread'Id = childThreadId
       }
 
-forkWithRestore_ :: Scope -> ((forall x. IO x -> IO x) -> IO ()) -> IO ()
-forkWithRestore_ scope action = do
+forkWithRestoreIO_ :: Scope -> ((forall x. IO x -> IO x) -> IO ()) -> IO ()
+forkWithRestoreIO_ scope action = do
   parentThreadId <- myThreadId
   _childThreadId <-
     scopeFork scope action \case
       Left exception -> maybePropagateException scope parentThreadId exception (const True)
       Right () -> pure ()
   pure ()
+
+unliftedFork :: MonadUnliftIO m => (Scope -> IO a -> IO b) -> Scope -> m a -> m b
+unliftedFork forky scope action =
+  withRunInIO \unlift -> forky scope (unlift action)
+{-# SPECIALIZE unliftedFork :: (Scope -> IO a -> IO b) -> Scope -> IO a -> IO b #-}
+
+unliftedForkWithUnmask ::
+  MonadUnliftIO m =>
+  (Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO b) ->
+  Scope ->
+  ((forall x. m x -> m x) -> m a) ->
+  m b
+unliftedForkWithUnmask forky scope action =
+  withRunInIO \unlift -> forky scope \unmask -> unlift (action (liftIO . unmask . unlift))
+{-# SPECIALIZE unliftedForkWithUnmask ::
+  (Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO b) ->
+  Scope ->
+  ((forall x. IO x -> IO x) -> IO a) ->
+  IO b
+  #-}
 
 maybePropagateException :: Scope -> ThreadId -> SomeException -> (SomeException -> Bool) -> IO ()
 maybePropagateException scope parentThreadId exception should =
