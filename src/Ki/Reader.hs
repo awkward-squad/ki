@@ -132,17 +132,18 @@ cancelled ::
   HasContext m =>
   -- |
   m (Maybe Ki.CancelToken.CancelToken)
-cancelled = do
-  action <- cancelledSTM
-  liftIO (atomically (optional action))
+cancelled =
+  either Just (const Nothing) <$> cancelledSTM (pure ())
 
--- | @STM@ variant of 'Ki.Reader.cancelled'; blocks until the current __context__ is /cancelled/.
+-- | @STM@ variant of 'Ki.Reader.cancelled'.
 cancelledSTM ::
   HasContext m =>
   -- |
-  m (STM Ki.CancelToken.CancelToken)
-cancelledSTM =
-  Ki.Context.contextCancelToken <$> askContext
+  STM a ->
+  m (Either Ki.CancelToken.CancelToken a)
+cancelledSTM action = do
+  context <- askContext
+  liftIO (atomically (Left <$> Ki.Context.contextCancelToken context <|> Right <$> action))
 
 -- | Create a __thread__ within a __scope__.
 --
