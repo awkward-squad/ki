@@ -7,7 +7,7 @@ module Ki.Reader
     -- * Scope
     Ki.Scope.Scope,
     scoped,
-    wait,
+    Ki.wait,
     waitSTM,
     waitFor,
 
@@ -32,7 +32,7 @@ module Ki.Reader
 
     -- * Soft-cancellation
     Ki.CancelToken.CancelToken,
-    cancel,
+    Ki.Implicit.cancel,
     cancelled,
     cancelledSTM,
 
@@ -41,17 +41,21 @@ module Ki.Reader
     Ki.Duration.microseconds,
     Ki.Duration.milliseconds,
     Ki.Duration.seconds,
-    timeoutSTM,
+    Ki.Timeout.timeoutSTM,
     sleep,
   )
 where
 
+import Control.Monad.IO.Unlift (MonadUnliftIO (withRunInIO))
+import qualified Ki
 import qualified Ki.CancelToken
 import qualified Ki.Context
 import qualified Ki.Duration
+import qualified Ki.Implicit
 import Ki.Prelude
 import qualified Ki.Scope
 import qualified Ki.Thread
+import qualified Ki.Timeout
 
 -- $creating-threads
 --
@@ -65,10 +69,9 @@ import qualified Ki.Thread
 --
 -- If a __thread__ is thrown an asynchronous exception, it is immediately propagated to its __parent__.
 
-class MonadIO m => HasContext m where
+class MonadUnliftIO m => HasContext m where
   askContext :: m Ki.Context.Context
   withContext :: Ki.Context.Context -> m a -> m a
-  withRunInIO :: ((forall a. m a -> IO a) -> IO b) -> m b
 
 -- | Create a __thread__ within a __scope__.
 --
@@ -77,7 +80,7 @@ class MonadIO m => HasContext m where
 --   * Calls 'error' if the __scope__ is /closed/.
 async :: HasContext m => Ki.Scope.Scope -> m a -> m (Ki.Thread.Thread (Either SomeException a))
 async =
-  unliftedFork Ki.Thread.async
+  unliftedFork Ki.Thread.threadAsync
 
 -- | Variant of 'Ki.Reader.async' that provides the __thread__ a function that unmasks asynchronous exceptions.
 --
@@ -90,27 +93,22 @@ asyncWithUnmask ::
   ((forall x. m x -> m x) -> m a) ->
   m (Ki.Thread.Thread (Either SomeException a))
 asyncWithUnmask =
-  unliftedForkWithUnmask Ki.Thread.asyncWithUnmask
+  unliftedForkWithUnmask Ki.Thread.threadAsyncWithUnmask
 
 -- | Wait for a __thread__ to finish.
 await :: MonadIO m => Ki.Thread.Thread a -> m a
 await =
-  liftIO . Ki.Thread.await
+  liftIO . Ki.Thread.threadAwait
 
 -- | Variant of 'Ki.Reader.await' that gives up after the given duration.
 awaitFor :: MonadIO m => Ki.Thread.Thread a -> Ki.Duration.Duration -> m (Maybe a)
 awaitFor thread duration =
-  liftIO (Ki.Thread.awaitFor thread duration)
+  liftIO (Ki.Thread.threadAwaitFor thread duration)
 
 -- | @STM@ variant of 'Ki.Reader.await'.
 awaitSTM :: Ki.Thread.Thread a -> STM a
 awaitSTM =
-  Ki.Thread.awaitSTM
-
--- | /Cancel/ all __contexts__ derived from a __scope__.
-cancel :: MonadIO m => Ki.Scope.Scope -> m ()
-cancel =
-  liftIO . Ki.Scope.cancel
+  Ki.Thread.thread'Await
 
 -- | Return whether the current __context__ is /cancelled/.
 --
@@ -138,7 +136,7 @@ cancelledSTM =
 --   * Calls 'error' if the __scope__ is /closed/.
 fork :: HasContext m => Ki.Scope.Scope -> m a -> m (Ki.Thread.Thread a)
 fork =
-  unliftedFork Ki.Thread.fork
+  unliftedFork Ki.Thread.threadFork
 
 -- | Variant of 'Ki.Reader.fork' that does not return a handle to the created __thread__.
 --
@@ -147,7 +145,7 @@ fork =
 --   * Calls 'error' if the __scope__ is /closed/.
 fork_ :: HasContext m => Ki.Scope.Scope -> m () -> m ()
 fork_ =
-  unliftedFork Ki.Thread.fork_
+  unliftedFork Ki.Thread.threadFork_
 
 -- | Variant of 'Ki.Reader.fork' that provides the __thread__ a function that unmasks asynchronous exceptions.
 --
@@ -156,7 +154,7 @@ fork_ =
 --   * Calls 'error' if the __scope__ is /closed/.
 forkWithUnmask :: HasContext m => Ki.Scope.Scope -> ((forall x. m x -> m x) -> m a) -> m (Ki.Thread.Thread a)
 forkWithUnmask =
-  unliftedForkWithUnmask Ki.Thread.forkWithUnmask
+  unliftedForkWithUnmask Ki.Thread.threadForkWithUnmask
 
 -- | Variant of 'Ki.Reader.forkWithUnmask' that does not return a handle to the created __thread__.
 --
@@ -165,16 +163,11 @@ forkWithUnmask =
 --   * Calls 'error' if the __scope__ is /closed/.
 forkWithUnmask_ :: HasContext m => Ki.Scope.Scope -> ((forall x. m x -> m x) -> m ()) -> m ()
 forkWithUnmask_ =
-  unliftedForkWithUnmask Ki.Thread.forkWithUnmask_
+  unliftedForkWithUnmask Ki.Thread.threadForkWithUnmask_
 
--- | Open a __scope__, perform an @IO@ action with it, then close the __scope__.
+-- | Open a __scope__, perform an action with it, then close the __scope__.
 --
 -- When the __scope__ is closed, all remaining __threads__ created within it are killed.
---
--- /Throws/:
---
---   * The exception thrown by the callback to 'Ki.Reader.scoped' itself, if any.
---   * The first exception thrown by or to a __thread__ created with 'Ki.Reader.fork', if any.
 --
 -- ==== __Examples__
 --
@@ -187,7 +180,7 @@ forkWithUnmask_ =
 scoped :: HasContext m => (Ki.Scope.Scope -> m a) -> m a
 scoped action = do
   context <- askContext
-  withRunInIO \unlift -> Ki.Scope.scoped context \scope -> unlift (with scope (action scope))
+  withRunInIO \unlift -> Ki.Scope.scopeScoped context \scope -> unlift (with scope (action scope))
 
 -- | __Context__-aware, duration-based @threadDelay@.
 --
@@ -197,31 +190,18 @@ scoped action = do
 sleep :: HasContext m => Ki.Duration.Duration -> m ()
 sleep duration = do
   context <- askContext
-  timeoutSTM duration (liftIO . throwIO <$> Ki.Context.contextCancelToken context) (pure ())
-
--- | Wait for an @STM@ action to return an @m@ action, or if the given duration elapses, return the given @m@ action
--- instead.
-timeoutSTM :: MonadIO m => Ki.Duration.Duration -> STM (m a) -> m a -> m a
-timeoutSTM duration action fallback = do
-  -- implementation duplicated because of dejafu test suite - no MonadIO
-  (delay, unregister) <- liftIO (registerDelay (Ki.Duration.toMicroseconds duration))
-  join (liftIO (atomically (delay $> fallback <|> (liftIO unregister >>) <$> action)))
-
--- | Wait until all __threads__ created within a __scope__ finish.
-wait :: MonadIO m => Ki.Scope.Scope -> m ()
-wait =
-  liftIO . Ki.Scope.wait
-
--- | @STM@ variant of 'Ki.Reader.wait'.
-waitSTM :: Ki.Scope.Scope -> STM ()
-waitSTM =
-  Ki.Scope.waitSTM
+  Ki.Timeout.timeoutSTM duration (liftIO . throwIO <$> Ki.Context.contextCancelToken context) (pure ())
 
 -- | Variant of 'Ki.Reader.wait' that waits for up to the given duration. This is useful for giving __threads__ some
 -- time to fulfill a /cancellation/ request before killing them.
 waitFor :: MonadIO m => Ki.Scope.Scope -> Ki.Duration.Duration -> m ()
-waitFor scope duration =
-  liftIO (Ki.Scope.waitFor scope duration)
+waitFor =
+  Ki.waitFor
+
+-- | @STM@ variant of 'Ki.Reader.wait'.
+waitSTM :: Ki.Scope.Scope -> STM ()
+waitSTM =
+  Ki.Scope.scopeWaitSTM
 
 --
 

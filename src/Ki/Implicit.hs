@@ -8,8 +8,8 @@ module Ki.Implicit
     -- * Scope
     Ki.Scope.Scope,
     scoped,
-    Ki.Scope.wait,
-    Ki.Scope.waitSTM,
+    Ki.wait,
+    waitSTM,
     waitFor,
 
     -- * Creating threads
@@ -27,13 +27,13 @@ module Ki.Implicit
     asyncWithUnmask,
 
     -- ** Await
-    Ki.Thread.await,
-    Ki.Thread.awaitSTM,
-    Ki.Thread.awaitFor,
+    Ki.await,
+    awaitSTM,
+    awaitFor,
 
     -- * Soft-cancellation
     Ki.CancelToken.CancelToken,
-    Ki.Scope.cancel,
+    cancel,
     cancelled,
     cancelledSTM,
 
@@ -47,6 +47,8 @@ module Ki.Implicit
   )
 where
 
+import Control.Monad.IO.Unlift (MonadUnliftIO (withRunInIO))
+import qualified Ki
 import qualified Ki.CancelToken
 import qualified Ki.Context
 import qualified Ki.Duration
@@ -84,9 +86,17 @@ type Context =
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-async :: Ki.Scope.Scope -> (Context => IO a) -> IO (Ki.Thread.Thread (Either SomeException a))
-async scope action =
-  Ki.Thread.async scope (with scope action)
+async ::
+  MonadUnliftIO m =>
+  -- |
+  Ki.Scope.Scope ->
+  -- |
+  (Context => m a) ->
+  -- |
+  m (Ki.Thread.Thread (Either SomeException a))
+async =
+  unliftedFork Ki.Thread.threadAsync
+{-# SPECIALIZE async :: Ki.Scope.Scope -> (Context => IO a) -> IO (Ki.Thread.Thread (Either SomeException a)) #-}
 
 -- | Variant of 'Ki.Implicit.async' that provides the __thread__ a function that unmasks asynchronous exceptions.
 --
@@ -94,11 +104,45 @@ async scope action =
 --
 --   * Calls 'error' if the __scope__ is /closed/.
 asyncWithUnmask ::
+  MonadUnliftIO m =>
+  -- |
+  Ki.Scope.Scope ->
+  -- |
+  (Context => (forall x. m x -> m x) -> m a) ->
+  m (Ki.Thread.Thread (Either SomeException a))
+asyncWithUnmask =
+  unliftedForkWithUnmask Ki.Thread.threadAsyncWithUnmask
+{-# SPECIALIZE asyncWithUnmask ::
   Ki.Scope.Scope ->
   (Context => (forall x. IO x -> IO x) -> IO a) ->
   IO (Ki.Thread.Thread (Either SomeException a))
-asyncWithUnmask scope action =
-  Ki.Thread.asyncWithUnmask scope (let ?context = Ki.Scope.scope'context scope in action)
+  #-}
+
+-- | Variant of 'Ki.Implicit.await' that gives up after the given duration.
+awaitFor ::
+  MonadIO m =>
+  -- |
+  Ki.Thread.Thread a ->
+  -- |
+  Ki.Duration.Duration ->
+  m (Maybe a)
+awaitFor thread duration =
+  liftIO (Ki.Thread.threadAwaitFor thread duration)
+{-# SPECIALIZE awaitFor :: Ki.Thread.Thread a -> Ki.Duration.Duration -> IO (Maybe a) #-}
+
+-- | @STM@ variant of 'Ki.Implicit.await'.
+awaitSTM ::
+  -- |
+  Ki.Thread.Thread a ->
+  STM a
+awaitSTM =
+  Ki.Thread.thread'Await
+
+-- | /Cancel/ all __contexts__ derived from a __scope__.
+cancel :: MonadIO m => Ki.Scope.Scope -> m ()
+cancel =
+  liftIO . Ki.Scope.scopeCancel
+{-# SPECIALIZE cancel :: Ki.Scope.Scope -> IO () #-}
 
 -- | Return whether the current __context__ is /cancelled/.
 --
@@ -123,50 +167,53 @@ cancelledSTM =
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-fork :: Ki.Scope.Scope -> (Context => IO a) -> IO (Ki.Thread.Thread a)
-fork scope action =
-  Ki.Thread.fork scope (with scope action)
+fork :: MonadUnliftIO m => Ki.Scope.Scope -> (Context => m a) -> m (Ki.Thread.Thread a)
+fork =
+  unliftedFork Ki.Thread.threadFork
 
 -- | Variant of 'Ki.Implicit.fork' that does not return a handle to the created __thread__.
 --
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-fork_ :: Ki.Scope.Scope -> (Context => IO ()) -> IO ()
-fork_ scope action =
-  Ki.Thread.fork_ scope (with scope action)
+fork_ :: MonadUnliftIO m => Ki.Scope.Scope -> (Context => m ()) -> m ()
+fork_ =
+  unliftedFork Ki.Thread.threadFork_
 
 -- | Variant of 'Ki.Implicit.fork' that provides the __thread__ a function that unmasks asynchronous exceptions.
 --
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-forkWithUnmask :: Ki.Scope.Scope -> (Context => (forall x. IO x -> IO x) -> IO a) -> IO (Ki.Thread.Thread a)
-forkWithUnmask scope action =
-  Ki.Thread.forkWithUnmask scope (let ?context = Ki.Scope.scope'context scope in action)
+forkWithUnmask ::
+  MonadUnliftIO m =>
+  Ki.Scope.Scope ->
+  (Context => (forall x. m x -> m x) -> m a) ->
+  m (Ki.Thread.Thread a)
+forkWithUnmask =
+  unliftedForkWithUnmask Ki.Thread.threadForkWithUnmask
 
 -- | Variant of 'Ki.Implicit.forkWithUnmask' that does not return a handle to the created __thread__.
 --
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-forkWithUnmask_ :: Ki.Scope.Scope -> (Context => (forall x. IO x -> IO x) -> IO ()) -> IO ()
-forkWithUnmask_ scope action =
-  Ki.Thread.forkWithUnmask_ scope (let ?context = Ki.Scope.scope'context scope in action)
+forkWithUnmask_ ::
+  MonadUnliftIO m =>
+  Ki.Scope.Scope ->
+  (Context => (forall x. m x -> m x) -> m ()) ->
+  m ()
+forkWithUnmask_ =
+  unliftedForkWithUnmask Ki.Thread.threadForkWithUnmask_
 
--- | Perform an @IO@ action in the global __context__. The global __context__ cannot be /cancelled/.
+-- | Perform an action in the global __context__. The global __context__ cannot be /cancelled/.
 withGlobalContext :: (Context => IO a) -> IO a
 withGlobalContext action =
   let ?context = Ki.Context.globalContext in action
 
--- | Open a __scope__, perform an @IO@ action with it, then close the __scope__.
+-- | Open a __scope__, perform an action with it, then close the __scope__.
 --
 -- When the __scope__ is closed, all remaining __threads__ created within it are killed.
---
--- /Throws/:
---
---   * The exception thrown by the callback to 'Ki.Implicit.scoped' itself, if any.
---   * The first exception thrown by or to a __thread__ created with 'Ki.Implicit.fork', if any.
 --
 -- ==== __Examples__
 --
@@ -176,9 +223,10 @@ withGlobalContext action =
 --   'Ki.Implicit.fork_' scope worker2
 --   'Ki.Implicit.wait' scope
 -- @
-scoped :: Context => (Context => Ki.Scope.Scope -> IO a) -> IO a
+scoped :: (Context, MonadUnliftIO m) => (Context => Ki.Scope.Scope -> m a) -> m a
 scoped action =
-  Ki.Scope.scoped ?context \scope -> with scope (action scope)
+  withRunInIO \unlift -> Ki.Scope.scopeScoped ?context \scope -> unlift (with scope (action scope))
+{-# SPECIALIZE scoped :: Context => (Context => Ki.Scope.Scope -> IO a) -> IO a #-}
 
 -- | __Context__-aware, duration-based @threadDelay@.
 --
@@ -193,9 +241,34 @@ sleep duration =
 -- time to fulfill a /cancellation/ request before killing them.
 waitFor :: Ki.Scope.Scope -> Ki.Duration.Duration -> IO ()
 waitFor =
-  Ki.Scope.waitFor
+  Ki.waitFor
+
+-- | @STM@ variant of 'Ki.Implicit.wait'.
+waitSTM :: Ki.Scope.Scope -> STM ()
+waitSTM =
+  Ki.Scope.scopeWaitSTM
 
 --
+
+unliftedFork ::
+  MonadUnliftIO m =>
+  (Ki.Scope.Scope -> IO a -> IO b) ->
+  Ki.Scope.Scope ->
+  (Context => m a) ->
+  m b
+unliftedFork forky scope action =
+  withRunInIO \unlift -> forky scope (with scope (unlift action))
+
+unliftedForkWithUnmask ::
+  MonadUnliftIO m =>
+  (Ki.Scope.Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO b) ->
+  Ki.Scope.Scope ->
+  (Context => (forall x. m x -> m x) -> m a) ->
+  m b
+unliftedForkWithUnmask forky scope action =
+  withRunInIO \unlift -> forky scope \unmask -> unlift (with scope (action (liftIO . unmask . unlift)))
+
+-- Ki.Thread.forkWithUnmask scope (let ?context = Ki.Scope.scope'context scope in action)
 
 with :: Ki.Scope.Scope -> (Context => a) -> a
 with scope action =

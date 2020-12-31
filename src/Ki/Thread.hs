@@ -2,15 +2,14 @@
 
 module Ki.Thread
   ( Thread (..),
-    async,
-    asyncWithUnmask,
-    await,
-    awaitSTM,
-    awaitFor,
-    fork,
-    fork_,
-    forkWithUnmask,
-    forkWithUnmask_,
+    threadAsync,
+    threadAsyncWithUnmask,
+    threadAwait,
+    threadAwaitFor,
+    threadFork,
+    threadFork_,
+    threadForkWithUnmask,
+    threadForkWithUnmask_,
   )
 where
 
@@ -39,26 +38,16 @@ instance Ord (Thread a) where
   compare =
     comparing thread'Id
 
--- | Create a __thread__ within a __scope__.
---
--- /Throws/:
---
---   * Calls 'error' if the __scope__ is /closed/.
-async :: Scope -> IO a -> IO (Thread (Either SomeException a))
-async scope action =
-  asyncWithRestore scope \restore -> restore action
+threadAsync :: Scope -> IO a -> IO (Thread (Either SomeException a))
+threadAsync scope action =
+  threadAsyncWithRestore scope \restore -> restore action
 
--- | Variant of 'async' that provides the __thread__ a function that unmasks asynchronous exceptions.
---
--- /Throws/:
---
---   * Calls 'error' if the __scope__ is /closed/.
-asyncWithUnmask :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread (Either SomeException a))
-asyncWithUnmask scope action =
-  asyncWithRestore scope \restore -> restore (action unsafeUnmask)
+threadAsyncWithUnmask :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread (Either SomeException a))
+threadAsyncWithUnmask scope action =
+  threadAsyncWithRestore scope \restore -> restore (action unsafeUnmask)
 
-asyncWithRestore :: forall a. Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread (Either SomeException a))
-asyncWithRestore scope action = do
+threadAsyncWithRestore :: forall a. Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread (Either SomeException a))
+threadAsyncWithRestore scope action = do
   parentThreadId <- myThreadId
   resultVar <- newEmptyTMVarIO
   thread'Id <-
@@ -77,64 +66,34 @@ asyncWithRestore scope action = do
     isAsyncException =
       isJust . fromException @SomeAsyncException
 
--- | Wait for a __thread__ to finish.
-await :: Thread a -> IO a
-await thread =
+threadAwait :: Thread a -> IO a
+threadAwait thread =
   -- If *they* are deadlocked, we will *both* will be delivered a wakeup from the RTS. We want to shrug this exception
   -- off, because afterwards they'll have put to the result var. But don't shield indefinitely, once will cover this use
   -- case and prevent any accidental infinite loops.
   go `catch` \BlockedIndefinitelyOnSTM -> go
   where
     go =
-      atomically (awaitSTM thread)
+      atomically (thread'Await thread)
 
--- | @STM@ variant of 'await'.
-awaitSTM :: Thread a -> STM a
-awaitSTM =
-  thread'Await
+threadAwaitFor :: Thread a -> Duration -> IO (Maybe a)
+threadAwaitFor thread duration =
+  timeoutSTM duration (pure . Just <$> thread'Await thread) (pure Nothing)
 
--- | Variant of 'await' that gives up after the given duration.
-awaitFor :: Thread a -> Duration -> IO (Maybe a)
-awaitFor thread duration =
-  timeoutSTM duration (pure . Just <$> awaitSTM thread) (pure Nothing)
-
--- | Create a __thread__ within a __scope__.
---
--- If the __thread__ throws an exception, the exception is immediately propagated up the call tree to the __thread__
--- that opened its __scope__.
---
--- /Throws/:
---
---   * Calls 'error' if the __scope__ is /closed/.
-fork :: Scope -> IO a -> IO (Thread a)
-fork scope action =
+threadFork :: Scope -> IO a -> IO (Thread a)
+threadFork scope action =
   forkWithRestore scope \restore -> restore action
 
--- | Variant of 'fork' that does not return a handle to the created __thread__.
---
--- /Throws/:
---
---   * Calls 'error' if the __scope__ is /closed/.
-fork_ :: Scope -> IO () -> IO ()
-fork_ scope action =
+threadFork_ :: Scope -> IO () -> IO ()
+threadFork_ scope action =
   forkWithRestore_ scope \restore -> restore action
 
--- | Variant of 'fork' that provides the __thread__ a function that unmasks asynchronous exceptions.
---
--- /Throws/:
---
---   * Calls 'error' if the __scope__ is /closed/.
-forkWithUnmask :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
-forkWithUnmask scope action =
+threadForkWithUnmask :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
+threadForkWithUnmask scope action =
   forkWithRestore scope \restore -> restore (action unsafeUnmask)
 
--- | Variant of 'forkWithUnmask' that does not return a handle to the created __thread__.
---
--- /Throws/:
---
---   * Calls 'error' if the __scope__ is /closed/.
-forkWithUnmask_ :: Scope -> ((forall x. IO x -> IO x) -> IO ()) -> IO ()
-forkWithUnmask_ scope action =
+threadForkWithUnmask_ :: Scope -> ((forall x. IO x -> IO x) -> IO ()) -> IO ()
+threadForkWithUnmask_ scope action =
   forkWithRestore_ scope \restore -> restore (action unsafeUnmask)
 
 forkWithRestore :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread a)

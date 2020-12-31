@@ -7,9 +7,10 @@ import Ki.Duration (Duration)
 import qualified Ki.Duration
 import Ki.Prelude
 
--- | Wait for an @STM@ action to return an @IO@ action, or if the given duration elapses, return the given @IO@ action
+-- | Wait for an @STM@ action to return an @m@ action, or if the given duration elapses, return the given @m@ action
 -- instead.
-timeoutSTM :: Duration -> STM (IO a) -> IO a -> IO a
+timeoutSTM :: MonadIO m => Ki.Duration.Duration -> STM (m a) -> m a -> m a
 timeoutSTM duration action fallback = do
-  (delay, unregister) <- registerDelay (Ki.Duration.toMicroseconds duration)
-  atomicallyIO (delay $> fallback <|> (unregister >>) <$> action)
+  (delay, unregister) <- liftIO (registerDelay (Ki.Duration.toMicroseconds duration))
+  join (liftIO (atomically (delay $> fallback <|> (liftIO unregister >>) <$> action)))
+{-# SPECIALIZE timeoutSTM :: Ki.Duration.Duration -> STM (IO a) -> IO a -> IO a #-}

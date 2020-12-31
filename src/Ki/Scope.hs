@@ -2,13 +2,13 @@
 
 module Ki.Scope
   ( Scope (..),
-    cancel,
+    scopeCancel,
     scopeCancelledSTM,
     scopeFork,
-    scoped,
-    wait,
-    waitFor,
-    waitSTM,
+    scopeScoped,
+    scopeWait,
+    scopeWaitFor,
+    scopeWaitSTM,
     ScopeClosing (..),
     ThreadFailed (..),
   )
@@ -50,9 +50,8 @@ newScope parentContext =
     <*> newTVarIO Set.empty
     <*> newTVarIO 0
 
--- | /Cancel/ all __contexts__ derived from a __scope__.
-cancel :: Scope -> IO ()
-cancel scope = do
+scopeCancel :: Scope -> IO ()
+scopeCancel scope = do
   token <- newCancelToken
   atomically (cancelContext (scope'context scope) token)
 
@@ -111,8 +110,8 @@ scopeFork scope action k =
 
     pure childThreadId
 
-scoped :: Context -> (Scope -> IO a) -> IO a
-scoped context f = do
+scopeScoped :: Context -> (Scope -> IO a) -> IO a
+scopeScoped context f = do
   scope <- newScope context
   uninterruptibleMask \restore -> do
     result <- try (restore (f scope))
@@ -132,19 +131,16 @@ scoped context f = do
         Just (ThreadFailed threadFailedException) -> throwIO threadFailedException
         Nothing -> throwIO exception
 
--- | Wait until all __threads__ created within a __scope__ finish.
-wait :: Scope -> IO ()
-wait =
-  atomically . waitSTM
+scopeWait :: Scope -> IO ()
+scopeWait =
+  atomically . scopeWaitSTM
 
--- | Variant of 'wait' that waits for up to the given duration.
-waitFor :: Scope -> Duration -> IO ()
-waitFor scope duration =
-  timeoutSTM duration (pure <$> waitSTM scope) (pure ())
+scopeWaitFor :: Scope -> Duration -> IO ()
+scopeWaitFor scope duration =
+  timeoutSTM duration (pure <$> scopeWaitSTM scope) (pure ())
 
--- | @STM@ variant of 'wait'.
-waitSTM :: Scope -> STM ()
-waitSTM scope = do
+scopeWaitSTM :: Scope -> STM ()
+scopeWaitSTM scope = do
   blockUntilNoneRunning scope
   blockUntilNoneStarting scope
 
