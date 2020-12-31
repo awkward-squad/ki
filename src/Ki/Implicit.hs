@@ -6,7 +6,7 @@ module Ki.Implicit
     withGlobalContext,
 
     -- * Scope
-    Ki.Scope.Scope,
+    Scope,
     scoped,
     Ki.wait,
     waitSTM,
@@ -14,7 +14,7 @@ module Ki.Implicit
 
     -- * Creating threads
     -- $creating-threads
-    Ki.Thread.Thread,
+    Thread,
 
     -- ** Fork
     fork,
@@ -32,30 +32,39 @@ module Ki.Implicit
     awaitFor,
 
     -- * Soft-cancellation
-    Ki.CancelToken.CancelToken,
+    CancelToken,
     cancel,
     cancelled,
     cancelledSTM,
 
     -- * Miscellaneous
-    Ki.Duration.Duration,
-    Ki.Duration.microseconds,
-    Ki.Duration.milliseconds,
-    Ki.Duration.seconds,
-    Ki.Timeout.timeoutSTM,
+    Duration,
+    microseconds,
+    milliseconds,
+    seconds,
+    timeoutSTM,
     sleep,
   )
 where
 
 import Control.Monad.IO.Unlift (MonadUnliftIO)
 import qualified Ki
-import qualified Ki.CancelToken
-import qualified Ki.Context
-import qualified Ki.Duration
-import Ki.Prelude
-import qualified Ki.Scope
-import qualified Ki.Thread
-import qualified Ki.Timeout
+import Ki.Internal.CancelToken (CancelToken)
+import qualified Ki.Internal.Context
+import Ki.Internal.Duration (Duration, microseconds, milliseconds, seconds)
+import Ki.Internal.Prelude
+import Ki.Internal.Scope (Scope (scope'context), scopeCancel, scopeScoped, scopeWaitSTM)
+import Ki.Internal.Thread
+  ( Thread (thread'Await),
+    threadAsync,
+    threadAsyncWithUnmask,
+    threadAwaitFor,
+    threadFork,
+    threadForkWithUnmask,
+    threadForkWithUnmask_,
+    threadFork_,
+  )
+import Ki.Internal.Timeout (timeoutSTM)
 
 -- $creating-threads
 --
@@ -79,7 +88,7 @@ import qualified Ki.Timeout
 -- A __thread__ can query whether its __context__ has been /cancelled/, which is a suggestion to perform a graceful
 -- termination.
 type Context =
-  ?context :: Ki.Context.Context
+  ?context :: Ki.Internal.Context.Context
 
 -- | Create a __thread__ within a __scope__.
 --
@@ -89,13 +98,13 @@ type Context =
 async ::
   MonadUnliftIO m =>
   -- |
-  Ki.Scope.Scope ->
+  Scope ->
   -- |
   (Context => m a) ->
   -- |
-  m (Ki.Thread.Thread (Either SomeException a))
+  m (Thread (Either SomeException a))
 async scope action =
-  Ki.Thread.threadAsync scope (with scope action)
+  threadAsync scope (with scope action)
 {-# INLINE async #-}
 
 -- | Variant of 'Ki.Implicit.async' that provides the __thread__ a function that unmasks asynchronous exceptions.
@@ -106,42 +115,42 @@ async scope action =
 asyncWithUnmask ::
   MonadUnliftIO m =>
   -- |
-  Ki.Scope.Scope ->
+  Scope ->
   -- |
   (Context => (forall x. m x -> m x) -> m a) ->
-  m (Ki.Thread.Thread (Either SomeException a))
+  m (Thread (Either SomeException a))
 asyncWithUnmask scope action =
-  Ki.Thread.threadAsyncWithUnmask scope \unmask -> with scope (action unmask)
+  threadAsyncWithUnmask scope \unmask -> with scope (action unmask)
 {-# INLINE asyncWithUnmask #-}
 
 -- | Variant of 'Ki.Implicit.await' that gives up after the given duration.
 awaitFor ::
   MonadIO m =>
   -- |
-  Ki.Thread.Thread a ->
+  Thread a ->
   -- |
-  Ki.Duration.Duration ->
+  Duration ->
   m (Maybe a)
 awaitFor =
-  Ki.Thread.threadAwaitFor
+  threadAwaitFor
 {-# INLINE awaitFor #-}
 
 -- | @STM@ variant of 'Ki.Implicit.await'.
 awaitSTM ::
   -- |
-  Ki.Thread.Thread a ->
+  Thread a ->
   STM a
 awaitSTM =
-  Ki.Thread.thread'Await
+  thread'Await
 
 -- | /Cancel/ all __contexts__ derived from a __scope__.
 cancel ::
   MonadIO m =>
   -- |
-  Ki.Scope.Scope ->
+  Scope ->
   m ()
 cancel =
-  Ki.Scope.scopeCancel
+  scopeCancel
 {-# INLINE cancel #-}
 
 -- | Return whether the current __context__ is /cancelled/.
@@ -152,18 +161,18 @@ cancel =
 cancelled ::
   (Context, MonadIO m) =>
   -- |
-  m (Maybe Ki.CancelToken.CancelToken)
+  m (Maybe CancelToken)
 cancelled =
   liftIO (atomically (optional cancelledSTM))
-{-# SPECIALIZE cancelled :: Context => IO (Maybe Ki.CancelToken.CancelToken) #-}
+{-# SPECIALIZE cancelled :: Context => IO (Maybe CancelToken) #-}
 
 -- | @STM@ variant of 'Ki.Implicit.cancelled'; blocks until the current __context__ is /cancelled/.
 cancelledSTM ::
   Context =>
   -- |
-  STM Ki.CancelToken.CancelToken
+  STM CancelToken
 cancelledSTM =
-  Ki.Context.contextCancelToken ?context
+  Ki.Internal.Context.contextCancelToken ?context
 
 -- | Create a __thread__ within a __scope__.
 --
@@ -177,12 +186,12 @@ cancelledSTM =
 fork ::
   MonadUnliftIO m =>
   -- |
-  Ki.Scope.Scope ->
+  Scope ->
   -- |
   (Context => m a) ->
-  m (Ki.Thread.Thread a)
+  m (Thread a)
 fork scope action =
-  Ki.Thread.threadFork scope (with scope action)
+  threadFork scope (with scope action)
 {-# INLINE fork #-}
 
 -- | Variant of 'Ki.Implicit.fork' that does not return a handle to the created __thread__.
@@ -193,12 +202,12 @@ fork scope action =
 fork_ ::
   MonadUnliftIO m =>
   -- |
-  Ki.Scope.Scope ->
+  Scope ->
   -- |
   (Context => m ()) ->
   m ()
 fork_ scope action =
-  Ki.Thread.threadFork_ scope (with scope action)
+  threadFork_ scope (with scope action)
 {-# INLINE fork_ #-}
 
 -- | Variant of 'Ki.Implicit.fork' that provides the __thread__ a function that unmasks asynchronous exceptions.
@@ -209,12 +218,12 @@ fork_ scope action =
 forkWithUnmask ::
   MonadUnliftIO m =>
   -- |
-  Ki.Scope.Scope ->
+  Scope ->
   -- |
   (Context => (forall x. m x -> m x) -> m a) ->
-  m (Ki.Thread.Thread a)
+  m (Thread a)
 forkWithUnmask scope action =
-  Ki.Thread.threadForkWithUnmask scope \unmask -> with scope (action unmask)
+  threadForkWithUnmask scope \unmask -> with scope (action unmask)
 {-# INLINE forkWithUnmask #-}
 
 -- | Variant of 'Ki.Implicit.forkWithUnmask' that does not return a handle to the created __thread__.
@@ -225,18 +234,18 @@ forkWithUnmask scope action =
 forkWithUnmask_ ::
   MonadUnliftIO m =>
   -- |
-  Ki.Scope.Scope ->
+  Scope ->
   -- |
   (Context => (forall x. m x -> m x) -> m ()) ->
   m ()
 forkWithUnmask_ scope action =
-  Ki.Thread.threadForkWithUnmask_ scope \unmask -> with scope (action unmask)
+  threadForkWithUnmask_ scope \unmask -> with scope (action unmask)
 {-# INLINE forkWithUnmask_ #-}
 
 -- | Perform an action in the global __context__.
 withGlobalContext :: (Context => IO a) -> IO a
 withGlobalContext action =
-  let ?context = Ki.Context.globalContext in action
+  let ?context = Ki.Internal.Context.globalContext in action
 
 -- | Open a __scope__, perform an action with it, then close the __scope__.
 --
@@ -253,34 +262,34 @@ withGlobalContext action =
 scoped ::
   (Context, MonadUnliftIO m) =>
   -- |
-  (Context => Ki.Scope.Scope -> m a) ->
+  (Context => Scope -> m a) ->
   m a
 scoped action =
-  Ki.Scope.scopeScoped ?context \scope -> with scope (action scope)
+  scopeScoped ?context \scope -> with scope (action scope)
 {-# INLINE scoped #-}
 
 -- | __Context__-aware, duration-based @threadDelay@.
 --
 -- /Throws/:
 --
---   * Throws 'Ki.CancelToken.CancelToken' if the current __context__ is (or becomes) /cancelled/.
+--   * Throws 'CancelToken' if the current __context__ is (or becomes) /cancelled/.
 sleep ::
   (Context, MonadIO m) =>
   -- |
-  Ki.Duration.Duration ->
+  Duration ->
   m ()
 sleep duration =
-  Ki.Timeout.timeoutSTM duration (cancelledSTM >>= throwSTM) (pure ())
-{-# SPECIALIZE sleep :: Context => Ki.Duration.Duration -> IO () #-}
+  timeoutSTM duration (cancelledSTM >>= throwSTM) (pure ())
+{-# SPECIALIZE sleep :: Context => Duration -> IO () #-}
 
 -- | Variant of 'Ki.Implicit.wait' that waits for up to the given duration. This is useful for giving __threads__ some
 -- time to fulfill a /cancellation/ request before killing them.
 waitFor ::
   MonadIO m =>
   -- |
-  Ki.Scope.Scope ->
+  Scope ->
   -- |
-  Ki.Duration.Duration ->
+  Duration ->
   m ()
 waitFor =
   Ki.waitFor
@@ -289,14 +298,14 @@ waitFor =
 -- | @STM@ variant of 'Ki.Implicit.wait'.
 waitSTM ::
   -- |
-  Ki.Scope.Scope ->
+  Scope ->
   STM ()
 waitSTM =
-  Ki.Scope.scopeWaitSTM
+  scopeWaitSTM
 {-# INLINE waitSTM #-}
 
 --
 
-with :: Ki.Scope.Scope -> (Context => a) -> a
+with :: Scope -> (Context => a) -> a
 with scope action =
-  let ?context = Ki.Scope.scope'context scope in action
+  let ?context = scope'context scope in action

@@ -1,4 +1,4 @@
-module Ki.Debug
+module Ki.Internal.Debug
   ( debug,
   )
 where

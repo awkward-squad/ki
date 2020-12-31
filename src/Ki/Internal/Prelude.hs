@@ -31,10 +31,9 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
-module Ki.Prelude
+module Ki.Internal.Prelude
   ( Unique,
     atomicallyIO,
-    -- debug,
     forkIO,
     newUnique,
     onLeft,
@@ -86,7 +85,6 @@ import GHC.Exts
 import GHC.Generics as X (Generic)
 import GHC.IO (IO (IO))
 import GHC.IO as X (unsafeUnmask)
--- import System.IO.Unsafe (unsafePerformIO)
 import Prelude as X
 
 -- FIXME UnliftedNewtypes when it's old enough (introduced 8.10)
@@ -105,16 +103,6 @@ instance Show Unique where
 atomicallyIO :: STM (IO a) -> IO a
 atomicallyIO =
   join . atomically
-
--- debug :: String -> IO ()
--- debug s =
---   withMVar debugVar \_ ->
---     putStrLn s
-
--- debugVar :: MVar ()
--- debugVar =
---   unsafePerformIO (newMVar ())
--- {-# NOINLINE debugVar #-}
 
 -- Control.Concurrent.forkIO without the dumb exception handler
 forkIO :: IO () -> IO ThreadId

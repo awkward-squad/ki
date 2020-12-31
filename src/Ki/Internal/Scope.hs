@@ -1,6 +1,6 @@
 {-# LANGUAGE PatternSynonyms #-}
 
-module Ki.Scope
+module Ki.Internal.Scope
   ( Scope (..),
     scopeCancel,
     scopeCancelIO,
@@ -26,11 +26,11 @@ import Control.Exception
 import Control.Monad.IO.Unlift (MonadUnliftIO (withRunInIO))
 import qualified Data.Monoid as Monoid
 import qualified Data.Set as Set
-import Ki.CancelToken
-import Ki.Context
-import Ki.Duration (Duration)
-import Ki.Prelude
-import Ki.Timeout (timeoutSTM)
+import Ki.Internal.CancelToken
+import Ki.Internal.Context
+import Ki.Internal.Duration (Duration)
+import Ki.Internal.Prelude
+import Ki.Internal.Timeout
 
 -- | A __scope__ delimits the lifetime of all __threads__ created within it.
 data Scope = Scope

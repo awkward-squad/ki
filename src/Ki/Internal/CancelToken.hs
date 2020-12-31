@@ -1,4 +1,4 @@
-module Ki.CancelToken
+module Ki.Internal.CancelToken
   ( CancelToken (..),
     newCancelToken,
   )
@@ -9,7 +9,7 @@ import Control.Exception
     asyncExceptionFromException,
     asyncExceptionToException,
   )
-import Ki.Prelude
+import Ki.Internal.Prelude
 
 -- | A __cancel token__ represents a request for /cancellation/; this request can be fulfilled by throwing the
 -- __cancel token__ as an exception.

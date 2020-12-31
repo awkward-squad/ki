@@ -103,14 +103,14 @@ library
     Ki.Reader
   hs-source-dirs: src
   other-modules:
-    Ki.CancelToken
-    Ki.Context
-    Ki.Debug
-    Ki.Duration
-    Ki.Prelude
-    Ki.Scope
-    Ki.Thread
-    Ki.Timeout
+    Ki.Internal.CancelToken
+    Ki.Internal.Context
+    Ki.Internal.Debug
+    Ki.Internal.Duration
+    Ki.Internal.Prelude
+    Ki.Internal.Scope
+    Ki.Internal.Thread
+    Ki.Internal.Timeout
 
 test-suite tests
   import: component

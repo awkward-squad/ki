@@ -1,4 +1,4 @@
-module Ki.Context
+module Ki.Internal.Context
   ( Context (..),
     CancelState (..),
     CancelWay (..),
@@ -12,8 +12,8 @@ where
 
 import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
-import Ki.CancelToken
-import Ki.Prelude
+import Ki.Internal.CancelToken
+import Ki.Internal.Prelude
 import System.IO.Unsafe (unsafePerformIO)
 
 -- Note: keep this haddock up-to-date with Ki.Implicit.Context

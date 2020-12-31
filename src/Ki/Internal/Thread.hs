@@ -1,6 +1,6 @@
 {-# LANGUAGE TypeApplications #-}
 
-module Ki.Thread
+module Ki.Internal.Thread
   ( Thread (..),
     threadAsync,
     threadAsyncIO,
@@ -26,11 +26,11 @@ import Control.Monad.IO.Unlift (MonadUnliftIO (withRunInIO))
 import Data.Function (on)
 import Data.Maybe (isJust)
 import Data.Ord (comparing)
-import Ki.Context
-import Ki.Duration (Duration)
-import Ki.Prelude
-import Ki.Scope (Scope (..), ScopeClosing (..), ThreadFailed (..), scopeFork)
-import Ki.Timeout (timeoutSTM)
+import Ki.Internal.Context
+import Ki.Internal.Duration (Duration)
+import Ki.Internal.Prelude
+import Ki.Internal.Scope (Scope (..), ScopeClosing (..), ThreadFailed (..), scopeFork)
+import Ki.Internal.Timeout (timeoutSTM)
 
 -- | A running __thread__.
 data Thread a = Thread
