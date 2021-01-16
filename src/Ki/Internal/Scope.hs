@@ -4,6 +4,7 @@ module Ki.Internal.Scope
   ( Scope (..),
     scopeCancel,
     scopeCancelIO,
+    scopeCancelStateSTM,
     scopeCancelledSTM,
     scopeFork,
     scopeScoped,
@@ -63,6 +64,10 @@ scopeCancelIO :: Scope -> IO ()
 scopeCancelIO scope = do
   token <- newCancelToken
   atomically (cancelContext (scope'context scope) token)
+
+scopeCancelStateSTM :: Scope -> STM CancelState
+scopeCancelStateSTM =
+  readTVar . context'cancelStateVar . scope'context
 
 scopeCancelledSTM :: Scope -> STM (IO a)
 scopeCancelledSTM scope =

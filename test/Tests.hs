@@ -165,23 +165,19 @@ main = do
           Left (fromException -> Just B) -> True
           _ -> False
 
-  test "awaiting a failed `fork`ed thread blocks" do
+  test "awaiting a failed `fork`ed thread blocks (sync exception)" do
     Ki.scoped \scope -> do
       mask \restore -> do
         thread <- Ki.fork @_ @() scope (throw A)
         restore (Ki.wait scope) `catch` \(Ki.Internal.ThreadFailed _) -> pure ()
-        Ki.await thread `shouldThrowSuchThat` \case
-          (fromException -> Just BlockedIndefinitelyOnSTM) -> True
-          _ -> False
+        Ki.await thread `shouldThrow` A
 
-  test "awaiting a failed `fork`ed thread blocks" do
+  test "awaiting a failed `fork`ed thread blocks (async exception)" do
     Ki.scoped \scope -> do
       mask \restore -> do
         thread <- Ki.fork @_ @() scope (throw B)
         restore (Ki.wait scope) `catch` \(Ki.Internal.ThreadFailed _) -> pure ()
-        Ki.await thread `shouldThrowSuchThat` \case
-          (fromException -> Just BlockedIndefinitelyOnSTM) -> True
-          _ -> False
+        Ki.await thread `shouldThrow` B
 
   childtest "inherits masking state" \fork -> do
     Ki.scoped \scope -> do

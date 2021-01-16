@@ -29,7 +29,7 @@ import Data.Ord (comparing)
 import Ki.Internal.Context
 import Ki.Internal.Duration (Duration)
 import Ki.Internal.Prelude
-import Ki.Internal.Scope (Scope (..), ScopeClosing (..), ThreadFailed (..), scopeFork)
+import Ki.Internal.Scope (Scope (..), ScopeClosing (..), ThreadFailed (..), scopeCancelStateSTM, scopeFork)
 import Ki.Internal.Timeout (timeoutSTM)
 
 -- | A running __thread__.
@@ -69,7 +69,7 @@ threadAsyncWithUnmaskIO :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Th
 threadAsyncWithUnmaskIO scope action =
   threadAsyncWithRestoreIO scope \restore -> restore (action unsafeUnmask)
 
-threadAsyncWithRestoreIO :: forall a. Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread (Either SomeException a))
+threadAsyncWithRestoreIO :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread (Either SomeException a))
 threadAsyncWithRestoreIO scope action = do
   parentThreadId <- myThreadId
   resultVar <- newEmptyTMVarIO
@@ -153,27 +153,19 @@ threadForkWithRestoreIO :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Th
 threadForkWithRestoreIO scope action = do
   parentThreadId <- myThreadId
   resultVar <- newEmptyTMVarIO
-  childThreadId <-
-    scopeFork scope action \case
-      Left exception ->
-        -- Intentionally don't fill the result var.
-        --
-        -- Prior to 0.2.0, we did put a 'Left exception' in the result var, so that if another thread awaited it, we'd
-        -- promptly deliver them the exception that brought this thread down. However, that exception was *wrapped* in
-        -- a 'ThreadFailed' exception, so the caller could distinguish between async exceptions *delivered to them* and
-        -- async exceptions coming *synchronously* out of the call to 'await'.
-        --
-        -- At some point I reasoned that if one is following some basic structured concurrency guidelines, and not doing
-        -- weird/complicated things like passing threads around, then it is likely that a failed forked thread is just
-        -- about to propagate its exception to all callers of 'await' (presumably, its direct parent).
-        --
-        -- Might GHC deliver a BlockedIndefinitelyOnSTM in the meantime, though?
-        maybePropagateException scope parentThreadId exception (const True)
-      Right result -> putTMVarIO resultVar result
+  thread'Id <-
+    scopeFork scope action \result -> do
+      case result of
+        Left exception -> maybePropagateException scope parentThreadId exception (const True)
+        Right _ -> pure ()
+      -- even put async exceptions that we propagated
+      -- this isn't totally ideal because a caller awaiting this thread would not be able to distinguish between async
+      -- exceptions delivered to this thread, or itself
+      putTMVarIO resultVar result
   pure
     Thread
-      { thread'Await = readTMVar resultVar,
-        thread'Id = childThreadId
+      { thread'Await = readTMVar resultVar >>= either throwSTM pure,
+        thread'Id
       }
 
 forkWithRestoreIO_ :: Scope -> ((forall x. IO x -> IO x) -> IO ()) -> IO ()
@@ -210,22 +202,19 @@ maybePropagateException scope parentThreadId exception should =
   whenM shouldPropagateException (throwTo parentThreadId (ThreadFailed exception))
   where
     shouldPropagateException :: IO Bool
-    shouldPropagateException =
-      case fromException exception of
-        -- Our scope is (presumably) closing, so don't propagate this exception that (presumably) just came from our
-        -- parent. But if our scope's not closed, that means this 'ScopeClosing' definitely came from somewhere else...
-        Just ScopeClosing -> (/= -1) <$> readTVarIO (scope'startingVar scope)
-        Nothing ->
-          case fromException exception of
-            -- We (presumably) are honoring our own cancellation request, so don't propagate that either.
-            -- It's a bit complicated looking because we *do* want to throw this token if we (somehow) threw it
-            -- "inappropriately" in the sense that it wasn't ours to throw - it was smuggled from elsewhere.
-            Just thrownToken ->
-              atomically do
-                readTVar (context'cancelStateVar (scope'context scope)) <&> \case
-                  CancelState'NotCancelled -> True
-                  CancelState'Cancelled ourToken way ->
-                    case way of
-                      CancelWay'Direct -> thrownToken /= ourToken
-                      CancelWay'Indirect -> True
-            Nothing -> pure (should exception)
+    shouldPropagateException
+      -- Our scope is (presumably) closing, so don't propagate this exception that (presumably) just came from our
+      -- parent. But if our scope's not closed, that means this 'ScopeClosing' definitely came from somewhere else...
+      | Just ScopeClosing <- fromException exception = (/= -1) <$> readTVarIO (scope'startingVar scope)
+      -- We (presumably) are honoring our own cancellation request, so don't propagate that either.
+      -- It's a bit complicated looking because we *do* want to throw this token if we (somehow) threw it
+      -- inappropriately in the sense that it wasn't ours to throw - it was smuggled from elsewhere.
+      | Just thrownToken <- fromException exception =
+        atomically do
+          scopeCancelStateSTM scope <&> \case
+            CancelState'NotCancelled -> True
+            CancelState'Cancelled ourToken way ->
+              case way of
+                CancelWay'Direct -> thrownToken /= ourToken
+                CancelWay'Indirect -> True
+      | otherwise = pure (should exception)
