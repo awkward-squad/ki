@@ -26,10 +26,15 @@ import Control.Monad.IO.Unlift (MonadUnliftIO (withRunInIO))
 import Data.Function (on)
 import Data.Maybe (isJust)
 import Data.Ord (comparing)
-import Ki.Internal.Context
 import Ki.Internal.Duration (Duration)
 import Ki.Internal.Prelude
-import Ki.Internal.Scope (Scope (..), ScopeClosing (..), ThreadFailed (..), scopeCancelStateSTM, scopeFork)
+import Ki.Internal.Scope
+  ( Scope (..),
+    ScopeClosing (..),
+    ThreadFailed (..),
+    scopeFork,
+    scopeOwnsCancelTokenSTM,
+  )
 import Ki.Internal.Timeout (timeoutSTM)
 
 -- | A running __thread__.
@@ -209,12 +214,5 @@ maybePropagateException scope parentThreadId exception should =
       -- We (presumably) are honoring our own cancellation request, so don't propagate that either.
       -- It's a bit complicated looking because we *do* want to throw this token if we (somehow) threw it
       -- inappropriately in the sense that it wasn't ours to throw - it was smuggled from elsewhere.
-      | Just thrownToken <- fromException exception =
-        atomically do
-          scopeCancelStateSTM scope <&> \case
-            CancelState'NotCancelled -> True
-            CancelState'Cancelled ourToken way ->
-              case way of
-                CancelWay'Direct -> thrownToken /= ourToken
-                CancelWay'Indirect -> True
+      | Just thrownToken <- fromException exception = not <$> atomically (scopeOwnsCancelTokenSTM scope thrownToken)
       | otherwise = pure (should exception)

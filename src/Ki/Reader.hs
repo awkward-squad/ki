@@ -35,6 +35,7 @@ module Ki.Reader
     Ki.Implicit.cancel,
     cancelled,
     cancelledSTM,
+    Cancelled (Cancelled),
 
     -- * Miscellaneous
     Duration,
@@ -53,7 +54,7 @@ import Ki.Internal.CancelToken (CancelToken)
 import Ki.Internal.Context (Context, contextCancelToken, globalContext)
 import Ki.Internal.Duration (Duration, microseconds, milliseconds, seconds)
 import Ki.Internal.Prelude
-import Ki.Internal.Scope (Scope (scope'context), scopeScoped, scopeWaitSTM)
+import Ki.Internal.Scope (Cancelled (Cancelled), Scope (scope'context), scopeScoped, scopeWaitSTM)
 import Ki.Internal.Thread
   ( Thread (thread'Await),
     threadAsync,
@@ -235,7 +236,7 @@ scoped ::
   -- |
   (Scope -> m a) ->
   -- |
-  m a
+  m (Either Cancelled a)
 scoped action = do
   context <- askContext
   scopeScoped context \scope -> with scope (action scope)

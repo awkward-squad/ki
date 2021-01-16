@@ -211,8 +211,8 @@ scoped ::
   -- |
   (Scope -> m a) ->
   m a
-scoped =
-  scopeScoped globalContext
+scoped action =
+  scopeScoped globalContext action >>= either (liftIO . throwIO) pure
 {-# INLINE scoped #-}
 
 -- | Duration-based @threadDelay@.

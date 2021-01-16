@@ -36,6 +36,7 @@ module Ki.Implicit
     cancel,
     cancelled,
     cancelledSTM,
+    Cancelled (Cancelled),
 
     -- * Miscellaneous
     Duration,
@@ -53,7 +54,7 @@ import Ki.Internal.CancelToken (CancelToken)
 import qualified Ki.Internal.Context
 import Ki.Internal.Duration (Duration, microseconds, milliseconds, seconds)
 import Ki.Internal.Prelude
-import Ki.Internal.Scope (Scope (scope'context), scopeCancel, scopeScoped, scopeWaitSTM)
+import Ki.Internal.Scope (Cancelled (Cancelled), Scope (scope'context), scopeCancel, scopeScoped, scopeWaitSTM)
 import Ki.Internal.Thread
   ( Thread (thread'Await),
     threadAsync,
@@ -263,7 +264,7 @@ scoped ::
   (Context, MonadUnliftIO m) =>
   -- |
   (Context => Scope -> m a) ->
-  m a
+  m (Either Cancelled a)
 scoped action =
   scopeScoped ?context \scope -> with scope (action scope)
 {-# INLINE scoped #-}

@@ -15,6 +15,7 @@ and this project adheres to the [Haskell Package Versioning Policy](https://pvp.
   cancelled, but instead inherited its cancellation from an ancestor scope.
 - Make `CancelToken` an asynchronous exception
 - Make `async` propagate async exceptions
+- Make `scoped` return an `Either Cancelled a`, to indicate whether it was cancelled (directly).
 
 ### Fixed
 - Fix small memory leak related to closing a scope

@@ -4,15 +4,16 @@ module Ki.Internal.Scope
   ( Scope (..),
     scopeCancel,
     scopeCancelIO,
-    scopeCancelStateSTM,
     scopeCancelledSTM,
     scopeFork,
+    scopeOwnsCancelTokenSTM,
     scopeScoped,
     scopeScopedIO,
     scopeWait,
     scopeWaitFor,
     scopeWaitForIO,
     scopeWaitSTM,
+    Cancelled (..),
     ScopeClosing (..),
     ThreadFailed (..),
   )
@@ -64,10 +65,6 @@ scopeCancelIO :: Scope -> IO ()
 scopeCancelIO scope = do
   token <- newCancelToken
   atomically (cancelContext (scope'context scope) token)
-
-scopeCancelStateSTM :: Scope -> STM CancelState
-scopeCancelStateSTM =
-  readTVar . context'cancelStateVar . scope'context
 
 scopeCancelledSTM :: Scope -> STM (IO a)
 scopeCancelledSTM scope =
@@ -124,12 +121,21 @@ scopeFork scope action k =
 
     pure childThreadId
 
-scopeScoped :: MonadUnliftIO m => Context -> (Scope -> m a) -> m a
+scopeOwnsCancelTokenSTM :: Scope -> CancelToken -> STM Bool
+scopeOwnsCancelTokenSTM scope cancelToken =
+  readTVar (context'cancelStateVar (scope'context scope)) <&> \case
+    CancelState'NotCancelled -> False
+    CancelState'Cancelled ourToken way ->
+      case way of
+        CancelWay'Direct -> cancelToken == ourToken
+        CancelWay'Indirect -> False
+
+scopeScoped :: MonadUnliftIO m => Context -> (Scope -> m a) -> m (Either Cancelled a)
 scopeScoped context action =
   withRunInIO \unlift -> scopeScopedIO context (unlift . action)
-{-# SPECIALIZE scopeScoped :: Context -> (Scope -> IO a) -> IO a #-}
+{-# SPECIALIZE scopeScoped :: Context -> (Scope -> IO a) -> IO (Either Cancelled a) #-}
 
-scopeScopedIO :: Context -> (Scope -> IO a) -> IO a
+scopeScopedIO :: Context -> (Scope -> IO a) -> IO (Either Cancelled a)
 scopeScopedIO context f = do
   scope <- newScope context
   uninterruptibleMask \restore -> do
@@ -138,10 +144,16 @@ scopeScopedIO context f = do
     -- If the callback failed, we don't care if we were thrown an async exception while closing the scope.
     -- Otherwise, throw that exception (if it exists).
     case result of
-      Left exception -> throw exception
+      Left exception ->
+        case fromException exception of
+          Just thrownToken ->
+            atomically (scopeOwnsCancelTokenSTM scope thrownToken) >>= \case
+              False -> throw exception
+              True -> pure (Left Cancelled)
+          _ -> throw exception
       Right value -> do
         whenJust closeScopeException throw
-        pure value
+        pure (Right value)
   where
     -- If applicable, unwrap the 'ThreadFailed' (assumed to have come from one of our children).
     throw :: SomeException -> IO a
@@ -185,7 +197,11 @@ blockUntilNoneStarting scope =
   blockUntilTVar (scope'startingVar scope) (== 0)
 
 --------------------------------------------------------------------------------
--- Internal exception types
+-- Exception types
+
+data Cancelled = Cancelled
+  deriving stock (Eq, Show)
+  deriving anyclass (Exception)
 
 -- | Exception thrown by a parent __thread__ to its children when the __scope__ is closing.
 data ScopeClosing
