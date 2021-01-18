@@ -1,3 +1,8 @@
+-- | This module exposes an API that uses a reader monad to pass around the __context__ implicitly. If you do not intend
+-- to use soft-cancellation, you may want to use the simpler API exposed by "Ki".
+--
+-- For an example of how to integrate this library with your reader monad, click @Example@ on the left or scroll down to
+-- the bottom of this module.
 module Ki.Reader
   ( -- * Context
     Context,
@@ -7,12 +12,12 @@ module Ki.Reader
     -- * Scope
     Scope,
     scoped,
+    scoped_,
     Ki.wait,
     waitSTM,
     waitFor,
 
     -- * Creating threads
-    -- $creating-threads
     Thread,
 
     -- ** Fork
@@ -44,6 +49,9 @@ module Ki.Reader
     seconds,
     timeoutSTM,
     sleep,
+
+    -- * Example
+    -- $example
   )
 where
 
@@ -67,20 +75,72 @@ import Ki.Internal.Thread
   )
 import Ki.Internal.Timeout (timeoutSTM)
 
--- $creating-threads
+-- $example
 --
--- There are two variants of __thread__-creating functions with different exception-propagation semantics.
+-- You may have an application monad that is defined similar to the following.
 --
--- * If a __thread__ created with 'Ki.Reader.fork' throws an exception, it is immediately propagated up the call tree to
--- its __parent__, which is the __thread__ that created its __scope__.
+-- @
+-- data Env
+--   = Env
+--   { ...
+--   }
 --
--- * If a __thread__ created with 'Ki.Reader.async' throws an exception, it is not propagated to its __parent__, but can
--- be observed by 'Ki.Reader.await'.
+-- newtype App a
+--   = App { runApp :: Env -> IO a }
 --
--- If a __thread__ is thrown an asynchronous exception, it is immediately propagated to its __parent__.
+-- instance MonadUnliftIO App where ...
+-- @
+--
+-- To use this module, first add one field to your @Env@ type that holds a __context__.
+--
+-- @
+-- data Env
+--   = Env
+--   { ...
+--   , envContext :: 'Ki.Reader.Context'
+--   , ...
+--   }
+-- @
+--
+-- Then, write a 'Ki.Reader.HasContext' instance, which is a bit of boilerplate that encapsulates how to get and set
+-- this field.
+--
+-- @
+-- instance 'Ki.Reader.HasContext' App where
+--   'Ki.Reader.askContext' =
+--     App \\env -> pure (envContext env)
+--
+--   'Ki.Reader.withContext' context action =
+--     App \\env -> runApp action env{ envContext = context }
+-- @
+--
+-- And finally, when running your monad down to @IO@ in @main@ by providing an initial environment, use
+-- 'Ki.Reader.globalContext'.
+--
+-- @
+-- main :: IO ()
+-- main =
+--   runApp initialEnv action
+--
+-- initialEnv :: Env
+-- initialEnv =
+--   Env
+--     { ...
+--     , envContext = 'Ki.Reader.globalContext'
+--     , ...
+--     }
+--
+-- action :: App ()
+-- action =
+--   ...
+-- @
 
+-- | The class of reader monads that contain a __context__ in their environment.
 class MonadUnliftIO m => HasContext m where
+  -- | Project the __context__ from the environment.
   askContext :: m Context
+
+  -- | Run an @m@ action, replacing its __context__ with the one provided.
   withContext :: Context -> m a -> m a
 
 -- | Create a __thread__ within a __scope__.
@@ -155,11 +215,10 @@ cancelledSTM action = do
   context <- askContext
   liftIO (atomically (Left <$> contextCancelToken context <|> Right <$> action))
 
--- | Create a __thread__ within a __scope__.
+-- | Create a child __thread__ within a __scope__.
 --
--- If the __thread__ throws an exception, the exception is immediately propagated up the call tree to the __thread__
--- that opened its __scope__, unless the exception is a __cancel token__ that fulfills a /cancellation/ request that
--- originated in the __thread__'s __scope__.
+-- If the child throws an exception, the exception is immediately propagated to its parent, unless the exception is a
+-- __cancel token__ that originated from its parent's __scope__ being /cancelled/.
 --
 -- /Throws/:
 --
@@ -174,7 +233,7 @@ fork ::
 fork scope action =
   threadFork scope (with scope action)
 
--- | Variant of 'Ki.Reader.fork' that does not return a handle to the created __thread__.
+-- | Variant of 'Ki.Reader.fork' that does not return a handle to the child __thread__.
 --
 -- /Throws/:
 --
@@ -189,7 +248,7 @@ fork_ ::
 fork_ scope action =
   threadFork_ scope (with scope action)
 
--- | Variant of 'Ki.Reader.fork' that provides the __thread__ a function that unmasks asynchronous exceptions.
+-- | Variant of 'Ki.Reader.fork' that provides the child __thread__ a function that unmasks asynchronous exceptions.
 --
 -- /Throws/:
 --
@@ -204,7 +263,7 @@ forkWithUnmask ::
 forkWithUnmask scope action =
   threadForkWithUnmask scope \unmask -> with scope (action unmask)
 
--- | Variant of 'Ki.Reader.forkWithUnmask' that does not return a handle to the created __thread__.
+-- | Variant of 'Ki.Reader.forkWithUnmask' that does not return a handle to the child __thread__.
 --
 -- /Throws/:
 --
@@ -223,6 +282,9 @@ forkWithUnmask_ scope action =
 --
 -- When the __scope__ is closed, all remaining __threads__ created within it are killed.
 --
+-- The __scope__'s __context__ may become /cancelled/; if it does, and the provided action fulfills the __cancellation__
+-- request by throwing the corresponding __cancel token__, this function will return 'Ki.Reader.Cancelled'.
+--
 -- ==== __Examples__
 --
 -- @
@@ -240,6 +302,18 @@ scoped ::
 scoped action = do
   context <- askContext
   scopeScoped context \scope -> with scope (action scope)
+
+-- | Variant of 'Ki.Reader.scoped' that throws 'Ki.Reader.Cancelled' instead of returning it.
+scoped_ ::
+  HasContext m =>
+  -- |
+  (Scope -> m a) ->
+  m a
+scoped_ action =
+  scoped action >>= \case
+    Left cancelled_ -> liftIO (throwIO cancelled_)
+    Right value -> pure value
+{-# INLINE scoped_ #-}
 
 -- | __Context__-aware, duration-based @threadDelay@.
 --

@@ -203,7 +203,7 @@ data Cancelled = Cancelled
   deriving stock (Eq, Show)
   deriving anyclass (Exception)
 
--- | Exception thrown by a parent __thread__ to its children when the __scope__ is closing.
+-- | Exception thrown by a parent __thread__ to its children when its __scope__ is closing.
 data ScopeClosing
   = ScopeClosing
   deriving stock (Eq, Show)

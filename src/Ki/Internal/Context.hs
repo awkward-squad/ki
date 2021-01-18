@@ -48,6 +48,9 @@ data CancelWay
   | CancelWay'Direct -- we were cancelled
 
 -- | The global context.
+--
+-- This should only be used at the top level of your program, wherever your reader monad is provided an initial
+-- environment.
 globalContext :: Context
 globalContext =
   Context

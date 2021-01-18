@@ -7,7 +7,6 @@ module Ki
     waitFor,
 
     -- * Creating threads
-    -- $creating-threads
     Thread,
 
     -- ** Fork
@@ -53,19 +52,7 @@ import Ki.Internal.Thread
   )
 import Ki.Internal.Timeout (timeoutSTM)
 
--- $creating-threads
---
--- There are two variants of __thread__-creating functions with different exception-propagation semantics.
---
--- * If a __thread__ created with 'Ki.fork' throws an exception, it is immediately propagated up the call tree to its
--- __parent__, which is the __thread__ that created its __scope__.
---
--- * If a __thread__ created with 'Ki.async' throws an exception, it is not propagated to its __parent__, but can be
--- observed by 'Ki.await'.
---
--- If a __thread__ is thrown an asynchronous exception, it is immediately propagated to its __parent__.
-
--- | Create a __thread__ within a __scope__.
+-- | Create a child __thread__ within a __scope__.
 --
 -- /Throws/:
 --
@@ -127,10 +114,9 @@ awaitFor =
   threadAwaitFor
 {-# INLINE awaitFor #-}
 
--- | Create a __thread__ within a __scope__.
+-- | Create a child __thread__ within a __scope__.
 --
--- If the __thread__ throws an exception, the exception is immediately propagated up the call tree to the __thread__
--- that opened its __scope__.
+-- If the child throws an exception, the exception is immediately propagated to its parent.
 --
 -- /Throws/:
 --
@@ -146,7 +132,7 @@ fork =
   threadFork
 {-# INLINE fork #-}
 
--- | Variant of 'Ki.fork' that does not return a handle to the created __thread__.
+-- | Variant of 'Ki.fork' that does not return a handle to the child __thread__.
 --
 -- /Throws/:
 --
@@ -162,7 +148,7 @@ fork_ =
   threadFork_
 {-# INLINE fork_ #-}
 
--- | Variant of 'Ki.fork' that provides the __thread__ a function that unmasks asynchronous exceptions.
+-- | Variant of 'Ki.fork' that provides the child __thread__ a function that unmasks asynchronous exceptions.
 --
 -- /Throws/:
 --
@@ -178,7 +164,7 @@ forkWithUnmask =
   threadForkWithUnmask
 {-# INLINE forkWithUnmask #-}
 
--- | Variant of 'Ki.forkWithUnmask' that does not return a handle to the created __thread__.
+-- | Variant of 'Ki.forkWithUnmask' that does not return a handle to the child __thread__.
 --
 -- /Throws/:
 --
@@ -212,7 +198,9 @@ scoped ::
   (Scope -> m a) ->
   m a
 scoped action =
-  scopeScoped globalContext action >>= either (liftIO . throwIO) pure
+  scopeScoped globalContext action >>= \case
+    Left cancelled -> liftIO (throwIO cancelled)
+    Right value -> pure value
 {-# INLINE scoped #-}
 
 -- | Duration-based @threadDelay@.

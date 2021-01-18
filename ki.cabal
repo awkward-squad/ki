@@ -10,38 +10,21 @@ license-file: LICENSE
 maintainer: Mitchell Rosen <mitchellwrosen@gmail.com>
 name: ki
 stability: experimental
-synopsis: A lightweight, structured-concurrency library
+synopsis: A lightweight structured-concurrency library
 version: 0.2.0.1
 
 description:
-  A lightweight, structured-concurrency library.
+  A lightweight structured-concurrency library.
   .
-  This package comes in two variants:
+  This package provides two variants:
   .
-  * "Ki" exposes the most stripped-down variant; start here.
+  * "Ki" exposes a simplified version of the full API that does not include support for soft-cancellation. Thus, none of
+    the functions mention a __context__ type, and you may use any @MonadUnliftIO@-compatible monad, including plain
+    @IO@. If you do not intend to use soft-cancellation, there is no benefit to using the full API. Start here :)
   .
-  * "Ki.Implicit" extends "Ki" with an implicit context that's used to
-    propagate soft cancellation signals.
-  .
-      Using this variant comes at a cost:
-  .
-        * You must manually add constraints to propagate the implicit context to
-          where it's needed.
-  .
-        * To remain warning-free, you must delete the implicit context constraints
-          where they are no longer needed.
-  .
-    If you don't need soft-cancellation, there is no benefit to using this
-    variant, and you should stick with "Ki".
-  .
-  Because you'll only ever need one variant at a time, I recommend using a
-  <https://cabal.readthedocs.io/en/latest/cabal-package.html#pkg-field-mixins mixin stanza>
-  to rename one module to @Ki@ while hiding the others. This also simplifies the
-  process of upgrading from "Ki.Implicit" to "Ki" if necessary.
-  .
-  @
-  mixins: ki (Ki.Implicit as Ki)
-  @
+  * "Ki.Implicit" and "Ki.Reader" extend "Ki" with a __context__ type that's used to propagate soft-cancellation
+    signals. Because manually threading the right __context__ throughout a program is error-prone boilerplate,
+    package offers two ways of handling it implicitly: using implicit parameters, and using a reader monad.
 
 extra-source-files:
   CHANGELOG.md
@@ -124,4 +107,3 @@ test-suite tests
   other-modules:
     TestUtils
   type: exitcode-stdio-1.0
-

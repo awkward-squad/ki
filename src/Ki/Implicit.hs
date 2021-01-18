@@ -1,5 +1,7 @@
 {-# LANGUAGE PatternSynonyms #-}
 
+-- | This module exposes an API that uses an implicit parameter to pass around the __context__ implicitly. If you do not
+-- intend to use soft-cancellation, you may want to use the simpler API exposed by "Ki".
 module Ki.Implicit
   ( -- * Context
     Context,
@@ -8,12 +10,12 @@ module Ki.Implicit
     -- * Scope
     Scope,
     scoped,
+    scoped_,
     Ki.wait,
     waitSTM,
     waitFor,
 
     -- * Creating threads
-    -- $creating-threads
     Thread,
 
     -- ** Fork
@@ -66,18 +68,6 @@ import Ki.Internal.Thread
     threadFork_,
   )
 import Ki.Internal.Timeout (timeoutSTM)
-
--- $creating-threads
---
--- There are two variants of __thread__-creating functions with different exception-propagation semantics.
---
--- * If a __thread__ created with 'Ki.Implicit.fork' throws an exception, it is immediately propagated up the call tree
--- to its __parent__, which is the __thread__ that created its __scope__.
---
--- * If a __thread__ created with 'Ki.Implicit.async' throws an exception, it is not propagated to its __parent__, but
--- can be observed by 'Ki.Implicit.await'.
---
--- If a __thread__ is thrown an asynchronous exception, it is immediately propagated to its __parent__.
 
 -- Note: keep this haddock up-to-date with Ki.Context.Context
 
@@ -175,11 +165,10 @@ cancelledSTM ::
 cancelledSTM =
   Ki.Internal.Context.contextCancelToken ?context
 
--- | Create a __thread__ within a __scope__.
+-- | Create a child __thread__ within a __scope__.
 --
--- If the __thread__ throws an exception, the exception is immediately propagated up the call tree to the __thread__
--- that opened its __scope__, unless the exception is a __cancel token__ that fulfills a /cancellation/ request that
--- originated in the __thread__'s __scope__.
+-- If the child throws an exception, the exception is immediately propagated to its parent, unless the exception is a
+-- __cancel token__ that originated from its parent's __scope__ being /cancelled/.
 --
 -- /Throws/:
 --
@@ -195,7 +184,7 @@ fork scope action =
   threadFork scope (with scope action)
 {-# INLINE fork #-}
 
--- | Variant of 'Ki.Implicit.fork' that does not return a handle to the created __thread__.
+-- | Variant of 'Ki.Implicit.fork' that does not return a handle to the child __thread__.
 --
 -- /Throws/:
 --
@@ -211,7 +200,7 @@ fork_ scope action =
   threadFork_ scope (with scope action)
 {-# INLINE fork_ #-}
 
--- | Variant of 'Ki.Implicit.fork' that provides the __thread__ a function that unmasks asynchronous exceptions.
+-- | Variant of 'Ki.Implicit.fork' that provides the child __thread__ a function that unmasks asynchronous exceptions.
 --
 -- /Throws/:
 --
@@ -227,7 +216,7 @@ forkWithUnmask scope action =
   threadForkWithUnmask scope \unmask -> with scope (action unmask)
 {-# INLINE forkWithUnmask #-}
 
--- | Variant of 'Ki.Implicit.forkWithUnmask' that does not return a handle to the created __thread__.
+-- | Variant of 'Ki.Implicit.forkWithUnmask' that does not return a handle to the child __thread__.
 --
 -- /Throws/:
 --
@@ -252,6 +241,9 @@ withGlobalContext action =
 --
 -- When the __scope__ is closed, all remaining __threads__ created within it are killed.
 --
+-- The __scope__'s __context__ may become /cancelled/; if it does, and the provided action fulfills the __cancellation__
+-- request by throwing the corresponding __cancel token__, this function will return 'Ki.Implicit.Cancelled'.
+--
 -- ==== __Examples__
 --
 -- @
@@ -268,6 +260,18 @@ scoped ::
 scoped action =
   scopeScoped ?context \scope -> with scope (action scope)
 {-# INLINE scoped #-}
+
+-- | Variant of 'Ki.Implicit.scoped' that throws 'Ki.Implicit.Cancelled' instead of returning it.
+scoped_ ::
+  (Context, MonadUnliftIO m) =>
+  -- |
+  (Context => Scope -> m a) ->
+  m a
+scoped_ action =
+  scoped action >>= \case
+    Left cancelled_ -> liftIO (throwIO cancelled_)
+    Right value -> pure value
+{-# INLINE scoped_ #-}
 
 -- | __Context__-aware, duration-based @threadDelay@.
 --
