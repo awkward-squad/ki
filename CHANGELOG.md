@@ -13,18 +13,22 @@ and this project adheres to the [Haskell Package Versioning Policy](https://pvp.
 ### Changed
 - Tweak `CancelToken` propagation semantics: now, a thread will propagate `CancelToken` if its scope was not directly
   cancelled, but instead inherited its cancellation from an ancestor scope.
-- Make `CancelToken` an asynchronous exception
-- Make `async` propagate async exceptions
+- Make `CancelToken` an asynchronous exception.
+- Make `async` propagate async exceptions.
 - Make `scoped` return an `Either Cancelled a`, to indicate whether it was cancelled (directly).
+- Make `scoped` kill threads in the order they were created.
 
 ### Fixed
-- Fix small memory leak related to closing a scope
-- Fix subtle bug related to GHC's treatment of deadlocked threads
+- Fix small memory leak related to closing a scope.
+- Fix subtle bug related to GHC's treatment of deadlocked threads.
+
+### Removed
+- Remove `dejafu` test suite (too much of a pain to maintain).
 
 ## [0.2.0.1] - 2020-12-20
 
 ### Changed
-- Marked dejafu test suite as "not buildable" by default
+- Mark `dejafu` test suite as "not buildable" by default.
 
 ## [0.2.0] - 2020-12-17
 

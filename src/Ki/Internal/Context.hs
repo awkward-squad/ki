@@ -31,7 +31,9 @@ data Context = Context
     -- +---------------+             +--------------------+
     -- | Not cancelled |-- cancel -->| Directly cancelled |
     -- +---------------+             +--------------------+
-    --           \
+    --         \                              \
+    --          \                        cancel ancestor
+    --           \                             \
     --            \                        +----------------------+
     --             `-- cancel ancestor --> | Indirectly cancelled |
     --                                     +----------------------+
@@ -42,10 +44,10 @@ data Context = Context
 
 data CancelState
   = CancelState'NotCancelled
-  | CancelState'Cancelled CancelToken CancelWay
+  | CancelState'Cancelled {-# UNPACK #-} !CancelToken !CancelWay
 
 data CancelWay
-  = CancelWay'Indirect -- parent (or grandparent, etc...) was cancelled
+  = CancelWay'Indirect -- ancestor was cancelled
   | CancelWay'Direct -- we were cancelled
 
 -- | The global context.
@@ -112,8 +114,8 @@ cancelContext :: Context -> CancelToken -> STM ()
 cancelContext context token =
   readTVar (context'cancelStateVar context) >>= \case
     CancelState'NotCancelled -> do
-      cancelChildren context
       writeTVar (context'cancelStateVar context) $! CancelState'Cancelled token CancelWay'Direct
+      cancelChildren context
     -- We're already cancelled. Whether directly or indirectly, there's no work to do - we wouldn't want to overwrite an
     -- indirect cancel with a direct one, because a thrown cancel token should propagate all the way to the context that
     -- was cancelled. So in this sense, indirect (i.e. ancestor) cancellations take precedence.
@@ -123,5 +125,5 @@ cancelContext context token =
     cancelChildren Context {context'childrenVar} = do
       children <- readTVar context'childrenVar
       for_ children \child -> do
-        cancelChildren child
         writeTVar (context'cancelStateVar child) $! CancelState'Cancelled token CancelWay'Indirect
+        cancelChildren child

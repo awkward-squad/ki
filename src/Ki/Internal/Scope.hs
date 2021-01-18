@@ -2,6 +2,7 @@
 
 module Ki.Internal.Scope
   ( Scope (..),
+    Children (..),
     scopeCancel,
     scopeCancelIO,
     scopeCancelledSTM,
@@ -26,8 +27,8 @@ import Control.Exception
     pattern ErrorCall,
   )
 import Control.Monad.IO.Unlift (MonadUnliftIO (withRunInIO))
+import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Monoid as Monoid
-import qualified Data.Set as Set
 import Ki.Internal.CancelToken
 import Ki.Internal.Context
 import Ki.Internal.Duration (Duration)
@@ -38,7 +39,7 @@ import Ki.Internal.Timeout
 data Scope = Scope
   { scope'context :: {-# UNPACK #-} !Context,
     -- | The set of threads that are currently running.
-    scope'runningVar :: {-# UNPACK #-} !(TVar (Set ThreadId)),
+    scope'runningVar :: {-# UNPACK #-} !(TVar Children),
     -- | The number of threads that are *guaranteed* to be about to start, in the sense that only the GHC scheduler can
     -- continue to delay; no async exception can strike here and prevent one of these threads from starting.
     --
@@ -47,6 +48,17 @@ data Scope = Scope
     --
     -- Sentinel value: -1 means the scope is closed.
     scope'startingVar :: {-# UNPACK #-} !(TVar Int)
+  }
+
+-- | Children, keyed by a monotonically increasing integer, along with the next integer to use. This allows us to kill
+-- child threads in the order they were created.
+--
+-- It would probably be too slow to throw an async exception to a child, then synchronously wait for the child to
+-- terminate before throwing an async exception to the next child, so instead we just deliver the exceptions in order,
+-- which is still a useful property to have.
+data Children = Children
+  { children'children :: !(IntMap ThreadId),
+    children'nextId :: {-# UNPACK #-} !Int
   }
 
 scopeCancel :: MonadIO m => Scope -> m ()
@@ -75,7 +87,7 @@ scopeCancelStateSTM =
 --   * We're uninterruptibly masked
 closeScope :: STM () -> Scope -> IO (Maybe SomeException)
 closeScope removeContextFromParent scope = do
-  threads <-
+  children <-
     atomically do
       -- Retry until we haven't committed to starting any threads. Without this, we may create a thread concurrently
       -- with closing its scope, and not grab its thread id to throw an exception to.
@@ -94,7 +106,7 @@ closeScope removeContextFromParent scope = do
   -- Deliver an async exception to every child. While doing so, we may have been hit by an async exception ourselves,
   -- which we don't want to just ignore. (Actually, we may have been hit by an arbitrary number of async exceptions, but
   -- it's unclear what we would do with such a list, so we only remember the first one, and ignore the others).
-  exception <- killThreads (Set.toList threads)
+  exception <- killThreads (IntMap.elems (children'children children))
   -- Block until all children have terminated; this relies on children respecting the async exception, which they must,
   -- for correctness. Otherwise, a thread could indeed outlive the scope in which it's created, which is definitely not
   -- what you might call structured concurrency!
@@ -104,30 +116,40 @@ closeScope removeContextFromParent scope = do
 scopeFork :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> (Either SomeException a -> IO ()) -> IO ThreadId
 scopeFork scope action k =
   uninterruptibleMask \restore -> do
-    -- Record the thread as being about to start
-    atomically do
-      starting <- readTVar (scope'startingVar scope)
-      if starting == -1
-        then throwSTM (ErrorCall "ki: scope closed")
-        else writeTVar (scope'startingVar scope) $! starting + 1
+    -- Record the thread as being about to start, and grab an id for it
+    childId <-
+      atomically do
+        starting <- readTVar (scope'startingVar scope)
+        if starting == -1
+          then throwSTM (ErrorCall "ki: scope closed")
+          else do
+            children <- readTVar (scope'runningVar scope)
+            let childId = children'nextId children
+            writeTVar (scope'runningVar scope) $! children {children'nextId = childId + 1}
+            writeTVar (scope'startingVar scope) $! starting + 1
+            pure childId
 
     -- Fork the thread
     childThreadId <-
       forkIO do
-        childThreadId <- myThreadId
+        -- Perform the user-provided action
         result <- try (action restore)
+        -- Perform the internal callback (this is where we decide to propagate the exception and whatnot)
         k result
+        -- Delete ourselves from the scope's record of what's running. Why not just IntMap.delete? It might miss (race
+        -- condition) - we wouldn't want to delete *nothing*, *then* insert from the parent thread. So just retry until
+        -- the parent has recorded us as having started.
         atomically do
-          running <- readTVar (scope'runningVar scope)
-          -- Why not just delete? We wouldn't want to delete *nothing*, *then* insert from the parent thread.
-          case Set.splitMember childThreadId running of
-            (xs, True, ys) -> writeTVar (scope'runningVar scope) $! Set.union xs ys
-            _ -> retry
+          children <- readTVar (scope'runningVar scope)
+          case IntMap.alterF (maybe Nothing (const (Just Nothing))) childId (children'children children) of
+            Nothing -> retry
+            Just running -> writeTVar (scope'runningVar scope) $! children {children'children = running}
 
     -- Record the thread as having started
     atomically do
       modifyTVar' (scope'startingVar scope) \n -> n -1
-      modifyTVar' (scope'runningVar scope) (Set.insert childThreadId)
+      modifyTVar' (scope'runningVar scope) \children ->
+        children {children'children = IntMap.insert childId childThreadId (children'children children)}
 
     pure childThreadId
 
@@ -148,7 +170,7 @@ scopeScoped context action =
 scopeScopedIO :: Context -> (Scope -> IO a) -> IO (Either Cancelled a)
 scopeScopedIO parentContext f = do
   (scope'context, removeContextFromParent) <- deriveContext parentContext
-  scope'runningVar <- newTVarIO Set.empty
+  scope'runningVar <- newTVarIO (Children IntMap.empty 0)
   scope'startingVar <- newTVarIO 0
   let scope :: Scope
       scope =
@@ -205,7 +227,7 @@ scopeWaitSTM scope = do
 
 blockUntilNoneRunning :: Scope -> STM ()
 blockUntilNoneRunning scope =
-  blockUntilTVar (scope'runningVar scope) Set.null
+  blockUntilTVar (scope'runningVar scope) \(Children children _) -> IntMap.null children
 
 blockUntilNoneStarting :: Scope -> STM ()
 blockUntilNoneStarting scope =
@@ -241,7 +263,7 @@ instance Exception ThreadFailed where
 
 killThreads :: [ThreadId] -> IO (Maybe SomeException)
 killThreads =
-  (`fix` mempty) \loop acc -> \case
+  (`fix` mempty) \loop !acc -> \case
     [] -> pure (Monoid.getFirst acc)
     threadId : threadIds ->
       -- We unmask because we don't want to deadlock with a thread
