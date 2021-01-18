@@ -26,17 +26,18 @@ import System.IO.Unsafe (unsafePerformIO)
 -- A __thread__ can query whether its __context__ has been /cancelled/, which is a suggestion to perform a graceful
 -- termination.
 data Context = Context
-  { -- | Get this content's current cancel state. This action never retries.
-    context'cancelStateVar :: TVar CancelState,
-    context'childrenVar :: TVar (Seq Context),
-    context'id :: Unique,
-    -- | Remove myself from my parent's context. This isn't simply a pointer to the parent context for two reasons:
+  { -- | The current cancel state.
     --
-    --   * "Root" contexts don't have a parent, so it'd have to be a Maybe (one more pointer indirection)
-    --   * We don't really need a reference to the parent, because we only want to be able to remove ourselves from its
-    --     children map, so just storing the STM action that does exactly seems a bit safer, even if conceptually it's
-    --     a bit indirect.
-    context'removeFromParent :: STM ()
+    -- +---------------+             +--------------------+
+    -- | Not cancelled |-- cancel -->| Directly cancelled |
+    -- +---------------+             +--------------------+
+    --           \
+    --            \                        +----------------------+
+    --             `-- cancel ancestor --> | Indirectly cancelled |
+    --                                     +----------------------+
+    context'cancelStateVar :: {-# UNPACK #-} !(TVar CancelState),
+    context'childrenVar :: {-# UNPACK #-} !(TVar (Seq Context)),
+    context'id :: {-# UNPACK #-} !Unique
   }
 
 data CancelState
@@ -56,21 +57,21 @@ globalContext =
   Context
     { context'cancelStateVar = unsafePerformIO (newTVarIO CancelState'NotCancelled),
       context'childrenVar = unsafePerformIO (newTVarIO Seq.empty),
-      context'id = unsafePerformIO newUnique,
-      context'removeFromParent = pure ()
+      context'id = unsafePerformIO newUnique
     }
+{-# NOINLINE globalContext #-}
 
 newContext :: IO Context
 newContext = do
   id_ <- newUnique
   atomically do
     cancelStateVar <- newTVar CancelState'NotCancelled
-    newContextSTM cancelStateVar id_ (pure ())
+    newContextSTM cancelStateVar id_
 
-newContextSTM :: TVar CancelState -> Unique -> STM () -> STM Context
-newContextSTM context'cancelStateVar context'id context'removeFromParent = do
+newContextSTM :: TVar CancelState -> Unique -> STM Context
+newContextSTM context'cancelStateVar context'id = do
   context'childrenVar <- newTVar Seq.empty
-  pure Context {context'cancelStateVar, context'childrenVar, context'id, context'removeFromParent}
+  pure Context {context'cancelStateVar, context'childrenVar, context'id}
 
 contextCancelToken :: Context -> STM CancelToken
 contextCancelToken context =
@@ -80,36 +81,32 @@ contextCancelToken context =
 
 -- | Derive a child context from a parent context.
 --
---   * If the parent is already cancelled, so is the child.
---   * If the parent isn't already canceled, the child registers itself with the
---     parent such that:
---       * When the parent is cancelled, so is the child
---       * When the child is cancelled, it removes the parent's reference to it
-deriveContext :: Context -> IO Context
-deriveContext context = do
+--   * If the parent is already cancelled, so is the child (indirectly). In this case, we don't need to record the child
+--     as such (in the parent's list of children), because the purpose of that list is only to propagate cancellation!
+--     (We therefore can also just store a dummy, no-op "remove me from parent" inside the child context).
+--   * If the parent isn't already canceled, the child registers itself with the parent, so cancellation can propagate
+--     from parent to child.
+deriveContext :: Context -> IO (Context, STM ())
+deriveContext parent = do
   id_ <- newUnique
   atomically do
-    child <- do
-      derivedCancelStateVar <- do
-        derivedCancelState <-
-          readTVar (context'cancelStateVar context) <&> \case
-            CancelState'NotCancelled -> CancelState'NotCancelled
-            CancelState'Cancelled token _cancelWay -> CancelState'Cancelled token CancelWay'Indirect
-        newTVar derivedCancelState
-      newContextSTM
-        derivedCancelStateVar
-        id_
-        ( modifyTVar'
-            (context'childrenVar context)
-            ( \children ->
-                case Seq.findIndexL (\child -> context'id child == id_) children of
-                  Nothing -> children
-                  Just n -> Seq.deleteAt n children
-            )
-        )
-    children <- readTVar (context'childrenVar context)
-    writeTVar (context'childrenVar context) $! children Seq.|> child
-    pure child
+    readTVar (context'cancelStateVar parent) >>= \case
+      CancelState'NotCancelled -> do
+        childCancelStateVar <- newTVar CancelState'NotCancelled
+        child <- newContextSTM childCancelStateVar id_
+        modifyTVar' (context'childrenVar parent) (Seq.|> child)
+        pure (child, removeChild id_)
+      CancelState'Cancelled token _cancelWay -> do
+        childCancelStateVar <- newTVar (CancelState'Cancelled token CancelWay'Indirect)
+        child <- newContextSTM childCancelStateVar id_
+        pure (child, pure ())
+  where
+    removeChild :: Unique -> STM ()
+    removeChild id_ =
+      modifyTVar' (context'childrenVar parent) \children ->
+        case Seq.findIndexL (\child -> context'id child == id_) children of
+          Nothing -> children -- should never happen, but eh.
+          Just n -> Seq.deleteAt n children
 
 cancelContext :: Context -> CancelToken -> STM ()
 cancelContext context token =
@@ -117,7 +114,9 @@ cancelContext context token =
     CancelState'NotCancelled -> do
       cancelChildren context
       writeTVar (context'cancelStateVar context) $! CancelState'Cancelled token CancelWay'Direct
-      context'removeFromParent context
+    -- We're already cancelled. Whether directly or indirectly, there's no work to do - we wouldn't want to overwrite an
+    -- indirect cancel with a direct one, because a thrown cancel token should propagate all the way to the context that
+    -- was cancelled. So in this sense, indirect (i.e. ancestor) cancellations take precedence.
     CancelState'Cancelled _token _way -> pure ()
   where
     cancelChildren :: Context -> STM ()

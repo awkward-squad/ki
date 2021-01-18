@@ -36,9 +36,9 @@ import Ki.Internal.Timeout
 
 -- | A __scope__ delimits the lifetime of all __threads__ created within it.
 data Scope = Scope
-  { scope'context :: Context,
+  { scope'context :: {-# UNPACK #-} !Context,
     -- | The set of threads that are currently running.
-    scope'runningVar :: TVar (Set ThreadId),
+    scope'runningVar :: {-# UNPACK #-} !(TVar (Set ThreadId)),
     -- | The number of threads that are *guaranteed* to be about to start, in the sense that only the GHC scheduler can
     -- continue to delay; no async exception can strike here and prevent one of these threads from starting.
     --
@@ -46,15 +46,8 @@ data Scope = Scope
     -- respect it and wait for it to drop to zero before proceeding.
     --
     -- Sentinel value: -1 means the scope is closed.
-    scope'startingVar :: TVar Int
+    scope'startingVar :: {-# UNPACK #-} !(TVar Int)
   }
-
-newScope :: Context -> IO Scope
-newScope parentContext =
-  Scope
-    <$> deriveContext parentContext
-    <*> newTVarIO Set.empty
-    <*> newTVarIO 0
 
 scopeCancel :: MonadIO m => Scope -> m ()
 scopeCancel =
@@ -70,25 +63,42 @@ scopeCancelledSTM :: Scope -> STM (IO a)
 scopeCancelledSTM scope =
   throwIO <$> contextCancelToken (scope'context scope)
 
+scopeCancelStateSTM :: Scope -> STM CancelState
+scopeCancelStateSTM =
+  readTVar . context'cancelStateVar . scope'context
+
 -- | Close a scope, kill all of the running threads, and return the first async exception delivered to us while doing
 -- so, if any.
 --
 -- Preconditions:
 --   * The set of threads doesn't include us
 --   * We're uninterruptibly masked
-closeScope :: Scope -> IO (Maybe SomeException)
-closeScope scope = do
+closeScope :: STM () -> Scope -> IO (Maybe SomeException)
+closeScope removeContextFromParent scope = do
   threads <-
     atomically do
+      -- Retry until we haven't committed to starting any threads. Without this, we may create a thread concurrently
+      -- with closing its scope, and not grab its thread id to throw an exception to.
       blockUntilNoneStarting scope
-      writeTVar (scope'startingVar scope) (-1)
+      -- Write the sentinel value indicating that this scope is closed, and it is an error to try to create a thread
+      -- within it.
+      writeTVar (scope'startingVar scope) $! (-1)
+      -- Remove our parent scope's reference to us. This is necessary for long-lived parent scopes that create and
+      -- destroy many child scopes dynamically - we shouldn't leak memory by needlessly growing the parent's list of
+      -- children forever. Plus, when/if the parent is cancelled, we'd like as small a list of children as possible to
+      -- propagate the cancellation to.
+      removeContextFromParent
+      -- Return the list of currently-running children to kill. Some of them may have *just* started (e.g. if we
+      -- initially retried in 'blockUntilNoneStarting' above). That's fine - kill them all!
       readTVar (scope'runningVar scope)
+  -- Deliver an async exception to every child. While doing so, we may have been hit by an async exception ourselves,
+  -- which we don't want to just ignore. (Actually, we may have been hit by an arbitrary number of async exceptions, but
+  -- it's unclear what we would do with such a list, so we only remember the first one, and ignore the others).
   exception <- killThreads (Set.toList threads)
-  atomically do
-    blockUntilNoneRunning scope
-    readTVar (context'cancelStateVar (scope'context scope)) >>= \case
-      CancelState'NotCancelled -> context'removeFromParent (scope'context scope)
-      CancelState'Cancelled _token _way -> pure ()
+  -- Block until all children have terminated; this relies on children respecting the async exception, which they must,
+  -- for correctness. Otherwise, a thread could indeed outlive the scope in which it's created, which is definitely not
+  -- what you might call structured concurrency!
+  atomically (blockUntilNoneRunning scope)
   pure exception
 
 scopeFork :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> (Either SomeException a -> IO ()) -> IO ThreadId
@@ -123,7 +133,7 @@ scopeFork scope action k =
 
 scopeOwnsCancelTokenSTM :: Scope -> CancelToken -> STM Bool
 scopeOwnsCancelTokenSTM scope cancelToken =
-  readTVar (context'cancelStateVar (scope'context scope)) <&> \case
+  scopeCancelStateSTM scope <&> \case
     CancelState'NotCancelled -> False
     CancelState'Cancelled ourToken way ->
       case way of
@@ -136,11 +146,16 @@ scopeScoped context action =
 {-# SPECIALIZE scopeScoped :: Context -> (Scope -> IO a) -> IO (Either Cancelled a) #-}
 
 scopeScopedIO :: Context -> (Scope -> IO a) -> IO (Either Cancelled a)
-scopeScopedIO context f = do
-  scope <- newScope context
+scopeScopedIO parentContext f = do
+  (scope'context, removeContextFromParent) <- deriveContext parentContext
+  scope'runningVar <- newTVarIO Set.empty
+  scope'startingVar <- newTVarIO 0
+  let scope :: Scope
+      scope =
+        Scope {scope'context, scope'runningVar, scope'startingVar}
   uninterruptibleMask \restore -> do
     result <- try (restore (f scope))
-    closeScopeException <- closeScope scope
+    closeScopeException <- closeScope removeContextFromParent scope
     -- If the callback failed, we don't care if we were thrown an async exception while closing the scope.
     -- Otherwise, throw that exception (if it exists).
     case result of
