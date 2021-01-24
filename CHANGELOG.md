@@ -8,14 +8,13 @@ and this project adheres to the [Haskell Package Versioning Policy](https://pvp.
 ## Unreleased
 
 ### Added
-- `Ki.Reader` module
+- Add `Ki.Reader` module.
 
 ### Changed
-- Tweak `CancelToken` propagation semantics: now, a thread will propagate `CancelToken` if its scope was not directly
-  cancelled, but instead inherited its cancellation from an ancestor scope.
+- Generalize `Ki` and `Ki.Implicit` to use `MonadUnliftIO`.
 - Make `CancelToken` an asynchronous exception.
 - Make `async` propagate async exceptions.
-- Make `scoped` return an `Either Cancelled a`, to indicate whether it was cancelled (directly).
+- Make `scoped` return an `Either Cancelled a`, to indicate whether it honored a cancellation request.
 - Make `scoped` kill threads in the order they were created.
 
 ### Fixed

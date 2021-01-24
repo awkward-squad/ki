@@ -109,25 +109,12 @@ main = do
       fork scope (atomically Ki.cancelledSTM >>= throwIO)
       Ki.wait scope
 
-  forktest "propagates others' CancelTokens" \fork -> do
-    ref <- newIORef False
-    -- Create an outer scope, just to cancel it.
+  forktest "doesn't propagate ancestor's CancelToken" \fork -> do
     Ki.scoped_ \scope0 -> do
       Ki.cancel scope0
-      -- Create an inner scope, which should be cancelled, but by the outer scope's token. So, threads spawned within
-      -- scope1 *should* propagate the CancelToken
-      catch
-        ( Ki.scoped_ \scope1 -> do
-            var <- newEmptyMVar
-            fork scope1 do
-              takeMVar var -- wait until parent is ready to catch the CancelToken
-              atomically Ki.cancelledSTM >>= throwIO
-            mask \unmask -> do
-              putMVar var ()
-              unmask (Ki.wait scope1)
-        )
-        (\(_ :: Ki.CancelToken) -> writeIORef ref True)
-    readIORef ref `shouldReturn` True
+      Ki.scoped_ \scope1 -> do
+        fork scope1 (atomically Ki.cancelledSTM >>= throwIO)
+        Ki.wait scope1
 
   forktest "propagates ScopeClosing if it isn't ours" \fork ->
     ( Ki.scoped_ \scope -> do
@@ -234,16 +221,6 @@ main = do
       Ki.scoped @_ @() \scope -> do
         Ki.cancel scope
         Ki.fork scope (atomically Ki.cancelledSTM >>= throwIO) >>= Ki.await
-
-  test "outer cancellation overrides inner cancellation" do
-    _ <-
-      Ki.scoped \scope0 -> do
-        (`shouldThrowSuchThat` \(_ :: Ki.CancelToken) -> True) do
-          Ki.scoped_ @_ @() \scope1 -> do
-            Ki.cancel scope1
-            Ki.cancel scope0
-            atomically Ki.cancelledSTM >>= throwIO
-    pure ()
 
 forktest :: String -> (Ki.Context => (Ki.Scope -> (Ki.Context => IO ()) -> IO ()) -> IO ()) -> IO ()
 forktest name theTest = do

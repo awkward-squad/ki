@@ -157,10 +157,7 @@ scopeOwnsCancelTokenSTM :: Scope -> CancelToken -> STM Bool
 scopeOwnsCancelTokenSTM scope cancelToken =
   scopeCancelStateSTM scope <&> \case
     CancelState'NotCancelled -> False
-    CancelState'Cancelled ourToken way ->
-      case way of
-        CancelWay'Direct -> cancelToken == ourToken
-        CancelWay'Indirect -> False
+    CancelState'Cancelled ourToken -> cancelToken == ourToken
 
 scopeScoped :: MonadUnliftIO m => Context -> (Scope -> m a) -> m (Either Cancelled a)
 scopeScoped context action =
