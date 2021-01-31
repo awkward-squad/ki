@@ -1,6 +1,8 @@
 {-# LANGUAGE PatternSynonyms #-}
 
--- | This module exposes an API that uses an implicit parameter to pass around the __context__ implicitly. If you do not
+-- | Please read "Ki.Documentation" for an overview of how to use this library.
+--
+-- This module exposes an API that uses an implicit parameter to pass around the __context__ implicitly. If you do not
 -- intend to use soft-cancellation, you may want to use the simpler API exposed by "Ki".
 module Ki.Implicit
   ( -- * Context
@@ -15,20 +17,14 @@ module Ki.Implicit
     waitSTM,
     waitFor,
 
-    -- * Creating threads
+    -- * Thread
     Thread,
-
-    -- ** Fork
     fork,
     fork_,
     forkWithUnmask,
     forkWithUnmask_,
-
-    -- ** Async
     async,
     asyncWithUnmask,
-
-    -- ** Await
     Ki.await,
     awaitSTM,
     awaitFor,
@@ -81,11 +77,9 @@ import Ki.Internal.Timeout (timeoutSTM)
 type Context =
   ?context :: Ki.Internal.Context.Context
 
--- | Create a __thread__ within a __scope__.
+-- | Create a thread within a scope.
 --
--- /Throws/:
---
---   * Calls 'error' if the __scope__ is /closed/.
+-- Reference manual: "Ki.Documentation#reference_manual_async"
 async ::
   MonadUnliftIO m =>
   -- |
@@ -98,11 +92,9 @@ async scope action =
   threadAsync scope (with scope action)
 {-# INLINE async #-}
 
--- | Variant of 'Ki.Implicit.async' that provides the __thread__ a function that unmasks asynchronous exceptions.
+-- | Variant of 'Ki.Implicit.async' that provides the thread a function that unmasks asynchronous exceptions.
 --
--- /Throws/:
---
---   * Calls 'error' if the __scope__ is /closed/.
+-- Reference manual: "Ki.Documentation#reference_manual_async"
 asyncWithUnmask ::
   MonadUnliftIO m =>
   -- |

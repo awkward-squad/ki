@@ -1,8 +1,9 @@
--- | This module exposes an API that uses a reader monad to pass around the __context__ implicitly. If you do not intend
+-- | Please read "Ki.Documentation" for an overview of how to use this library.
+--
+-- This module exposes an API that uses a reader monad to pass around the __context__ implicitly. If you do not intend
 -- to use soft-cancellation, you may want to use the simpler API exposed by "Ki".
 --
--- For an example of how to integrate this library with your reader monad, click @Example@ on the left or scroll down to
--- the bottom of this module.
+-- For an example of how to integrate this library with your reader monad, see "Ki.Documentation#example_has_context".
 module Ki.Reader
   ( -- * Context
     Context,
@@ -17,20 +18,14 @@ module Ki.Reader
     waitSTM,
     waitFor,
 
-    -- * Creating threads
+    -- * Thread
     Thread,
-
-    -- ** Fork
     fork,
     fork_,
     forkWithUnmask,
     forkWithUnmask_,
-
-    -- ** Async
     async,
     asyncWithUnmask,
-
-    -- ** Await
     Ki.await,
     awaitSTM,
     awaitFor,
@@ -49,9 +44,6 @@ module Ki.Reader
     seconds,
     timeoutSTM,
     sleep,
-
-    -- * Example
-    -- $example
   )
 where
 
@@ -75,66 +67,6 @@ import Ki.Internal.Thread
   )
 import Ki.Internal.Timeout (timeoutSTM)
 
--- $example
---
--- You may have an application monad that is defined similar to the following.
---
--- @
--- data Env
---   = Env
---   { ...
---   }
---
--- newtype App a
---   = App { runApp :: Env -> IO a }
---
--- instance MonadUnliftIO App where ...
--- @
---
--- To use this module, first add one field to your @Env@ type that holds a __context__.
---
--- @
--- data Env
---   = Env
---   { ...
---   , envContext :: 'Ki.Reader.Context'
---   , ...
---   }
--- @
---
--- Then, write a 'Ki.Reader.HasContext' instance, which is a bit of boilerplate that encapsulates how to get and set
--- this field.
---
--- @
--- instance 'Ki.Reader.HasContext' App where
---   'Ki.Reader.askContext' =
---     App \\env -> pure (envContext env)
---
---   'Ki.Reader.withContext' context action =
---     App \\env -> runApp action env{ envContext = context }
--- @
---
--- And finally, when running your monad down to @IO@ in @main@ by providing an initial environment, use
--- 'Ki.Reader.globalContext'.
---
--- @
--- main :: IO ()
--- main =
---   runApp initialEnv action
---
--- initialEnv :: Env
--- initialEnv =
---   Env
---     { ...
---     , envContext = 'Ki.Reader.globalContext'
---     , ...
---     }
---
--- action :: App ()
--- action =
---   ...
--- @
-
 -- | The class of reader monads that contain a __context__ in their environment.
 class MonadUnliftIO m => HasContext m where
   -- | Project the __context__ from the environment.
@@ -143,11 +75,9 @@ class MonadUnliftIO m => HasContext m where
   -- | Run an @m@ action, replacing its __context__ with the one provided.
   withContext :: Context -> m a -> m a
 
--- | Create a __thread__ within a __scope__.
+-- | Create a thread within a scope.
 --
--- /Throws/:
---
---   * Calls 'error' if the __scope__ is /closed/.
+-- Reference manual: "Ki.Documentation#reference_manual_async"
 async ::
   HasContext m =>
   -- |
@@ -158,11 +88,9 @@ async ::
 async scope action =
   threadAsync scope (with scope action)
 
--- | Variant of 'Ki.Reader.async' that provides the __thread__ a function that unmasks asynchronous exceptions.
+-- | Variant of 'Ki.Reader.async' that provides the thread a function that unmasks asynchronous exceptions.
 --
--- /Throws/:
---
---   * Calls 'error' if the __scope__ is /closed/.
+-- Reference manual: "Ki.Documentation#reference_manual_async"
 asyncWithUnmask ::
   HasContext m =>
   -- |

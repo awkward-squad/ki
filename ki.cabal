@@ -16,15 +16,7 @@ version: 0.2.0.1
 description:
   A lightweight structured-concurrency library.
   .
-  This package provides two variants:
-  .
-  * "Ki" exposes a simplified version of the full API that does not include support for soft-cancellation. Thus, none of
-    the functions mention a __context__ type, and you may use any @MonadUnliftIO@-compatible monad, including plain
-    @IO@. If you do not intend to use soft-cancellation, there is no benefit to using the full API. Start here :)
-  .
-  * "Ki.Implicit" and "Ki.Reader" extend "Ki" with a __context__ type that's used to propagate soft-cancellation
-    signals. Because manually threading the right __context__ throughout a program is error-prone boilerplate,
-    package offers two ways of handling it implicitly: using implicit parameters, and using a reader monad.
+  Please read "Ki.Documentation" for an overview of how to use this library.
 
 extra-source-files:
   CHANGELOG.md
@@ -82,6 +74,7 @@ library
     unliftio-core
   exposed-modules:
     Ki,
+    Ki.Documentation,
     Ki.Implicit,
     Ki.Internal,
     Ki.Reader

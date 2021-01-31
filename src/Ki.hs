@@ -1,3 +1,4 @@
+-- | Please read "Ki.Documentation" for an overview of how to use this library.
 module Ki
   ( -- * Scope
     Scope,
@@ -6,20 +7,14 @@ module Ki
     waitSTM,
     waitFor,
 
-    -- * Creating threads
+    -- * Thread
     Thread,
-
-    -- ** Fork
     fork,
     fork_,
     forkWithUnmask,
     forkWithUnmask_,
-
-    -- ** Async
     async,
     asyncWithUnmask,
-
-    -- ** Await
     await,
     awaitSTM,
     awaitFor,
@@ -52,11 +47,9 @@ import Ki.Internal.Thread
   )
 import Ki.Internal.Timeout (timeoutSTM)
 
--- | Create a child __thread__ within a __scope__.
+-- | Create a child thread within a scope.
 --
--- /Throws/:
---
---   * Calls 'error' if the __scope__ is /closed/.
+-- Reference manual: "Ki.Documentation#reference_manual_async"
 async ::
   MonadUnliftIO m =>
   -- |
@@ -68,11 +61,9 @@ async =
   threadAsync
 {-# INLINE async #-}
 
--- | Variant of 'Ki.async' that provides the __thread__ a function that unmasks asynchronous exceptions.
+-- | Variant of 'Ki.async' that provides the thread a function that unmasks asynchronous exceptions.
 --
--- /Throws/:
---
---   * Calls 'error' if the __scope__ is /closed/.
+-- Reference manual: "Ki.Documentation#reference_manual_async"
 asyncWithUnmask ::
   MonadUnliftIO m =>
   -- |

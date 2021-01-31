@@ -1,3 +1,4 @@
+-- | Internals. This module does not follow the <https://pvp.haskell.org/ Haskell Package Versioning Policy>.
 module Ki.Internal
   ( module Ki.Internal.CancelToken,
     module Ki.Internal.Context,
