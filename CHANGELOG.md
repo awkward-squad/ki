@@ -16,6 +16,7 @@ and this project adheres to the [Haskell Package Versioning Policy](https://pvp.
 - Make `async` propagate async exceptions.
 - Make `scoped` return an `Either Cancelled a`, to indicate whether it honored a cancellation request.
 - Make `scoped` kill threads in the order they were created.
+- Bump `base` upper bound to `< 4.16`
 
 ### Fixed
 - Fix small memory leak related to closing a scope.

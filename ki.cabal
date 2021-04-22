@@ -68,7 +68,7 @@ common component
 library
   import: component
   build-depends:
-    base >= 4.12.0.0 && < 4.15,
+    base >= 4.12.0.0 && < 4.16,
     containers,
     stm,
     unliftio-core
