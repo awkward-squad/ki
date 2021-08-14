@@ -2,8 +2,6 @@
 --
 -- This module exposes an API that uses a reader monad to pass around the __context__ implicitly. If you do not intend
 -- to use soft-cancellation, you may want to use the simpler API exposed by "Ki".
---
--- For an example of how to integrate this library with your reader monad, see "Ki.Documentation#example_has_context".
 module Ki.Reader
   ( -- * Context
     Context,

@@ -5,7 +5,6 @@ module Ki.Documentation
     -- * Tutorial
 
     -- ** Background
-    -- $tutorial-background
 
     -- ** Structured concurrency
     -- $tutorial-structured-concurrency
@@ -33,107 +32,86 @@ where
 -- $introduction
 --
 -- This package provides two variants:
--- .
--- * "Ki" exposes a simplified version of the full API that does not include support for soft-cancellation. Thus, none of
---   the functions mention a __context__ type, and you may use any @MonadUnliftIO@-compatible monad, including plain
+--
+-- * "Ki" exposes a simplified version of the full API that does not include support for soft-cancellation. Thus, none
+--   of the functions mention a __context__ type, and you may use any @MonadUnliftIO@-compatible monad, including plain
 --   @IO@. If you do not intend to use soft-cancellation, there is no benefit to using the full API. Start here :)
--- .
+--
 -- * "Ki.Implicit" and "Ki.Reader" extend "Ki" with a __context__ type that's used to propagate soft-cancellation
 --   signals. Because manually threading the right __context__ throughout a program is error-prone boilerplate,
 --   package offers two ways of handling it implicitly: using implicit parameters, and using a reader monad.
 
--- $tutorial-background
---
--- In GHC Haskell, a thread can be created with 'Control.Concurrent.forkIO' at any time, and its lifetime is unrelated
--- to the lifetime of its parent: if the child dies, it has no effect whatsoever on the parent, and vice-versa. The
--- programmer is responsible for managing the two parallel threads of execution independently.
---
--- Commonly, though, there is some higher-level structure to this relationship between parent and child, and we'd like
--- to codify that relationship in a general way that permits reuse. For example, a child thread can be considered to
--- have a return value, which can be retrieved by making a blocking "await" call. This is idea explored in many
--- ecosystems, including in the venerable @async@ package.
---
--- Exception-handling needs some careful thought in this setting, as a parent thread may want to consider the exceptions
--- its children may throw, and a child thread may want to consider the exception its parent may throw.
---
--- Furthermore, in Haskell, there is a distinction between synchronous and asynchronous exceptions. A synchronous
--- exception is thrown directly from an @IO@ action that a thread attempts to perform; it is typically used to indicate
--- that the @IO@ action, or some sub-action attempted within, failed in some way. Such exceptions are sometimes
--- anticipated and caught by the surrounding context, rather than allowed to propagate indefinitely up the call stack.
---
--- An asynchronous exception is instead delivered to a thread anonymously, and is not related to whatever @IO@ action
--- the target thread happened to be performing at that time. It is strongly recommended to always yield to such
--- exceptions, no matter how important of a job the target thread is performing, as ignoring them can can easily bring a
--- program into a chaotic state wherein one thread remains running while another thread believes it to have terminated.
-
 -- $tutorial-structured-concurrency
 --
--- "Structured concurrency", in a nutshell, extends some sensible of implementation of parent-child lifetime and
--- exception handling semantics with the additional constraint that a child thread cannot outlive the scope in which it
--- is created.
+-- "Structured concurrency" is a style of concurrent programming in which threads are always created within a lexical
+-- scope, and cannot outlive the scope in which they were created.
 --
--- The primary benefit of this restriction is that even the concurrent parts of an application respect the basic
--- function abstraction. While "structured programming" argues that a program becomes significantly easier to understand
--- if each function only has a single exit point (that is, the use of @goto@ to jump arbitrarily from one instruction
--- to another is avoided entirely), "structured concurrency" makes the exact same argument, only with
--- concurrently-running threads in mind.
+-- In GHC Haskell, the lifetime of a (child) thread created with 'Control.Concurrent.forkIO' is unrelated to the
+-- lifetime of the (parent) thread that created it: if a child thread terminates, its parent can continue running; if a
+-- parent thread terminates, its children can continue running.
 --
--- By the time a function returns, all threads it may have created to accomplish its goal are guaranteed to have
--- terminated, so whether or not it created any threads is irrelevant to the calling code's basic understanding of the
--- control structure of the program. Functions that create "background threads", like functions that may jump elsewhere
--- with @goto@, are avoided entirely.
+-- Although sometimes convenient, this style of concurrent programming often leads to undesirably complex programs,
+-- wherein any IO action can create a thread as a side effect, which may be left running in the background, often
+-- unintentionally, after the IO action completes, throws an exception, or is thrown an asynchronous exception.
+--
+-- This belies the humble function abstraction: if a function may create a thread that is left running after the
+-- function itself returns, then it can be considered to have multiple exit points - one additional exit point for each
+-- thread it left running. This is harmful for the same reasons that Dijkstra argued the @goto@ statement is harmful. A
+-- program becomes significantly easier to understand if, whenever a function is invoked, the reader can be certain that
+-- no matter what the function does internally, control will return to the very next statement.
 
 -- $tutorial-creating-threads
 --
--- In @ki@, the scope in which threads are created is a first-class value. It can only be created by the
+-- In @ki@, the scope in which threads are created is a first-class value. A scope can only be created by the
 -- 'Ki.scoped' (cf. _implicit_ 'Ki.Implicit.scoped', _reader_ 'Ki.Reader.scoped') function, which is a "with-style" (or
 -- "bracket-style") function that accepts a callback, and the scope is only valid for the duration of the callback.
 --
 -- A thread can be only created within a scope, because all variants of creating a thread, such as 'Ki.fork' (cf.
 -- _implicit_ 'Ki.Implicit.fork', _reader_ 'Ki.Reader.fork') and 'Ki.async' (cf. _implicit_ 'Ki.Implicit.async',
--- _reader_ 'Ki.Reader.async') accept a scope as an explicit argument. Each thread created within a scope is said to be
--- a sibling of the others, distinct from the parent thread which created the scope itself, and related to each other
--- only implicitly by the relationship each has to the parent thread.
+-- _reader_ 'Ki.Reader.async') accept a scope as an explicit argument. Each (child) thread created within a scope is
+-- said to be a sibling of the others, and is related to its siblings only implicitly via the relationship each has with
+-- its parent (the thread that created the scope itself).
 --
 -- When the callback provided to 'Ki.scoped' returns, the scope becomes "closed", and no new threads can be created
--- within it. All remaining threads that were created within the scope are delivered an asynchronous exception, and
+-- within it. All living threads that were created within the scope are thrown an asynchronous exception, and
 -- 'Ki.scoped' does not return until all of them have terminated. This satisfies the basic requirement of structured
 -- concurrency: a thread cannot outlive the scope in which it was created.
 --
 -- Here's a simple example, annotated below.
 --
 -- @
--- __1.__
+-- __-- (1)__
 -- (result1, result2) <-
 --   Ki.'Ki.scoped' \\scope ->
---     __2.__
---     thread1 <- Ki.'Ki.async' scope worker1
---     thread2 <- Ki.'Ki.async' scope worker2
---     __3.__
+--     __-- (2)__
+--     thread1 <- Ki.'Ki.async' scope child1
+--     thread2 <- Ki.'Ki.async' scope child2
+--     __-- (3)__
 --     result1 <- Ki.'Ki.await' thread1
 --     result2 <- Ki.'Ki.await' thread2
---     __4.__
 --     pure (result1, result2)
--- __5.__
+--     __-- (4)__
+-- __-- (5)__
 -- @
 --
 -- 1. First, we open a new scope with 'Ki.scoped'. It's only "open" for the duration of the callback we provide.
--- 2. Next, we create two worker threads within the scope.
+-- 2. Next, we create two threads within the scope.
 -- 3. Next, we wait for both threads to return with either a value or an exception.
--- 4. Finally, we reach the end of the callback. The scope is "closed", and all remaining threads are terminated,
+-- 4. Finally, we reach the end of the callback. Here, the scope is "closed", and all living threads that were created
+--    within it are thrown an asynchronous exception.
 -- 5. Here, all threads that were created within it scope are guaranteed to have terminated.
 --
 -- An explicit scope is a powerful abstraction: although it is indeed an additional argument to pass around as compared
 -- to simpler thread creation APIs such as 'Control.Concurrent.forkIO' and
--- @<https://hackage.haskell.org/package/async/docs/Control-Concurrent-Async.html#v:async async>@, the relationship
--- between threads created within a scope can often simply be read off the page.
+-- @<https://hackage.haskell.org/package/async/docs/Control-Concurrent-Async.html#v:async async>@, the threads created
+-- within it are all related to each other, and this relationship often be read off the page.
 --
--- In the example above, we can immediately see that that @worker1@ and @worker2@ are the only threads created within
--- the scope; there are no additional lifetimes to consider when attempting to understand the behavior of this program.
+-- In the example above, we can see that that @child1@ and @child2@ are the only threads created within the scope; there
+-- are no additional lifetimes to consider when attempting to understand the behavior of this program.
 --
--- This would not be the case if the scope was explicitly passed down into @worker1@, for example, which would bestow
--- @worker1@ with the ability to create its own siblings, nor would it be the case if the scope was implicitly passed
--- around.
+-- This would not be the case if the scope was explicitly passed down into @child1@, for example, which would bestow
+-- @child1@ with the ability to create its own siblings, nor would it be the case if the scope was implicitly passed
+-- around, as by a reader monad or similar.
 --
 -- Passing a scope value around is still an option, and is necessary for certain advanced use cases, as well as
 -- implementing concurrency abstractions such as worker pools, actors, and supervisors. But be careful - wherever the
@@ -144,13 +122,13 @@ where
 -- In @ki@, exception propagation is bi-directional between parent and child threads. We've already discussed one
 -- circumstance in which a parent throws exceptions to its children: when the callback provided to 'Ki.scoped' returns.
 -- But this is also the case if the parent terminates abnormally by throwing an exception, or if it is thrown an
--- asynchronous exception from another thread. In short, no matter what happens to a parent thread with an open scope,
--- the scope will be closed, at which point all remaining child threads are terminated.
+-- asynchronous exception from another thread. No matter what happens to a parent thread with an open scope, the scope
+-- will be closed, at which point all living child threads are terminated.
 --
 -- @
 -- 'Ki.scoped' \\scope ->
---   __1.__
--- __2.__
+--   __-- (1)__
+-- __-- (2)__
 -- @
 --
 -- 1. It does not matter how many threads are created within here, whether whether the callback itself throws an
@@ -158,25 +136,58 @@ where
 -- 2. ...by the time we get here, all threads created within the scope are guaranteed to have terminated.
 --
 -- Sometimes, a child thread may be performing an operation that is expected to sometimes fail; for this case, @ki@
--- provides 'Ki.async', which creates a thread that does not propagate any synchronous exceptions to its parent.
--- Rather, these exceptions are made available for the parent thread to 'Ki.await' and handle however it wishes.
+-- provides 'Ki.async' (cf. _implicit_ 'Ki.Implicit.async', _reader_ 'Ki.Reader.async'), which creates a thread that
+-- does not propagate any synchronous exceptions to its parent. Rather, these exceptions are made available for the
+-- parent thread to 'Ki.await' (cf _implicit_ 'Ki.Implicit.await', _reader_ 'Ki.Reader.await') and handle however it
+-- wishes.
 --
 -- Other times, it is considered very unexpected or erroneous for a child thread to fail; for this case, @ki@ provides
--- 'Ki.fork', which creates a thread that immediately propagates any synchronous exception it throws to its
--- parent. The intention is to facillitate "failing fast and loud" when there is little or nothing sensible for the
--- programmer to do besides propagate the exception up the call tree.
+-- 'Ki.fork' (cf. _implicit 'Ki.Implicit.Fork', _reader_ 'Ki.Reader.fork'), which creates a thread that immediately
+-- propagates any synchronous exception it throws to its parent. The intention is to facillitate "failing fast and loud"
+-- when there is little or nothing sensible for the programmer to do besides propagate the exception up the call tree.
 --
 -- In either case, if a child thread is deliviered an asynchronous exception, it is immediately propagated to its
 -- parent. This is in accordance with exception-handling best practices, which dictate that asynchronous exceptions
--- should always be respected, never ignored, and if caught, should always be re-thrown after performing any desired
--- cleanup actions.
+-- should never be ignored.
 --
--- Each child thread can be thought to increases the "surface area" of the parent thread's identity, because any
--- asynchronous exception delivered to any child will ultimately be propagated to the parent.
+-- Each child thread can be thought to increases the "surface area" of the parent thread's identity, in the sense that
+-- any synchronous or asynchronous exception thrown by or to a child will ultimately be re-thrown by or to the parent.
 
 -- $tutorial-soft-cancellation
 --
--- TODO
+-- An application may want to feature a "graceful teardown" procedure, which is preferred to a hard-shutdown as induced
+-- by power loss or similar. The PostgreSQL server, for example, will first flush its write-ahead log to disk before
+-- terminating, if it's sent a catchable kill signal such as SIGINT.
+--
+-- Similarly, a Web server may want to terminate a request-handler thread that has exceeded the amount of time the
+-- server is willing to dedicate to handling the request, yet it would nonetheless prefer to allow the thread to clean
+-- up and terminate on its own terms, to reduce the likelihood that the application is brought to a chaotic state.
+--
+-- For these use cases, @ki@ provides a "soft-cancellation" mechanism (in contrast to the "hard-cancellation" mechanism
+-- provided by GHC, 'Control.Concurrent.throwTo'). A soft-cancelled thread may observe that it is soft-cancelled, but it
+-- is under no obligation to respect the cancellation.
+--
+-- Let's see an example. First, from the perspective of a parent thread that opens a scope, creates a child thread, and
+-- soft-cancels the scope.
+--
+-- @
+-- 'Ki.Reader.scoped' \\scope -> do
+--   -- __(1)__
+--   'Ki.Reader.fork_' scope child
+--   -- __(2)__
+--   'Ki.Reader.cancel' scope
+--   -- __(3)__
+--   'Ki.Reader.waitFor' scope (5 * 'Ki.Reader.seconds')
+--   -- __(4)__
+-- @
+--
+-- 1. First, we create a child thread.
+-- 2. Next, we cancel the scope. This allows the child (and its children, and so on) created within the scope to observe
+--    the soft-cancellation.
+-- 3. Finally, we wait for up to 5 seconds for the child to terminate. We elect not to wait indefinitely, to account for
+--    the possibility that the child thread either does not ever observe the soft-cancellation signal, or does not
+--    manage to perform its teardown procedure in a timely manner.
+-- 4. Here, if the child is still alive, it will be hard-cancelled as the scope closes.
 
 -- $example-has-context-anchor
 --
@@ -194,8 +205,7 @@ where
 --
 -- newtype App a
 --   = App { runApp :: Env -> IO a }
---
--- instance MonadUnliftIO App where ...
+--   deriving (MonadUnliftIO) via (ReaderT Env IO)
 -- @
 --
 -- To use this module, first add one field to your @Env@ type that holds a __context__.
@@ -258,7 +268,7 @@ where
 -- the thread that created it, and provides the thread with an @unmask@ function, which unmasks asynchronous exceptions.
 --
 -- The new thread is tracked in a data structure inside the scope, keyed by a monotonically increasing integer, so that
--- when the scope is closed, all remaining threads can be thrown an asynchronous exception in the order they were
+-- when the scope is closed, all living threads can be thrown an asynchronous exception in the order they were
 -- created.
 --
 -- When the thread terminates, if it terminated with an exception, it first determines whether or not it should
