@@ -82,7 +82,6 @@ library
   other-modules:
     Ki.Internal.CancelToken
     Ki.Internal.Context
-    Ki.Internal.Debug
     Ki.Internal.Duration
     Ki.Internal.Prelude
     Ki.Internal.Scope
