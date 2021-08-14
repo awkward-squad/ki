@@ -166,13 +166,11 @@ scopeScoped context action =
 
 scopeScopedIO :: Context -> (Scope -> IO a) -> IO (Either Cancelled a)
 scopeScopedIO parentContext f = do
-  (scope'context, removeContextFromParent) <- deriveContext parentContext
-  scope'runningVar <- newTVarIO (Children IntMap.empty 0)
-  scope'startingVar <- newTVarIO 0
-  let scope :: Scope
-      scope =
-        Scope {scope'context, scope'runningVar, scope'startingVar}
   uninterruptibleMask \restore -> do
+    (scope'context, removeContextFromParent) <- deriveContext parentContext
+    scope'runningVar <- newTVarIO (Children IntMap.empty 0)
+    scope'startingVar <- newTVarIO 0
+    let scope = Scope {scope'context, scope'runningVar, scope'startingVar}
     result <- try (restore (f scope))
     closeScopeException <- closeScope removeContextFromParent scope
     -- If the callback failed, we don't care if we were thrown an async exception while closing the scope.
