@@ -133,8 +133,9 @@ cancel ::
   Scope ->
   m ()
 cancel =
-  scopeCancel
+  liftIO . scopeCancel
 {-# INLINE cancel #-}
+{-# SPECIALIZE cancel :: Scope -> IO () #-}
 
 -- | Return whether the current __context__ is /cancelled/.
 --

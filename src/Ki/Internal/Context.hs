@@ -26,7 +26,9 @@ import System.IO.Unsafe (unsafePerformIO)
 -- termination.
 data Context = Context
   { context'cancelStateVar :: {-# UNPACK #-} !(TVar CancelState),
+    -- | The list of derived contexts to which we must propagate cancellation.
     context'childrenVar :: {-# UNPACK #-} !(TVar (Seq Context)),
+    -- | The globally unique identifier for this context.
     context'id :: {-# UNPACK #-} !Unique
   }
 
@@ -47,11 +49,11 @@ data CancelState
 -- environment.
 globalContext :: Context
 globalContext =
-  Context
-    { context'cancelStateVar = unsafePerformIO (newTVarIO CancelState'NotCancelled),
-      context'childrenVar = unsafePerformIO (newTVarIO Seq.empty),
-      context'id = unsafePerformIO newUnique
-    }
+  unsafePerformIO do
+    context'cancelStateVar <- newTVarIO CancelState'NotCancelled
+    context'childrenVar <- newTVarIO Seq.empty
+    context'id <- newUnique
+    pure Context {context'cancelStateVar, context'childrenVar, context'id}
 {-# NOINLINE globalContext #-}
 
 newContext :: IO Context
@@ -79,20 +81,22 @@ contextCancelToken context =
 --     can also just store a dummy, no-op "remove me from parent" inside the child context).
 --   * If the parent isn't already canceled, the child registers itself with the parent, so cancellation can propagate
 --     from parent to child.
+--
+-- Returns the derived context, and an STM action that unregisters the derived context from its parent.
 deriveContext :: Context -> IO (Context, STM ())
 deriveContext parent = do
   id_ <- newUnique
   atomically do
     readTVar (context'cancelStateVar parent) >>= \case
+      CancelState'Cancelled token -> do
+        childCancelStateVar <- newTVar (CancelState'Cancelled token)
+        child <- newContextSTM childCancelStateVar id_
+        pure (child, pure ())
       CancelState'NotCancelled -> do
         childCancelStateVar <- newTVar CancelState'NotCancelled
         child <- newContextSTM childCancelStateVar id_
         modifyTVar' (context'childrenVar parent) (Seq.|> child)
         pure (child, removeChild id_)
-      CancelState'Cancelled token -> do
-        childCancelStateVar <- newTVar (CancelState'Cancelled token)
-        child <- newContextSTM childCancelStateVar id_
-        pure (child, pure ())
   where
     removeChild :: Unique -> STM ()
     removeChild id_ =
