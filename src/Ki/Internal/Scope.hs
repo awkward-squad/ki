@@ -23,6 +23,7 @@ import Control.Exception
   )
 import Control.Monad.IO.Unlift (MonadUnliftIO (withRunInIO))
 import qualified Data.IntMap.Strict as IntMap
+import qualified Data.Map as Map
 import qualified Data.Monoid as Monoid
 import qualified Data.Sequence as Seq
 import GHC.Conc.Sync (unsafeIOToSTM)
@@ -32,6 +33,7 @@ import Ki.Internal.Context
 import Ki.Internal.Duration (Duration)
 import Ki.Internal.Prelude
 import Ki.Internal.Timeout
+import System.IO.Unsafe (unsafePerformIO)
 
 -- TLS
 
@@ -45,14 +47,28 @@ cancelledSTM = do
       getThreadCancelPath threadId
   cancelPathCancelled cancelPath
 
+-- TODO think about masking
 getThreadCancelPath :: ThreadId -> IO CancelPath
-getThreadCancelPath = undefined
+getThreadCancelPath threadId = do
+  threadCancelPaths <- readMVar threadCancelPathsVar
+  pure (Map.findWithDefault emptyCancelPath threadId threadCancelPaths)
 
+-- Precondition: uninterruptibly masked
 setThreadCancelPath :: ThreadId -> CancelPath -> IO ()
-setThreadCancelPath = undefined
+setThreadCancelPath threadId path = do
+  threadCancelPaths <- takeMVar threadCancelPathsVar
+  putMVar threadCancelPathsVar $! Map.insert threadId path threadCancelPaths
 
+-- Precondition: uninterruptibly masked
 unsetThreadCancelPath :: ThreadId -> IO ()
-unsetThreadCancelPath = undefined
+unsetThreadCancelPath threadId = do
+  threadCancelPaths <- takeMVar threadCancelPathsVar
+  putMVar threadCancelPathsVar $! Map.delete threadId threadCancelPaths
+
+threadCancelPathsVar :: MVar (Map ThreadId CancelPath)
+threadCancelPathsVar =
+  unsafePerformIO (newMVar Map.empty)
+{-# NOINLINE threadCancelPathsVar #-}
 
 --
 
@@ -91,7 +107,7 @@ scopeCancel Scope {scope'cancelPath} = do
   atomically (cancelPathCancel scope'cancelPath token)
 
 scopeFork :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> (Either SomeException a -> IO ()) -> IO ThreadId
-scopeFork Scope{scope'cancelPath, scope'runningVar, scope'startingVar} action k =
+scopeFork Scope {scope'cancelPath, scope'runningVar, scope'startingVar} action k =
   uninterruptibleMask \restore -> do
     -- Record the thread as being about to start, and grab an id for it
     childId <-

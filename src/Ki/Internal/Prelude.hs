@@ -50,6 +50,7 @@ where
 import Control.Applicative as X (optional, (<|>))
 import Control.Concurrent hiding (forkIO)
 import Control.Concurrent as X (ThreadId, myThreadId, threadDelay, throwTo)
+import Control.Concurrent.MVar as X
 import Control.Concurrent.STM as X hiding (registerDelay)
 import Control.Exception
 import Control.Exception as X (Exception, SomeException, throwIO, try, uninterruptibleMask)
