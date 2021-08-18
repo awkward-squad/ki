@@ -1,15 +1,12 @@
 module Ki.Internal.Context
-  ( Context (..),
+  ( -- Context (..),
     CancelState (..),
-    globalContext,
-    newContext,
-    contextCancelToken,
-    deriveContext,
-    cancelContext,
+    -- globalContext,
+    -- newContext,
+    -- contextCancelToken,
   )
 where
 
-import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Ki.Internal.CancelToken
 import Ki.Internal.Prelude
@@ -47,17 +44,17 @@ data CancelState
 --
 -- This should only be used at the top level of your program, wherever your reader monad is provided an initial
 -- environment.
-globalContext :: Context
-globalContext =
+_globalContext :: Context
+_globalContext =
   unsafePerformIO do
     context'cancelStateVar <- newTVarIO CancelState'NotCancelled
     context'childrenVar <- newTVarIO Seq.empty
     context'id <- newUnique
     pure Context {context'cancelStateVar, context'childrenVar, context'id}
-{-# NOINLINE globalContext #-}
+{-# NOINLINE _globalContext #-}
 
-newContext :: IO Context
-newContext = do
+_newContext :: IO Context
+_newContext = do
   id_ <- newUnique
   atomically do
     cancelStateVar <- newTVar CancelState'NotCancelled
@@ -68,55 +65,8 @@ newContextSTM context'cancelStateVar context'id = do
   context'childrenVar <- newTVar Seq.empty
   pure Context {context'cancelStateVar, context'childrenVar, context'id}
 
-contextCancelToken :: Context -> STM CancelToken
-contextCancelToken context =
+_contextCancelToken :: Context -> STM CancelToken
+_contextCancelToken context =
   readTVar (context'cancelStateVar context) >>= \case
     CancelState'NotCancelled -> retry
     CancelState'Cancelled token -> pure token
-
--- | Derive a child context from a parent context.
---
---   * If the parent is already cancelled, so is the child. In this case, we don't need to record the child as such (in
---     the parent's list of children), because the purpose of that list is only to propagate cancellation! (We therefore
---     can also just store a dummy, no-op "remove me from parent" inside the child context).
---   * If the parent isn't already canceled, the child registers itself with the parent, so cancellation can propagate
---     from parent to child.
---
--- Returns the derived context, and an STM action that unregisters the derived context from its parent.
-deriveContext :: Context -> IO (Context, STM ())
-deriveContext parent = do
-  id_ <- newUnique
-  atomically do
-    readTVar (context'cancelStateVar parent) >>= \case
-      CancelState'Cancelled token -> do
-        childCancelStateVar <- newTVar (CancelState'Cancelled token)
-        child <- newContextSTM childCancelStateVar id_
-        pure (child, pure ())
-      CancelState'NotCancelled -> do
-        childCancelStateVar <- newTVar CancelState'NotCancelled
-        child <- newContextSTM childCancelStateVar id_
-        modifyTVar' (context'childrenVar parent) (Seq.|> child)
-        pure (child, removeChild id_)
-  where
-    removeChild :: Unique -> STM ()
-    removeChild id_ =
-      modifyTVar' (context'childrenVar parent) \children ->
-        case Seq.findIndexL (\child -> context'id child == id_) children of
-          Nothing -> children -- should never happen, but eh.
-          Just n -> Seq.deleteAt n children
-
--- | Cancel a context with the given token. Does nothing if the context is already cancelled.
-cancelContext :: Context -> CancelToken -> STM ()
-cancelContext context token =
-  readTVar (context'cancelStateVar context) >>= \case
-    CancelState'NotCancelled -> do
-      writeTVar (context'cancelStateVar context) $! CancelState'Cancelled token
-      cancelChildren context
-    CancelState'Cancelled _token -> pure ()
-  where
-    cancelChildren :: Context -> STM ()
-    cancelChildren Context {context'childrenVar} = do
-      children <- readTVar context'childrenVar
-      for_ children \child -> do
-        writeTVar (context'cancelStateVar child) $! CancelState'Cancelled token
-        cancelChildren child

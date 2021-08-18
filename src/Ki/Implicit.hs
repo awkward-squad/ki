@@ -52,7 +52,7 @@ import Ki.Internal.CancelToken (CancelToken)
 import qualified Ki.Internal.Context
 import Ki.Internal.Duration (Duration, microseconds, milliseconds, seconds)
 import Ki.Internal.Prelude
-import Ki.Internal.Scope (Cancelled (Cancelled), Scope (scope'context), scopeCancel, scopeScoped, scopeWaitSTM)
+import Ki.Internal.Scope (Cancelled (Cancelled), Scope, scopeCancel, scopeScoped, scopeWaitSTM)
 import Ki.Internal.Thread
   ( Thread (thread'Await),
     threadAsync,
@@ -306,4 +306,5 @@ waitSTM =
 
 with :: Scope -> (Context => a) -> a
 with scope action =
-  let ?context = scope'context scope in action
+  undefined
+  -- let ?context = scope'context scope in action

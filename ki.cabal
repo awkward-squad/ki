@@ -47,6 +47,7 @@ common component
     NoImplicitPrelude
     NumericUnderscores
     PartialTypeSignatures
+    PatternSynonyms
     RankNTypes
     RoleAnnotations
     ScopedTypeVariables
@@ -73,13 +74,14 @@ library
     stm,
     unliftio-core
   exposed-modules:
-    Ki,
-    Ki.Documentation,
-    Ki.Implicit,
-    Ki.Internal,
-    Ki.Reader
+    -- Ki,
+    -- Ki.Documentation,
+    -- Ki.Implicit,
+    Ki.Internal
+    -- Ki.Reader
   hs-source-dirs: src
   other-modules:
+    Ki.Internal.CancelPath
     Ki.Internal.CancelToken
     Ki.Internal.Context
     Ki.Internal.Duration
