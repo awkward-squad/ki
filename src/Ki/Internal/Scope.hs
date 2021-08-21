@@ -1,6 +1,7 @@
 module Ki.Internal.Scope
   ( Scope (..),
     Children (..),
+    cancelledSTM,
     scopeCancel,
     scopeFork,
     scopeOwnsCancelTokenSTM,
@@ -9,6 +10,7 @@ module Ki.Internal.Scope
     scopeWait,
     scopeWaitFor,
     scopeWaitForIO,
+    scopeWaitSTM,
     Cancelled (..),
     ScopeClosing (..),
     ThreadFailed (..),
@@ -25,7 +27,6 @@ import Control.Monad.IO.Unlift (MonadUnliftIO (withRunInIO))
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Map as Map
 import qualified Data.Monoid as Monoid
-import qualified Data.Sequence as Seq
 import GHC.Conc.Sync (unsafeIOToSTM)
 import Ki.Internal.CancelPath
 import Ki.Internal.CancelToken
@@ -37,6 +38,7 @@ import System.IO.Unsafe (unsafePerformIO)
 
 -- TLS
 
+-- | @STM@ variant of 'Ki.cancelled'; blocks until the current __scope__ is /cancelled/.
 cancelledSTM :: STM CancelToken
 cancelledSTM = do
   -- This IO is safe to perform because it's idempotent - this thread's cancel path only changes when it enters or exits
@@ -84,9 +86,7 @@ data Scope = Scope
     -- respect it and wait for it to drop to zero before proceeding.
     --
     -- Sentinel value: -1 means the scope is closed.
-    scope'startingVar :: {-# UNPACK #-} !(TVar Int),
-    -- | The list of scopes created somewhere within this scope to which we must propagate cancellation.
-    scope'subscopesVar :: {-# UNPACK #-} !(TVar (Seq Scope))
+    scope'startingVar :: {-# UNPACK #-} !(TVar Int)
   }
 
 -- | Children, keyed by a monotonically increasing integer, along with the next integer to use. This allows us to kill
@@ -171,8 +171,7 @@ scopeScopedIO f = do
 
     scope'runningVar <- newTVarIO (Children IntMap.empty 0)
     scope'startingVar <- newTVarIO 0
-    scope'subscopesVar <- newTVarIO Seq.empty
-    let scope = Scope {scope'cancelPath, scope'runningVar, scope'startingVar, scope'subscopesVar}
+    let scope = Scope {scope'cancelPath, scope'runningVar, scope'startingVar}
     result <- try (restore (f scope))
     children <-
       atomically do

@@ -40,7 +40,6 @@ common component
     DuplicateRecordFields
     ExistentialQuantification
     GeneralizedNewtypeDeriving
-    ImplicitParams
     InstanceSigs
     LambdaCase
     NamedFieldPuns
@@ -74,11 +73,8 @@ library
     stm,
     unliftio-core
   exposed-modules:
-    -- Ki,
-    -- Ki.Documentation,
-    -- Ki.Implicit,
+    Ki,
     Ki.Internal
-    -- Ki.Reader
   hs-source-dirs: src
   other-modules:
     Ki.Internal.CancelPath

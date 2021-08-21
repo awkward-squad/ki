@@ -19,6 +19,13 @@ module Ki
     awaitSTM,
     awaitFor,
 
+    -- * Soft-cancellation
+    CancelToken,
+    cancel,
+    cancelled,
+    cancelledSTM,
+    Cancelled (Cancelled),
+
     -- * Miscellaneous
     Duration,
     microseconds,
@@ -30,10 +37,19 @@ module Ki
 where
 
 import Control.Monad.IO.Unlift (MonadUnliftIO)
-import Ki.Internal.Context (globalContext)
-import Ki.Internal.Duration (Duration, microseconds, milliseconds, seconds, toMicroseconds)
+import Ki.Internal.CancelToken (CancelToken)
+import Ki.Internal.Duration (Duration, microseconds, milliseconds, seconds)
 import Ki.Internal.Prelude
-import Ki.Internal.Scope (Scope, scopeScoped, scopeWait, scopeWaitFor, scopeWaitSTM)
+import Ki.Internal.Scope
+  ( Cancelled (Cancelled),
+    Scope,
+    cancelledSTM,
+    scopeCancel,
+    scopeScoped,
+    scopeWait,
+    scopeWaitFor,
+    scopeWaitSTM,
+  )
 import Ki.Internal.Thread
   ( Thread (thread'Await),
     threadAsync,
@@ -47,9 +63,7 @@ import Ki.Internal.Thread
   )
 import Ki.Internal.Timeout (timeoutSTM)
 
--- | Create a child thread within a scope.
---
--- Reference manual: "Ki.Documentation#reference_manual_async"
+-- | Create a child __thread__ within a __scope__.
 async ::
   MonadUnliftIO m =>
   -- |
@@ -61,9 +75,7 @@ async =
   threadAsync
 {-# INLINE async #-}
 
--- | Variant of 'Ki.async' that provides the thread a function that unmasks asynchronous exceptions.
---
--- Reference manual: "Ki.Documentation#reference_manual_async"
+-- | Variant of 'Ki.async' that provides the __thread__ a function that unmasks asynchronous exceptions.
 asyncWithUnmask ::
   MonadUnliftIO m =>
   -- |
@@ -75,7 +87,7 @@ asyncWithUnmask =
   threadAsyncWithUnmask
 {-# INLINE asyncWithUnmask #-}
 
--- | Wait for a __thread__ to finish.
+-- | Wait for a __thread__ to terminate.
 await ::
   MonadIO m =>
   -- |
@@ -105,9 +117,36 @@ awaitFor =
   threadAwaitFor
 {-# INLINE awaitFor #-}
 
+-- | /Cancel/ a __scope__.
+--
+-- This is a request to all __threads__ running in the __scope__ to terminate, either gracefully with a value, or by
+-- throwing the __cancel token__ observed by 'cancelled'.
+cancel ::
+  MonadIO m =>
+  -- |
+  Scope ->
+  m ()
+cancel =
+  liftIO . scopeCancel
+{-# INLINE cancel #-}
+{-# SPECIALIZE cancel :: Scope -> IO () #-}
+
+-- | Return whether the __scope__ in which a __thread__ is running is /cancelled/.
+--
+-- __Threads__ running in a /cancelled/ __scope__ should terminate as soon as possible. The __cancel token__ may be
+-- thrown to fulfill the /cancellation/ request in case the __thread__ is unable or unwilling to terminate normally with
+-- a value.
+cancelled ::
+  MonadIO m =>
+  -- |
+  m (Maybe CancelToken)
+cancelled =
+  liftIO (atomically (optional cancelledSTM))
+{-# SPECIALIZE cancelled :: IO (Maybe CancelToken) #-}
+
 -- | Create a child __thread__ within a __scope__.
 --
--- If the child throws an exception, the exception is immediately propagated to its parent.
+-- If the child __thread__ throws an exception, the exception is immediately propagated to its parent __thread__.
 --
 -- /Throws/:
 --
@@ -124,6 +163,9 @@ fork =
 {-# INLINE fork #-}
 
 -- | Variant of 'Ki.fork' that does not return a handle to the child __thread__.
+--
+-- If the child throws an exception, the exception is immediately propagated to its parent, unless the exception is a
+-- __cancel token__ that originated from its parent's __scope__ being /cancelled/.
 --
 -- /Throws/:
 --
@@ -175,6 +217,9 @@ forkWithUnmask_ =
 --
 -- When the __scope__ is closed, all remaining __threads__ created within it are killed.
 --
+-- The __scope__ may become /cancelled/; if it does, and the provided action fulfills the __cancellation__ request by
+-- throwing the corresponding __cancel token__, this function will return 'Ki.Cancelled'.
+--
 -- ==== __Examples__
 --
 -- @
@@ -187,24 +232,26 @@ scoped ::
   MonadUnliftIO m =>
   -- |
   (Scope -> m a) ->
-  m a
-scoped action =
-  scopeScoped globalContext action >>= \case
-    Left cancelled -> liftIO (throwIO cancelled)
-    Right value -> pure value
+  m (Either Cancelled a)
+scoped =
+  scopeScoped
 {-# INLINE scoped #-}
 
 -- | Duration-based @threadDelay@.
+--
+-- /Throws/:
+--
+--   * Throws 'CancelToken' if the current __scope__ is (or becomes) /cancelled/.
 sleep ::
   MonadIO m =>
   -- |
   Duration ->
   m ()
 sleep duration =
-  liftIO (threadDelay (toMicroseconds duration))
+  timeoutSTM duration (cancelledSTM >>= throwSTM) (pure ())
 {-# SPECIALIZE sleep :: Duration -> IO () #-}
 
--- | Wait until all __threads__ created within a __scope__ finish.
+-- | Wait until all __threads__ created within a __scope__ terminate.
 wait ::
   MonadIO m =>
   -- |
@@ -214,7 +261,8 @@ wait =
   scopeWait
 {-# INLINE wait #-}
 
--- | Variant of 'Ki.wait' that waits for up to the given duration.
+-- | Variant of 'Ki.wait' that waits for up to the given duration. This is useful for giving __threads__ some
+-- time to fulfill a /cancellation/ request before killing them.
 waitFor ::
   MonadIO m =>
   -- |
