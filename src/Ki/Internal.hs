@@ -1,13 +1,13 @@
 -- | Internals. This module does not follow the <https://pvp.haskell.org/ Haskell Package Versioning Policy>.
 module Ki.Internal
-  ( module Ki.Internal.Duration,
-    module Ki.Internal.Scope,
-    module Ki.Internal.Thread,
-    module Ki.Internal.Timeout,
+  ( module Ki.Duration,
+    module Ki.Scope,
+    module Ki.Thread,
+    module Ki.Timeout,
   )
 where
 
-import Ki.Internal.Duration
-import Ki.Internal.Scope
-import Ki.Internal.Thread
-import Ki.Internal.Timeout
+import Ki.Duration
+import Ki.Scope
+import Ki.Thread
+import Ki.Timeout

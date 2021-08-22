@@ -30,16 +30,16 @@ module Ki
 where
 
 import Control.Monad.IO.Unlift (MonadUnliftIO)
-import Ki.Internal.Duration (Duration, microseconds, milliseconds, seconds)
-import Ki.Internal.Prelude
-import Ki.Internal.Scope
+import Ki.Duration (Duration, microseconds, milliseconds, seconds)
+import Ki.Prelude
+import Ki.Scope
   ( Scope,
     scopeScoped,
     scopeWait,
     scopeWaitFor,
     scopeWaitSTM,
   )
-import Ki.Internal.Thread
+import Ki.Thread
   ( Thread (thread'Await),
     threadAsync,
     threadAsyncWithUnmask,
@@ -50,7 +50,7 @@ import Ki.Internal.Thread
     threadForkWithUnmask_,
     threadFork_,
   )
-import Ki.Internal.Timeout (timeoutSTM)
+import Ki.Timeout (timeoutSTM)
 
 -- | Create a child __thread__ within a __scope__.
 async ::

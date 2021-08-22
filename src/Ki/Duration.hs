@@ -1,4 +1,4 @@
-module Ki.Internal.Duration
+module Ki.Duration
   ( Duration (..),
     toMicroseconds,
     microseconds,
@@ -9,7 +9,7 @@ where
 
 import Data.Data (Data)
 import Data.Fixed
-import Ki.Internal.Prelude
+import Ki.Prelude
 
 -- | A length of time with microsecond precision. Numeric literals are treated as seconds.
 newtype Duration = Duration (Fixed E6)

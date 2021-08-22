@@ -14,7 +14,6 @@ where
 import Control.Exception
 import Control.Monad (unless)
 import Data.Either (isRight)
-import qualified Ki
 import System.Exit (exitFailure)
 import Text.Printf (printf)
 import Prelude hiding (fail)

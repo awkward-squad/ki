@@ -1,4 +1,4 @@
-module Ki.Internal.Scope
+module Ki.Scope
   ( Scope (..),
     scopeFork,
     scopeScoped,
@@ -21,9 +21,9 @@ import Control.Exception
 import Control.Monad.IO.Unlift (MonadUnliftIO (withRunInIO))
 import qualified Data.IntMap.Strict as IntMap
 import qualified Data.Monoid as Monoid
-import Ki.Internal.Duration (Duration)
-import Ki.Internal.Prelude
-import Ki.Internal.Timeout
+import Ki.Duration (Duration)
+import Ki.Prelude
+import Ki.Timeout
 
 -- | A __scope__ delimits the lifetime of all __threads__ created within it.
 data Scope = Scope

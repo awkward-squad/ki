@@ -31,7 +31,7 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
-module Ki.Internal.Prelude
+module Ki.Prelude
   ( Unique,
     atomicallyIO,
     debug,

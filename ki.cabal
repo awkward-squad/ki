@@ -27,6 +27,8 @@ source-repository head
   location: https://github.com/mitchellwrosen/ki.git
 
 common component
+  build-depends:
+    base >= 4.12.0.0 && < 4.16,
   default-extensions:
     AllowAmbiguousTypes
     BangPatterns
@@ -68,7 +70,6 @@ common component
 library
   import: component
   build-depends:
-    base >= 4.12.0.0 && < 4.16,
     containers,
     stm,
     unliftio-core
@@ -77,18 +78,16 @@ library
     Ki.Internal
   hs-source-dirs: src
   other-modules:
-    Ki.Internal.Duration
-    Ki.Internal.Prelude
-    Ki.Internal.Scope
-    Ki.Internal.Thread
-    Ki.Internal.Timeout
+    Ki.Duration
+    Ki.Prelude
+    Ki.Scope
+    Ki.Thread
+    Ki.Timeout
 
 test-suite tests
   import: component
   build-depends:
-    base,
-    ki,
-    stm,
+    ki
   ghc-options: -rtsopts -threaded
   hs-source-dirs: test
   main-is: Tests.hs
