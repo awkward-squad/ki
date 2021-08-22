@@ -1,16 +1,7 @@
 cradle:
-  multi:
-    - path: "."
-      config:
-        cradle:
-          none:
+  cabal:
     - path: "./src"
-      config:
-        cradle:
-          cabal:
-            component: "ki:lib:ki"
-    - path: "./test/unit-tests"
-      config:
-        cradle:
-          cabal:
-            component: "ki:test:unit-tests"
+      component: "lib:ki"
+
+    - path: "./test"
+      component: "ki:test:tests"
