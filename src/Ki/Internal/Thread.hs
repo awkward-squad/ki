@@ -33,7 +33,6 @@ import Ki.Internal.Scope
     ScopeClosing (..),
     ThreadFailed (..),
     scopeFork,
-    scopeOwnsCancelTokenSTM,
   )
 import Ki.Internal.Timeout (timeoutSTM)
 
@@ -80,6 +79,7 @@ threadAsyncWithRestoreIO scope action = do
   resultVar <- newEmptyTMVarIO
   thread'Id <-
     scopeFork scope action \result -> do
+      -- FIXME should we put or propagate first?
       case result of
         Left exception -> maybePropagateException scope parentThreadId exception isAsyncException
         Right _ -> pure ()
@@ -211,8 +211,4 @@ maybePropagateException scope parentThreadId exception should =
       -- Our scope is (presumably) closing, so don't propagate this exception that (presumably) just came from our
       -- parent. But if our scope's not closed, that means this 'ScopeClosing' definitely came from somewhere else...
       | Just ScopeClosing <- fromException exception = (/= -1) <$> readTVarIO (scope'startingVar scope)
-      -- We (presumably) are honoring our own cancellation request, so don't propagate that either.
-      -- It's a bit complicated looking because we *do* want to throw this token if we (somehow) threw it
-      -- inappropriately in the sense that it wasn't ours to throw - it was smuggled from elsewhere.
-      | Just thrownToken <- fromException exception = not <$> atomically (scopeOwnsCancelTokenSTM scope thrownToken)
       | otherwise = pure (should exception)

@@ -14,7 +14,7 @@ where
 import Control.Exception
 import Control.Monad (unless)
 import Data.Either (isRight)
-import qualified Ki.Implicit as Ki
+import qualified Ki
 import System.Exit (exitFailure)
 import Text.Printf (printf)
 import Prelude hiding (fail)
@@ -66,9 +66,9 @@ shouldThrowSuchThat action predicate =
             (fail ("exception " ++ displayException exception' ++ " did not pass predicate"))
     Right value -> fail ("expected exception, got " ++ show value)
 
-test :: String -> (Ki.Context => IO ()) -> IO ()
+test :: String -> IO () -> IO ()
 test name action = do
-  result <- try @SomeException (Ki.withGlobalContext action)
+  result <- try @SomeException action
   printf "[%s] %s\n" (if isRight result then "x" else " ") name
   case result of
     Left exception -> do

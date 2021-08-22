@@ -19,13 +19,6 @@ module Ki
     awaitSTM,
     awaitFor,
 
-    -- * Soft-cancellation
-    CancelToken,
-    cancel,
-    cancelled,
-    cancelledSTM,
-    Cancelled (Cancelled),
-
     -- * Miscellaneous
     Duration,
     microseconds,
@@ -37,14 +30,10 @@ module Ki
 where
 
 import Control.Monad.IO.Unlift (MonadUnliftIO)
-import Ki.Internal.CancelToken (CancelToken)
 import Ki.Internal.Duration (Duration, microseconds, milliseconds, seconds)
 import Ki.Internal.Prelude
 import Ki.Internal.Scope
-  ( Cancelled (Cancelled),
-    Scope,
-    cancelledSTM,
-    scopeCancel,
+  ( Scope,
     scopeScoped,
     scopeWait,
     scopeWaitFor,
@@ -116,33 +105,6 @@ awaitFor ::
 awaitFor =
   threadAwaitFor
 {-# INLINE awaitFor #-}
-
--- | /Cancel/ a __scope__.
---
--- This is a request to all __threads__ running in the __scope__ to terminate, either gracefully with a value, or by
--- throwing the __cancel token__ observed by 'cancelled'.
-cancel ::
-  MonadIO m =>
-  -- |
-  Scope ->
-  m ()
-cancel =
-  liftIO . scopeCancel
-{-# INLINE cancel #-}
-{-# SPECIALIZE cancel :: Scope -> IO () #-}
-
--- | Return whether the __scope__ in which a __thread__ is running is /cancelled/.
---
--- __Threads__ running in a /cancelled/ __scope__ should terminate as soon as possible. The __cancel token__ may be
--- thrown to fulfill the /cancellation/ request in case the __thread__ is unable or unwilling to terminate normally with
--- a value.
-cancelled ::
-  MonadIO m =>
-  -- |
-  m (Maybe CancelToken)
-cancelled =
-  liftIO (atomically (optional cancelledSTM))
-{-# SPECIALIZE cancelled :: IO (Maybe CancelToken) #-}
 
 -- | Create a child __thread__ within a __scope__.
 --
@@ -232,23 +194,19 @@ scoped ::
   MonadUnliftIO m =>
   -- |
   (Scope -> m a) ->
-  m (Either Cancelled a)
+  m a
 scoped =
   scopeScoped
 {-# INLINE scoped #-}
 
 -- | Duration-based @threadDelay@.
---
--- /Throws/:
---
---   * Throws 'CancelToken' if the current __scope__ is (or becomes) /cancelled/.
 sleep ::
   MonadIO m =>
   -- |
   Duration ->
   m ()
 sleep duration =
-  timeoutSTM duration (cancelledSTM >>= throwSTM) (pure ())
+  timeoutSTM duration (pure (pure ())) (pure ())
 {-# SPECIALIZE sleep :: Duration -> IO () #-}
 
 -- | Wait until all __threads__ created within a __scope__ terminate.

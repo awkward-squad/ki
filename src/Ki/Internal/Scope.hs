@@ -1,17 +1,13 @@
 module Ki.Internal.Scope
   ( Scope (..),
     Children (..),
-    cancelledSTM,
-    scopeCancel,
     scopeFork,
-    scopeOwnsCancelTokenSTM,
     scopeScoped,
     scopeScopedIO,
     scopeWait,
     scopeWaitFor,
     scopeWaitForIO,
     scopeWaitSTM,
-    Cancelled (..),
     ScopeClosing (..),
     ThreadFailed (..),
   )
@@ -25,59 +21,14 @@ import Control.Exception
   )
 import Control.Monad.IO.Unlift (MonadUnliftIO (withRunInIO))
 import qualified Data.IntMap.Strict as IntMap
-import qualified Data.Map as Map
 import qualified Data.Monoid as Monoid
-import GHC.Conc.Sync (unsafeIOToSTM)
-import Ki.Internal.CancelPath
-import Ki.Internal.CancelToken
-import Ki.Internal.Context
 import Ki.Internal.Duration (Duration)
 import Ki.Internal.Prelude
 import Ki.Internal.Timeout
-import System.IO.Unsafe (unsafePerformIO)
-
--- TLS
-
--- | @STM@ variant of 'Ki.cancelled'; blocks until the current __scope__ is /cancelled/.
-cancelledSTM :: STM CancelToken
-cancelledSTM = do
-  -- This IO is safe to perform because it's idempotent - this thread's cancel path only changes when it enters or exits
-  -- a scope.
-  cancelPath <-
-    unsafeIOToSTM do
-      threadId <- myThreadId
-      getThreadCancelPath threadId
-  cancelPathCancelled cancelPath
-
--- TODO think about masking
-getThreadCancelPath :: ThreadId -> IO CancelPath
-getThreadCancelPath threadId = do
-  threadCancelPaths <- readMVar threadCancelPathsVar
-  pure (Map.findWithDefault emptyCancelPath threadId threadCancelPaths)
-
--- Precondition: uninterruptibly masked
-setThreadCancelPath :: ThreadId -> CancelPath -> IO ()
-setThreadCancelPath threadId path = do
-  threadCancelPaths <- takeMVar threadCancelPathsVar
-  putMVar threadCancelPathsVar $! Map.insert threadId path threadCancelPaths
-
--- Precondition: uninterruptibly masked
-unsetThreadCancelPath :: ThreadId -> IO ()
-unsetThreadCancelPath threadId = do
-  threadCancelPaths <- takeMVar threadCancelPathsVar
-  putMVar threadCancelPathsVar $! Map.delete threadId threadCancelPaths
-
-threadCancelPathsVar :: MVar (Map ThreadId CancelPath)
-threadCancelPathsVar =
-  unsafePerformIO (newMVar Map.empty)
-{-# NOINLINE threadCancelPathsVar #-}
-
---
 
 -- | A __scope__ delimits the lifetime of all __threads__ created within it.
 data Scope = Scope
-  { scope'cancelPath :: !CancelPath,
-    -- | The set of threads that are currently running.
+  { -- | The set of threads that are currently running.
     scope'runningVar :: {-# UNPACK #-} !(TVar Children),
     -- | The number of threads that are *guaranteed* to be about to start, in the sense that only the GHC scheduler can
     -- continue to delay; no async exception can strike here and prevent one of these threads from starting.
@@ -100,14 +51,8 @@ data Children = Children
     children'nextId :: {-# UNPACK #-} !Int
   }
 
--- | Cancel a scope.
-scopeCancel :: Scope -> IO ()
-scopeCancel Scope {scope'cancelPath} = do
-  token <- newCancelToken
-  atomically (cancelPathCancel scope'cancelPath token)
-
 scopeFork :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> (Either SomeException a -> IO ()) -> IO ThreadId
-scopeFork Scope {scope'cancelPath, scope'runningVar, scope'startingVar} action k =
+scopeFork Scope {scope'runningVar, scope'startingVar} action k =
   uninterruptibleMask \restore -> do
     -- Record the thread as being about to start, and grab an id for it
     childId <-
@@ -124,9 +69,6 @@ scopeFork Scope {scope'cancelPath, scope'runningVar, scope'startingVar} action k
 
     childThreadId <-
       forkIO do
-        childThreadId <- myThreadId
-        setThreadCancelPath childThreadId scope'cancelPath
-
         result <- try (action restore)
         -- Perform the internal callback (this is where we decide to propagate the exception and whatnot)
         k result
@@ -139,8 +81,6 @@ scopeFork Scope {scope'cancelPath, scope'runningVar, scope'startingVar} action k
             Nothing -> retry
             Just running -> writeTVar scope'runningVar $! children {children'children = running}
 
-        unsetThreadCancelPath childThreadId
-
     -- Record the thread as having started
     atomically do
       modifyTVar' scope'startingVar \n -> n -1
@@ -149,29 +89,17 @@ scopeFork Scope {scope'cancelPath, scope'runningVar, scope'startingVar} action k
 
     pure childThreadId
 
--- | Does this scope "own" this cancel token, meaning did the token originate from this scope being cancelled?
-scopeOwnsCancelTokenSTM :: Scope -> CancelToken -> STM Bool
-scopeOwnsCancelTokenSTM Scope {scope'cancelPath} cancelToken =
-  ((== cancelToken) <$> cancelPathLeafCancelled scope'cancelPath) <|> pure False
-
-scopeScoped :: MonadUnliftIO m => (Scope -> m a) -> m (Either Cancelled a)
+scopeScoped :: MonadUnliftIO m => (Scope -> m a) -> m a
 scopeScoped action =
   withRunInIO \unlift -> scopeScopedIO (unlift . action)
-{-# SPECIALIZE scopeScoped :: (Scope -> IO a) -> IO (Either Cancelled a) #-}
+{-# SPECIALIZE scopeScoped :: (Scope -> IO a) -> IO a #-}
 
-scopeScopedIO :: (Scope -> IO a) -> IO (Either Cancelled a)
+scopeScopedIO :: (Scope -> IO a) -> IO a
 scopeScopedIO f = do
   uninterruptibleMask \restore -> do
-    cancelStateVar <- newTVarIO CancelState'NotCancelled
-
-    threadId <- myThreadId
-    cancelPath0 <- getThreadCancelPath threadId
-    let scope'cancelPath = cancelPathPush cancelStateVar cancelPath0
-    setThreadCancelPath threadId scope'cancelPath
-
     scope'runningVar <- newTVarIO (Children IntMap.empty 0)
     scope'startingVar <- newTVarIO 0
-    let scope = Scope {scope'cancelPath, scope'runningVar, scope'startingVar}
+    let scope = Scope {scope'runningVar, scope'startingVar}
     result <- try (restore (f scope))
     children <-
       atomically do
@@ -200,22 +128,13 @@ scopeScopedIO f = do
     -- definitely not structured concurrency!
     atomically (blockUntilNoneRunning scope)
 
-    -- FIXME comment?
-    setThreadCancelPath threadId cancelPath0
-
     -- If the callback failed, we don't care if we were thrown an async exception while closing the scope. Otherwise,
     -- throw that exception (if it exists).
     case result of
-      Left exception ->
-        case fromException exception of
-          Just thrownToken ->
-            atomically (scopeOwnsCancelTokenSTM scope thrownToken) >>= \case
-              False -> throw exception
-              True -> pure (Left Cancelled)
-          _ -> throw exception
+      Left exception -> throw exception
       Right value -> do
         whenJust exceptionReceivedWhileKillingChildren throw
-        pure (Right value)
+        pure value
   where
     -- If applicable, unwrap the 'ThreadFailed' (assumed to have come from one of our children).
     throw :: SomeException -> IO a
@@ -260,10 +179,6 @@ blockUntilNoneStarting Scope {scope'startingVar} =
 
 --------------------------------------------------------------------------------
 -- Exception types
-
-data Cancelled = Cancelled
-  deriving stock (Eq, Show)
-  deriving anyclass (Exception)
 
 -- | Exception thrown by a parent __thread__ to its children when its __scope__ is closing.
 data ScopeClosing

@@ -77,9 +77,6 @@ library
     Ki.Internal
   hs-source-dirs: src
   other-modules:
-    Ki.Internal.CancelPath
-    Ki.Internal.CancelToken
-    Ki.Internal.Context
     Ki.Internal.Duration
     Ki.Internal.Prelude
     Ki.Internal.Scope
