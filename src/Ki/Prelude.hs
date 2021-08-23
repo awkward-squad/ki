@@ -55,7 +55,7 @@ import Control.Concurrent.STM as X hiding (registerDelay)
 import Control.Exception
 import Control.Exception as X (Exception, SomeException, throwIO, try, uninterruptibleMask)
 import Control.Monad (unless)
-import Control.Monad as X (join, unless)
+import Control.Monad as X (join, when)
 import Control.Monad.IO.Class as X (MonadIO (..))
 import Data.Coerce as X (coerce)
 import Data.Foldable as X (for_)
