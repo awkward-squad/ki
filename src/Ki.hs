@@ -26,6 +26,7 @@ module Ki
     seconds,
     timeoutSTM,
     sleep,
+    Unmask,
 
     -- * Documentation
 
@@ -45,6 +46,7 @@ import Ki.Prelude
 import Ki.Scope
   ( Scope,
     Thread,
+    Unmask,
     async,
     asyncWithUnmask,
     await,

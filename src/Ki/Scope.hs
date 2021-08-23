@@ -6,6 +6,7 @@ module Ki.Scope
     waitSTM,
     --
     Thread,
+    Unmask,
     async,
     asyncWithUnmask,
     await,
@@ -62,7 +63,7 @@ instance Exception ScopeClosing where
   toException = asyncExceptionToException
   fromException = asyncExceptionFromException
 
-lowLevelFork :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> (Either SomeException a -> IO ()) -> IO ThreadId
+lowLevelFork :: Scope -> (Unmask IO -> IO a) -> (Either SomeException a -> IO ()) -> IO ThreadId
 lowLevelFork Scope {childrenVar, nextChildIdVar, startingVar} action k =
   uninterruptibleMask \restore -> do
     -- Record the thread as being about to start, and grab an id for it
@@ -251,6 +252,10 @@ instance Exception ThreadFailed where
   toException = asyncExceptionToException
   fromException = asyncExceptionFromException
 
+-- | A function that unmasks asynchronous exceptions.
+type Unmask m =
+  forall x. m x -> m x
+
 -- | Create a child __thread__ within a __scope__.
 async :: MonadUnliftIO m => Scope -> m a -> m (Thread (Either SomeException a))
 async scope action =
@@ -264,7 +269,7 @@ async scope action =
 asyncWithUnmask ::
   MonadUnliftIO m =>
   Scope ->
-  ((forall x. m x -> m x) -> m a) ->
+  (Unmask m -> m a) ->
   m (Thread (Either SomeException a))
 asyncWithUnmask scope action =
   withRunInIO \unlift ->
@@ -273,11 +278,11 @@ asyncWithUnmask scope action =
 {-# INLINE asyncWithUnmask #-}
 {-# SPECIALIZE asyncWithUnmask ::
   Scope ->
-  ((forall x. IO x -> IO x) -> IO a) ->
+  (Unmask IO -> IO a) ->
   IO (Thread (Either SomeException a))
   #-}
 
-asyncWithRestore :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread (Either SomeException a))
+asyncWithRestore :: Scope -> (Unmask IO -> IO a) -> IO (Thread (Either SomeException a))
 asyncWithRestore scope action = do
   parentThreadId <- myThreadId
   resultVar <- newEmptyTMVarIO
@@ -357,7 +362,7 @@ fork_ scope action =
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-forkWithUnmask :: MonadUnliftIO m => Scope -> ((forall x. m x -> m x) -> m a) -> m (Thread a)
+forkWithUnmask :: MonadUnliftIO m => Scope -> (Unmask m -> m a) -> m (Thread a)
 forkWithUnmask scope action =
   withRunInIO \unlift ->
     forkWithRestore scope \restore ->
@@ -365,7 +370,7 @@ forkWithUnmask scope action =
 {-# INLINE forkWithUnmask #-}
 {-# SPECIALIZE forkWithUnmask ::
   Scope ->
-  ((forall x. IO x -> IO x) -> IO a) ->
+  (Unmask IO -> IO a) ->
   IO (Thread a)
   #-}
 
@@ -374,7 +379,7 @@ forkWithUnmask scope action =
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-forkWithUnmask_ :: MonadUnliftIO m => Scope -> ((forall x. m x -> m x) -> m ()) -> m ()
+forkWithUnmask_ :: MonadUnliftIO m => Scope -> (Unmask m -> m ()) -> m ()
 forkWithUnmask_ scope action =
   withRunInIO \unlift ->
     forkWithRestore_ scope \restore ->
@@ -382,7 +387,7 @@ forkWithUnmask_ scope action =
 {-# INLINE forkWithUnmask_ #-}
 {-# SPECIALIZE forkWithUnmask_ ::
   Scope ->
-  ((forall x. IO x -> IO x) -> IO ()) ->
+  (Unmask IO -> IO ()) ->
   IO ()
   #-}
 
@@ -405,7 +410,7 @@ forkWithRestore scope action = do
         ident
       }
 
-forkWithRestore_ :: Scope -> ((forall x. IO x -> IO x) -> IO ()) -> IO ()
+forkWithRestore_ :: Scope -> (Unmask IO -> IO ()) -> IO ()
 forkWithRestore_ scope action = do
   parentThreadId <- myThreadId
   _childThreadId <-
