@@ -219,17 +219,17 @@ blockUntilNoneStarting Scope {startingVar} = do
 -- | A running __thread__.
 data Thread a = Thread
   { await_ :: !(STM a),
-    thread'Id :: {-# UNPACK #-} !ThreadId
+    ident :: {-# UNPACK #-} !ThreadId
   }
   deriving stock (Functor)
 
 instance Eq (Thread a) where
   (==) =
-    (==) `on` thread'Id
+    (==) `on` ident
 
 instance Ord (Thread a) where
   compare =
-    comparing thread'Id
+    comparing ident
 
 -- | Exception thrown by a child __thread__ to its parent, if it fails unexpectedly.
 newtype ThreadFailed
@@ -270,16 +270,16 @@ asyncWithRestore :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread (E
 asyncWithRestore scope action = do
   parentThreadId <- myThreadId
   resultVar <- newEmptyTMVarIO
-  thread'Id <-
+  ident <-
     lowLevelFork scope action \result -> do
       case result of
-        Left exception -> maybePropagateException scope parentThreadId exception isAsyncException
+        Left exception -> maybePropagateException parentThreadId exception isAsyncException
         Right _ -> pure ()
       putTMVarIO resultVar result -- even put async exceptions that we propagated
   pure
     Thread
       { await_ = readTMVar resultVar,
-        thread'Id
+        ident
       }
   where
     isAsyncException :: SomeException -> Bool
@@ -379,10 +379,10 @@ forkWithRestore :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
 forkWithRestore scope action = do
   parentThreadId <- myThreadId
   resultVar <- newEmptyTMVarIO
-  thread'Id <-
+  ident <-
     lowLevelFork scope action \result -> do
       case result of
-        Left exception -> maybePropagateException scope parentThreadId exception (const True)
+        Left exception -> maybePropagateException parentThreadId exception (const True)
         Right _ -> pure ()
       -- even put async exceptions that we propagated
       -- this isn't totally ideal because a caller awaiting this thread would not be able to distinguish between async
@@ -391,7 +391,7 @@ forkWithRestore scope action = do
   pure
     Thread
       { await_ = readTMVar resultVar >>= either throwSTM pure,
-        thread'Id
+        ident
       }
 
 forkWithRestore_ :: Scope -> ((forall x. IO x -> IO x) -> IO ()) -> IO ()
@@ -399,17 +399,17 @@ forkWithRestore_ scope action = do
   parentThreadId <- myThreadId
   _childThreadId <-
     lowLevelFork scope action \case
-      Left exception -> maybePropagateException scope parentThreadId exception (const True)
+      Left exception -> maybePropagateException parentThreadId exception (const True)
       Right () -> pure ()
   pure ()
 
-maybePropagateException :: Scope -> ThreadId -> SomeException -> (SomeException -> Bool) -> IO ()
-maybePropagateException scope parentThreadId exception should =
-  whenM shouldPropagateException (throwTo parentThreadId (ThreadFailed exception))
+maybePropagateException :: ThreadId -> SomeException -> (SomeException -> Bool) -> IO ()
+maybePropagateException parentThreadId exception should =
+  when shouldPropagateException (throwTo parentThreadId (ThreadFailed exception))
   where
-    shouldPropagateException :: IO Bool
+    shouldPropagateException :: Bool
     shouldPropagateException
-      -- Our scope is (presumably) closing, so don't propagate this exception that (presumably) just came from our
-      -- parent. But if our scope's not closed, that means this 'ScopeClosing' definitely came from somewhere else...
-      | Just ScopeClosing <- fromException exception = (/= -1) <$> readTVarIO (startingVar scope)
-      | otherwise = pure (should exception)
+      -- Trust without verifying that any 'ScopeClosed' exception, which is not exported by this module, was indeed
+      -- thrown to a thread by this library, and not randomly caught by a user and propagated to some thread.
+      | Just ScopeClosing <- fromException exception = False
+      | otherwise = should exception
