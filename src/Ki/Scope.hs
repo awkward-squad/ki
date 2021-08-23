@@ -164,21 +164,32 @@ scopedIO f = do
         Just (ThreadFailed threadFailedException) -> throwIO threadFailedException
         Nothing -> throwIO exception
 
-    -- In the order they were created, throw a 'ScopeClosing' exception to each of the given threads.
+    -- In the order they were created, throw at least one ScopeClosing exception to each of the given threads.
     --
-    -- FIXME better docs, and unsafeUnmask in forked thread propagating instead?
+    -- This function must be called with asynchronous exceptions masked, but we unmask in order to throw each
+    -- ScopeClosing in order to avoid a deadlock with that child thread, in case it is trying to propagate an exception
+    -- to us at the same time, which which *it* does with asynchronous exceptions masked, so its failure does not go
+    -- unnoticed.
+    --
+    -- It's possible, therefore, that we get hit by an asynchronous exception just *before* or just *after* throwing
+    -- each ScopeClosing. If this occurs, we do not remove the ThreadId from the list of ThreadIds to which we will
+    -- throw a ScopeClosing, in case we got hit by some asynchronous exception *before* delivering the ScopeClosing.
+    -- This is why each child thread will ultimately receive *at least one* ScopeClosing exception.
+    --
+    -- As far as what to do with the asynchronous exceptions that are delivered to us - because there's no convenient or
+    -- ergonomic way to throw or catch a "multi-exception", we only remember the first one, to re-throw after all of the
+    -- threads we are trying to kill here actually terminate.
     killThreads :: [ThreadId] -> IO (Maybe SomeException)
     killThreads =
-      (`fix` mempty) \loop !acc -> \case
-        [] -> pure (Monoid.getFirst acc)
-        threadId : threadIds ->
-          -- We unmask because we don't want to deadlock with a thread
-          -- that is concurrently trying to throw an exception to us with
-          -- exceptions masked.
-          try (unsafeUnmask (throwTo threadId ScopeClosing)) >>= \case
-            -- don't drop thread we didn't (necessarily) deliver the exception to
-            Left exception -> loop (acc <> Monoid.First (Just exception)) (threadId : threadIds)
-            Right () -> loop acc threadIds
+      let loop :: Monoid.First SomeException -> [ThreadId] -> IO (Maybe SomeException)
+          loop acc = \case
+            [] -> pure (Monoid.getFirst acc)
+            threadId : threadIds ->
+              try (unsafeUnmask (throwTo threadId ScopeClosing)) >>= \case
+                -- intentionally don't drop threadId, since we don't know if we delivered it an exception or not
+                Left exception -> loop (acc <> Monoid.First (Just exception)) (threadId : threadIds)
+                Right () -> loop acc threadIds
+       in loop mempty
 
 -- | Wait until all __threads__ created within a __scope__ terminate.
 wait :: MonadIO m => Scope -> m ()
