@@ -1,12 +1,11 @@
 module Ki.Scope
-  ( Scope (..),
-    ScopeClosing (..),
-    scopeFork,
+  ( Scope,
     scoped,
     wait,
     waitFor,
     waitSTM,
     --
+    Thread,
     async,
     asyncWithUnmask,
     await,
@@ -16,8 +15,6 @@ module Ki.Scope
     fork_,
     forkWithUnmask,
     forkWithUnmask_,
-    Thread (..),
-    ThreadFailed (..),
   )
 where
 
@@ -65,8 +62,8 @@ instance Exception ScopeClosing where
   toException = asyncExceptionToException
   fromException = asyncExceptionFromException
 
-scopeFork :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> (Either SomeException a -> IO ()) -> IO ThreadId
-scopeFork Scope {childrenVar, nextChildIdVar, startingVar} action k =
+lowLevelFork :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> (Either SomeException a -> IO ()) -> IO ThreadId
+lowLevelFork Scope {childrenVar, nextChildIdVar, startingVar} action k =
   uninterruptibleMask \restore -> do
     -- Record the thread as being about to start, and grab an id for it
     childId <-
@@ -83,8 +80,6 @@ scopeFork Scope {childrenVar, nextChildIdVar, startingVar} action k =
     childThreadId <-
       forkIO do
         result <- try (action restore)
-        -- Perform the internal callback (this is where we decide to propagate the exception and whatnot)
-        k result
         -- Delete ourselves from the scope's record of what's running. Why not just IntMap.delete? It might miss (race
         -- condition) - we wouldn't want to delete *nothing*, *then* insert from the parent thread. So just retry until
         -- the parent has recorded us as having started.
@@ -93,6 +88,8 @@ scopeFork Scope {childrenVar, nextChildIdVar, startingVar} action k =
           case IntMap.alterF (maybe Nothing (const (Just Nothing))) childId children of
             Nothing -> retry
             Just running -> writeTVar childrenVar running
+        -- Perform the internal callback (this is where we decide to propagate the exception and whatnot)
+        k result
 
     -- Record the thread as having started
     atomically do
@@ -274,8 +271,7 @@ asyncWithRestore scope action = do
   parentThreadId <- myThreadId
   resultVar <- newEmptyTMVarIO
   thread'Id <-
-    scopeFork scope action \result -> do
-      -- FIXME should we put or propagate first?
+    lowLevelFork scope action \result -> do
       case result of
         Left exception -> maybePropagateException scope parentThreadId exception isAsyncException
         Right _ -> pure ()
@@ -384,7 +380,7 @@ forkWithRestore scope action = do
   parentThreadId <- myThreadId
   resultVar <- newEmptyTMVarIO
   thread'Id <-
-    scopeFork scope action \result -> do
+    lowLevelFork scope action \result -> do
       case result of
         Left exception -> maybePropagateException scope parentThreadId exception (const True)
         Right _ -> pure ()
@@ -402,7 +398,7 @@ forkWithRestore_ :: Scope -> ((forall x. IO x -> IO x) -> IO ()) -> IO ()
 forkWithRestore_ scope action = do
   parentThreadId <- myThreadId
   _childThreadId <-
-    scopeFork scope action \case
+    lowLevelFork scope action \case
       Left exception -> maybePropagateException scope parentThreadId exception (const True)
       Right () -> pure ()
   pure ()
