@@ -1,7 +1,7 @@
 # ki
 
 [![GitHub CI](https://github.com/mitchellwrosen/ki/workflows/CI/badge.svg)](https://github.com/mitchellwrosen/ki/actions)
-[![Hackage](https://img.shields.io/hackage/v/ki.svg?label=ki&logo=haskell)](https://hackage.haskell.org/package/ki-0/candidate)
+[![Hackage](https://img.shields.io/hackage/v/ki.svg?label=ki&logo=haskell)](https://hackage.haskell.org/package/ki)
 [![Stackage LTS](https://stackage.org/package/ki/badge/lts)](https://www.stackage.org/lts/package/ki)
 [![Stackage Nightly](https://stackage.org/package/ki/badge/nightly)](https://www.stackage.org/nightly/package/ki)
 [![Dependencies](https://img.shields.io/hackage-deps/v/ki)](https://packdeps.haskellers.com/reverse/ki)
@@ -12,21 +12,23 @@
 * [`libdill`](http://libdill.org/)
 * [`trio`](https://github.com/python-trio/trio)
 * [Kotlin coroutines](https://kotlinlang.org/docs/reference/coroutines-overview.html)
+* https://vorpus.org/blog/notes-on-structured-concurrency-or-go-statement-considered-harmful/
+* https://250bpm.com/blog:124
+* https://250bpm.com/blog:137
+* https://250bpm.com/blog:139/
+* https://libdill.org/structured-concurrency.html
+
+A previous version of `ki` also included a mechanism for soft-cancellation/graceful shutdown, which took inspiration
+from:
+
 * [Go Concurrency Patterns: Context](https://blog.golang.org/context)
 * [.NET 4 Cancellation Framework](https://devblogs.microsoft.com/pfxteam/net-4-cancellation-framework/)
+* https://vorpus.org/blog/timeouts-and-cancellation-for-humans/
+* https://250bpm.com/blog:146
 
-## Recommended reading
-
-In chronological order of publication,
-
-  * https://vorpus.org/blog/timeouts-and-cancellation-for-humans/
-  * https://vorpus.org/blog/notes-on-structured-concurrency-or-go-statement-considered-harmful/
-  * http://250bpm.com/blog:124
-  * http://250bpm.com/blog:137
-  * http://250bpm.com/blog:139
-  * http://250bpm.com/blog:146
-  * http://libdill.org/structured-concurrency.html
+However, this feature was removed (perhaps temporarily) because the design of the API was unsatisfactory.
 
 ## Documentation
 
-See [Ki.Documentation](https://hackage.haskell.org/package/ki/docs/Ki-Documentation.html)
+See the bottom of the main [Ki](https://hackage.haskell.org/package/ki/docs/Ki.html#g:4) module for a short
+general introduction to structured concurrency, and a mini-tutorial.
