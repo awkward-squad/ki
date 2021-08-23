@@ -7,23 +7,21 @@ and this project adheres to the [Haskell Package Versioning Policy](https://pvp.
 
 ## Unreleased
 
-### Added
-- Add `Ki.Reader` module.
-
 ### Changed
-- Generalize `Ki` and `Ki.Implicit` to use `MonadUnliftIO`.
-- Make `CancelToken` an asynchronous exception.
+- Generalize API to use `MonadUnliftIO`, with `IO` specializations.
 - Make `async` propagate async exceptions.
-- Make `scoped` return an `Either Cancelled a`, to indicate whether it honored a cancellation request.
 - Make `scoped` kill threads in the order they were created.
 - Bump `base` upper bound to `< 4.16`
+
+### Removed
+- Remove `Context` type, `Ki.Implicit` module, and the ability to soft-cancel a `Scope`.
 
 ### Fixed
 - Fix small memory leak related to closing a scope.
 - Fix subtle bug related to GHC's treatment of deadlocked threads.
 
 ### Removed
-- Remove `dejafu` test suite (too much of a pain to maintain).
+- Remove `dejafu` test suite because it was too much of a pain to maintain.
 
 ## [0.2.0.1] - 2020-12-20
 
@@ -41,10 +39,10 @@ and this project adheres to the [Haskell Package Versioning Policy](https://pvp.
 ## [0.1.0.1] - 2020-11-30
 
 ### Changed
-- Lower `cabal-version` from 3.0 to 2.2 because `stack` cannot parse 3.0
-- Replace `AtomicCounter` with `Int` (to drop the `atomic-primops` dependency)
+- Lower `cabal-version` from 3.0 to 2.2 because `stack` cannot parse 3.0.
+- Replace `AtomicCounter` with `Int` to drop the `atomic-primops` dependency.
 
 ## [0.1.0] - 2020-11-11
 
 ### Added
-- Initial release
+- Initial release.
