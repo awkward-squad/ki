@@ -10,7 +10,6 @@ import Data.Functor
 import Data.IORef
 import Data.Maybe
 import qualified Ki
-import qualified Ki.Internal
 import TestUtils
 import Prelude hiding (fail)
 
@@ -45,12 +44,12 @@ main = do
     )
       `shouldThrow` B
 
-  forktest "propagates ScopeClosing if it isn't ours" \fork ->
-    ( Ki.scoped \scope -> do
-        fork scope (throwIO Ki.Internal.ScopeClosing)
-        Ki.wait scope
-    )
-      `shouldThrow` Ki.Internal.ScopeClosing
+  -- forktest "propagates ScopeClosing if it isn't ours" \fork ->
+  --   ( Ki.scoped \scope -> do
+  --       fork scope (throwIO Ki.Internal.ScopeClosing)
+  --       Ki.wait scope
+  --   )
+  --     `shouldThrow` Ki.Internal.ScopeClosing
 
   test "`async` returns sync exceptions" do
     Ki.scoped \scope -> do
@@ -64,9 +63,7 @@ main = do
     Ki.scoped \scope -> do
       mask \restore -> do
         thread <- Ki.async @_ @() scope (throw B)
-        restore (Ki.wait scope) `catch` \case
-          Ki.Internal.ThreadFailed (fromException -> Just B) -> writeIORef ref True
-          exception -> throwIO exception
+        restore (Ki.wait scope) `catch` \(_ :: SomeException) -> writeIORef ref True
         readIORef ref `shouldReturn` True
         Ki.await thread `shouldReturnSuchThat` \case
           Left (fromException -> Just B) -> True
@@ -76,36 +73,42 @@ main = do
     Ki.scoped \scope -> do
       mask \restore -> do
         thread <- Ki.fork @_ @() scope (throw A)
-        restore (Ki.wait scope) `catch` \(Ki.Internal.ThreadFailed _) -> pure ()
+        restore (Ki.wait scope) `catch` \(_ :: SomeException) -> pure ()
         Ki.await thread `shouldThrow` A
 
   test "awaiting a failed `fork`ed thread blocks (async exception)" do
     Ki.scoped \scope -> do
       mask \restore -> do
         thread <- Ki.fork @_ @() scope (throw B)
-        restore (Ki.wait scope) `catch` \(Ki.Internal.ThreadFailed _) -> pure ()
+        restore (Ki.wait scope) `catch` \(_ :: SomeException) -> pure ()
         Ki.await thread `shouldThrow` B
 
-  childtest "inherits masking state" \fork -> do
+  childtest "forks in unmasked state regardless of paren't masking state" \fork -> do
     Ki.scoped \scope -> do
       fork scope (getMaskingState `shouldReturn` Unmasked)
-      mask_ (fork scope (getMaskingState `shouldReturn` MaskedInterruptible))
-      uninterruptibleMask_ (fork scope (getMaskingState `shouldReturn` MaskedUninterruptible))
+      mask_ (fork scope (getMaskingState `shouldReturn` Unmasked))
+      uninterruptibleMask_ (fork scope (getMaskingState `shouldReturn` Unmasked))
       Ki.wait scope
 
-  test "provides an unmasking function (`forkWithUnmask`)" do
+  test "forkMasked forks in masked state regardless of paren't masking state" do
     Ki.scoped \scope -> do
-      _thread <- mask_ (Ki.forkWithUnmask scope \unmask -> unmask getMaskingState `shouldReturn` Unmasked)
+      void (Ki.forkMasked scope \_ -> getMaskingState `shouldReturn` MaskedInterruptible)
+      void (mask_ (Ki.forkMasked scope \_ -> getMaskingState `shouldReturn` MaskedInterruptible))
+      void (uninterruptibleMask_ (Ki.forkMasked scope \_ -> getMaskingState `shouldReturn` MaskedInterruptible))
       Ki.wait scope
 
-  test "provides an unmasking function (`forkWithUnmask_`)" do
+  test "forkMasked_ forks in masked state regardless of paren't masking state" do
     Ki.scoped \scope -> do
-      mask_ (Ki.forkWithUnmask_ scope \unmask -> unmask getMaskingState `shouldReturn` Unmasked)
+      Ki.forkMasked_ scope \_ -> getMaskingState `shouldReturn` MaskedInterruptible
+      mask_ (Ki.forkMasked_ scope \_ -> getMaskingState `shouldReturn` MaskedInterruptible)
+      uninterruptibleMask_ (Ki.forkMasked_ scope \_ -> getMaskingState `shouldReturn` MaskedInterruptible)
       Ki.wait scope
 
-  test "provides an unmasking function (`asyncWithUnmask`)" do
+  test "asyncMasked forks in masked state regardless of paren't masking state" do
     Ki.scoped \scope -> do
-      _thread <- (Ki.asyncWithUnmask scope \unmask -> unmask getMaskingState `shouldReturn` Unmasked)
+      void (Ki.asyncMasked scope \_ -> getMaskingState `shouldReturn` MaskedInterruptible)
+      void (mask_ (Ki.asyncMasked scope \_ -> getMaskingState `shouldReturn` MaskedInterruptible))
+      void (uninterruptibleMask_ (Ki.asyncMasked scope \_ -> getMaskingState `shouldReturn` MaskedInterruptible))
       Ki.wait scope
 
   test "thread can be awaited after its scope closes" do
@@ -121,10 +124,9 @@ main = do
     ignoring @A do
       Ki.scoped \scope -> do
         var <- newEmptyMVar
-        uninterruptibleMask_ do
-          Ki.forkWithUnmask_ scope \unmask -> do
-            putMVar var ()
-            unmask (threadDelay 1_000_000) `onException` writeIORef ref True
+        Ki.forkMasked_ scope \unmask -> do
+          putMVar var ()
+          unmask (threadDelay 1_000_000) `onException` writeIORef ref True
         takeMVar var
         void (throw A)
     readIORef ref `shouldReturn` True
@@ -133,8 +135,8 @@ main = do
     ref <- newIORef False
     ignoring @A do
       Ki.scoped \scope -> do
-        uninterruptibleMask_ do
-          (Ki.forkWithUnmask_ scope \unmask -> unmask (threadDelay 1_000_000) `onException` writeIORef ref True)
+        Ki.forkMasked_ scope \unmask ->
+          unmask (threadDelay 1_000_000) `onException` writeIORef ref True
         Ki.fork_ scope (throw A)
         Ki.wait scope
     readIORef ref `shouldReturn` True

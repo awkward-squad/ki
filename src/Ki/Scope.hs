@@ -1,3 +1,5 @@
+{-# LANGUAGE MagicHash #-}
+
 module Ki.Scope
   ( Scope,
     scoped,
@@ -8,24 +10,26 @@ module Ki.Scope
     Thread,
     Unmask,
     async,
-    asyncWithUnmask,
+    asyncMasked,
     await,
     awaitFor,
     awaitSTM,
     fork,
     fork_,
-    forkWithUnmask,
-    forkWithUnmask_,
+    forkMasked,
+    forkMasked_,
   )
 where
 
 import Control.Exception
   ( BlockedIndefinitelyOnSTM (..),
     Exception (fromException, toException),
+    MaskingState (..),
     SomeAsyncException,
     asyncExceptionFromException,
     asyncExceptionToException,
     catch,
+    getMaskingState,
     pattern ErrorCall,
   )
 import Control.Monad.IO.Unlift (MonadUnliftIO (withRunInIO))
@@ -34,6 +38,8 @@ import qualified Data.IntMap.Lazy as IntMap
 import Data.Maybe (isJust)
 import qualified Data.Monoid as Monoid
 import Data.Ord (comparing)
+import GHC.Base (maskAsyncExceptions#)
+import GHC.IO (IO (IO), unsafeUnmask)
 import Ki.Counter
 import Ki.Duration (Duration)
 import Ki.Prelude
@@ -64,9 +70,10 @@ instance Exception ScopeClosing where
   toException = asyncExceptionToException
   fromException = asyncExceptionFromException
 
-lowLevelFork :: Scope -> (Unmask IO -> IO a) -> (Either SomeException a -> IO ()) -> IO ThreadId
+-- executes argument with exceptions interruptibly masked (regardless of previous masking state)
+lowLevelFork :: Scope -> IO a -> (Either SomeException a -> IO ()) -> IO ThreadId
 lowLevelFork Scope {childrenVar, nextChildIdCounter, startingVar} action k =
-  uninterruptibleMask \restore -> do
+  interruptiblyMasked_ do
     -- Record the thread as being about to start.
     atomically do
       readTVar startingVar >>= \case
@@ -78,10 +85,9 @@ lowLevelFork Scope {childrenVar, nextChildIdCounter, startingVar} action k =
 
     childThreadId <-
       forkIO do
-        result <- try (action restore)
-        -- FIXME should this go after the `k result` below?
-        -- Perhaps, because we've deleted from childrenVar but are still running for a bit... :thinking:
-        --
+        result <- try action
+        -- Perform the internal callback (this is where we decide to propagate the exception and whatnot)
+        k result
         -- Common case: we alter the map at key `childId`, setting `Just childThreadId` to `Nothing` (unrecording the
         -- child as running)
         --
@@ -89,8 +95,6 @@ lowLevelFork Scope {childrenVar, nextChildIdCounter, startingVar} action k =
         -- before the parent was scheduled to record the child as running, so delicately place a "certificate of quick
         -- death" `Just undefined` in there.
         atomically (modifyTVar' childrenVar (IntMap.alter (maybe (Just undefined) (const Nothing)) childId))
-        -- Perform the internal callback (this is where we decide to propagate the exception and whatnot)
-        k result
 
     -- Record the child as having started
     atomically do
@@ -104,6 +108,14 @@ lowLevelFork Scope {childrenVar, nextChildIdCounter, startingVar} action k =
       modifyTVar' childrenVar (IntMap.alter (maybe (Just childThreadId) (const Nothing)) childId)
 
     pure childThreadId
+
+-- | Run the given action with asynchronous exceptions interruptibly masked.
+interruptiblyMasked_ :: IO a -> IO a
+interruptiblyMasked_ (IO io) =
+  getMaskingState >>= \case
+    Unmasked -> IO (maskAsyncExceptions# io)
+    MaskedInterruptible -> IO io
+    MaskedUninterruptible -> IO (maskAsyncExceptions# io)
 
 -- | Open a __scope__, perform an action with it, then close the __scope__.
 --
@@ -264,33 +276,25 @@ type Unmask m =
   forall x. m x -> m x
 
 -- | Create a child __thread__ within a __scope__.
+-- FIXME document that exceptions are unmasked
 async :: MonadUnliftIO m => Scope -> m a -> m (Thread (Either SomeException a))
 async scope action =
   withRunInIO \unlift ->
-    asyncWithRestore scope \restore ->
-      restore (unlift action)
+    asyncMaskedIO scope (unsafeUnmask (unlift action))
 {-# INLINE async #-}
 {-# SPECIALIZE async :: Scope -> IO a -> IO (Thread (Either SomeException a)) #-}
 
 -- | Variant of 'Ki.async' that provides the __thread__ a function that unmasks asynchronous exceptions.
-asyncWithUnmask ::
-  MonadUnliftIO m =>
-  Scope ->
-  (Unmask m -> m a) ->
-  m (Thread (Either SomeException a))
-asyncWithUnmask scope action =
+-- FIXME document masked
+asyncMasked :: MonadUnliftIO m => Scope -> (Unmask m -> m a) -> m (Thread (Either SomeException a))
+asyncMasked scope action =
   withRunInIO \unlift ->
-    asyncWithRestore scope \restore ->
-      restore (unlift (action (liftIO . unsafeUnmask . unlift)))
-{-# INLINE asyncWithUnmask #-}
-{-# SPECIALIZE asyncWithUnmask ::
-  Scope ->
-  (Unmask IO -> IO a) ->
-  IO (Thread (Either SomeException a))
-  #-}
+    asyncMaskedIO scope (unlift (action (liftIO . unsafeUnmask . unlift)))
+{-# INLINE asyncMasked #-}
+{-# SPECIALIZE asyncMasked :: Scope -> (Unmask IO -> IO a) -> IO (Thread (Either SomeException a)) #-}
 
-asyncWithRestore :: Scope -> (Unmask IO -> IO a) -> IO (Thread (Either SomeException a))
-asyncWithRestore scope action = do
+asyncMaskedIO :: Scope -> IO a -> IO (Thread (Either SomeException a))
+asyncMaskedIO scope action = do
   parentThreadId <- myThreadId
   resultVar <- newEmptyTMVarIO
   ident <-
@@ -341,15 +345,18 @@ awaitSTM =
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
+--
+-- FIXME document unmasked
 fork :: MonadUnliftIO m => Scope -> m a -> m (Thread a)
 fork scope action =
   withRunInIO \unlift ->
-    forkWithRestore scope \restore ->
-      restore (unlift action)
+    forkMaskedIO scope (unsafeUnmask (unlift action))
 {-# INLINE fork #-}
 {-# SPECIALIZE fork :: Scope -> IO a -> IO (Thread a) #-}
 
 -- | Variant of 'Ki.fork' that does not return a handle to the child __thread__.
+--
+-- FIXME document unmasked
 --
 -- If the child __thread__ throws an exception, the exception is immediately propagated to its parent __thread__.
 --
@@ -359,47 +366,40 @@ fork scope action =
 fork_ :: MonadUnliftIO m => Scope -> m () -> m ()
 fork_ scope action =
   withRunInIO \unlift ->
-    forkWithRestore_ scope \restore ->
-      restore (unlift action)
+    forkMaskedIO_ scope (unsafeUnmask (unlift action))
 {-# INLINE fork_ #-}
 {-# SPECIALIZE fork_ :: Scope -> IO () -> IO () #-}
 
 -- | Variant of 'Ki.fork' that provides the child __thread__ a function that unmasks asynchronous exceptions.
 --
+-- FIXME document masked
+--
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-forkWithUnmask :: MonadUnliftIO m => Scope -> (Unmask m -> m a) -> m (Thread a)
-forkWithUnmask scope action =
+forkMasked :: MonadUnliftIO m => Scope -> (Unmask m -> m a) -> m (Thread a)
+forkMasked scope action =
   withRunInIO \unlift ->
-    forkWithRestore scope \restore ->
-      restore (unlift (action (liftIO . unsafeUnmask . unlift)))
-{-# INLINE forkWithUnmask #-}
-{-# SPECIALIZE forkWithUnmask ::
-  Scope ->
-  (Unmask IO -> IO a) ->
-  IO (Thread a)
-  #-}
+    forkMaskedIO scope (unlift (action (liftIO . unsafeUnmask . unlift)))
+{-# INLINE forkMasked #-}
+{-# SPECIALIZE forkMasked :: Scope -> (Unmask IO -> IO a) -> IO (Thread a) #-}
 
 -- | Variant of 'Ki.forkWithUnmask' that does not return a handle to the child __thread__.
 --
+-- FIXME document masked
+--
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-forkWithUnmask_ :: MonadUnliftIO m => Scope -> (Unmask m -> m ()) -> m ()
-forkWithUnmask_ scope action =
+forkMasked_ :: MonadUnliftIO m => Scope -> (Unmask m -> m ()) -> m ()
+forkMasked_ scope action =
   withRunInIO \unlift ->
-    forkWithRestore_ scope \restore ->
-      restore (unlift (action (liftIO . unsafeUnmask . unlift)))
-{-# INLINE forkWithUnmask_ #-}
-{-# SPECIALIZE forkWithUnmask_ ::
-  Scope ->
-  (Unmask IO -> IO ()) ->
-  IO ()
-  #-}
+    forkMaskedIO_ scope (unlift (action (liftIO . unsafeUnmask . unlift)))
+{-# INLINE forkMasked_ #-}
+{-# SPECIALIZE forkMasked_ :: Scope -> (Unmask IO -> IO ()) -> IO () #-}
 
-forkWithRestore :: Scope -> ((forall x. IO x -> IO x) -> IO a) -> IO (Thread a)
-forkWithRestore scope action = do
+forkMaskedIO :: Scope -> IO a -> IO (Thread a)
+forkMaskedIO scope action = do
   parentThreadId <- myThreadId
   resultVar <- newEmptyTMVarIO
   ident <-
@@ -417,8 +417,8 @@ forkWithRestore scope action = do
         ident
       }
 
-forkWithRestore_ :: Scope -> (Unmask IO -> IO ()) -> IO ()
-forkWithRestore_ scope action = do
+forkMaskedIO_ :: Scope -> IO () -> IO ()
+forkMaskedIO_ scope action = do
   parentThreadId <- myThreadId
   _childThreadId <-
     lowLevelFork scope action \case
