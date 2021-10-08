@@ -13,7 +13,7 @@ case "$@" in
     exec cabal clean
     ;;
   "dev")
-    exec ghcid -c 'cabal repl ki:lib:ki --disable-optimization' --restart ki.cabal
+    exec ghcid -c 'cabal repl ki:lib:ki' --restart ki.cabal
     ;;
   "dev tests")
     exec \
