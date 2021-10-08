@@ -69,10 +69,9 @@ lowLevelFork Scope {childrenVar, nextChildIdCounter, startingVar} action k =
   uninterruptibleMask \restore -> do
     -- Record the thread as being about to start.
     atomically do
-      starting <- readTVar startingVar
-      if starting == -1
-        then throwSTM (ErrorCall "ki: scope closed")
-        else writeTVar startingVar $! starting + 1
+      readTVar startingVar >>= \case
+        -1 -> throwSTM (ErrorCall "ki: scope closed")
+        n -> writeTVar startingVar $! n + 1
 
     -- Grab a unique id for this child.
     childId <- incrCounter nextChildIdCounter
@@ -131,12 +130,12 @@ scopedIO f = do
       atomically do
         -- Block until we haven't committed to starting any threads. Without this, we may create a thread concurrently
         -- with closing its scope, and not grab its thread id to throw an exception to.
-        blockUntilNoneStarting scope
+        blockUntil0 startingVar
         -- Write the sentinel value indicating that this scope is closed, and it is an error to try to create a thread
         -- within it.
         writeTVar startingVar (-1)
         -- Return the list of currently-running children to kill. Some of them may have *just* started (e.g. if we
-        -- initially retried in 'blockUntilNoneStarting' above). That's fine - kill them all!
+        -- initially retried in `blockUntil0` above). That's fine - kill them all!
         readTVar childrenVar
 
     -- Deliver an async exception to every child. While doing so, we may get hit by an async exception ourselves, which
@@ -147,7 +146,7 @@ scopedIO f = do
     -- Block until all children have terminated; this relies on children respecting the async exception, which they
     -- must, for correctness. Otherwise, a thread could indeed outlive the scope in which it's created, which is
     -- definitely not structured concurrency!
-    atomically (blockUntilNoneRunning scope)
+    atomically (blockUntilEmpty childrenVar)
 
     -- If the callback failed, we don't care if we were thrown an async exception while closing the scope. Otherwise,
     -- throw that exception (if it exists).
@@ -207,22 +206,23 @@ waitFor scope duration =
 
 -- | @STM@ variant of 'Ki.wait'.
 waitSTM :: Scope -> STM ()
-waitSTM scope = do
-  blockUntilNoneRunning scope
-  blockUntilNoneStarting scope
+waitSTM Scope {childrenVar, startingVar} = do
+  blockUntilEmpty childrenVar
+  blockUntil0 startingVar
 {-# INLINE waitSTM #-}
 
--- | Block until no children are running.
-blockUntilNoneRunning :: Scope -> STM ()
-blockUntilNoneRunning Scope {childrenVar} = do
-  children <- readTVar childrenVar
-  when (not (IntMap.null children)) retry
+-- | Block until an @IntMap@ becomes empty.
+blockUntilEmpty :: TVar (IntMap a) -> STM ()
+blockUntilEmpty var = do
+  x <- readTVar var
+  when (not (IntMap.null x)) retry
 
--- | Block until no children are guaranteed to start soon.
-blockUntilNoneStarting :: Scope -> STM ()
-blockUntilNoneStarting Scope {startingVar} = do
-  starting <- readTVar startingVar
-  when (starting > 0) retry
+-- | Block until a @TVar@ becomes 0.
+blockUntil0 :: TVar Int -> STM ()
+blockUntil0 var =
+  readTVar var >>= \case
+    0 -> pure ()
+    _ -> retry
 
 ------------------------------------------------------------------------------------------------------------------------
 -- Thread
