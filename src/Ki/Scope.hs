@@ -30,7 +30,7 @@ import Control.Exception
   )
 import Control.Monad.IO.Unlift (MonadUnliftIO (withRunInIO))
 import Data.Function (on)
-import qualified Data.IntMap.Strict as IntMap
+import qualified Data.IntMap.Lazy as IntMap
 import Data.Maybe (isJust)
 import qualified Data.Monoid as Monoid
 import Data.Ord (comparing)
@@ -79,21 +79,29 @@ lowLevelFork Scope {childrenVar, nextChildIdCounter, startingVar} action k =
     childThreadId <-
       forkIO do
         result <- try (action restore)
-        -- Delete ourselves from the scope's record of what's running. Why not just IntMap.delete? It might miss (race
-        -- condition) - we wouldn't want to delete *nothing*, *then* insert from the parent thread. So just retry until
-        -- the parent has recorded us as having started.
-        atomically do
-          children <- readTVar childrenVar
-          case IntMap.alterF (maybe Nothing (const (Just Nothing))) childId children of
-            Nothing -> retry
-            Just running -> writeTVar childrenVar running
+        -- FIXME should this go after the `k result` below?
+        -- Perhaps, because we've deleted from childrenVar but are still running for a bit... :thinking:
+        --
+        -- Common case: we alter the map at key `childId`, setting `Just childThreadId` to `Nothing` (unrecording the
+        -- child as running)
+        --
+        -- Uncommon case: we alter the map at key `childId`, but it's still `Nothing` (wow!) indicating that we finished
+        -- before the parent was scheduled to record the child as running, so delicately place a "certificate of quick
+        -- death" `Just undefined` in there.
+        atomically (modifyTVar' childrenVar (IntMap.alter (maybe (Just undefined) (const Nothing)) childId))
         -- Perform the internal callback (this is where we decide to propagate the exception and whatnot)
         k result
 
-    -- Record the thread as having started
+    -- Record the child as having started
     atomically do
       modifyTVar' startingVar \n -> n -1
-      modifyTVar' childrenVar (IntMap.insert childId childThreadId)
+      -- Common case: we alter the map at key `childId`, setting `Nothing` to `Just childThreadId` (recording the child
+      -- as running)
+      --
+      -- Uncommon case: we alter the map at key `childId`, but it's already `Just undefined` (wow!) indicating that the
+      -- child already finished, so no need to record it as having started - set to `Nothing`, though, to delete this
+      -- now-unneeded `Just undefined` "certificate of quick death".
+      modifyTVar' childrenVar (IntMap.alter (maybe (Just childThreadId) (const Nothing)) childId)
 
     pure childThreadId
 
