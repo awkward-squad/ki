@@ -34,6 +34,7 @@ import qualified Data.IntMap.Strict as IntMap
 import Data.Maybe (isJust)
 import qualified Data.Monoid as Monoid
 import Data.Ord (comparing)
+import Ki.Counter
 import Ki.Duration (Duration)
 import Ki.Prelude
 import Ki.Timeout
@@ -45,8 +46,8 @@ import Ki.Timeout
 data Scope = Scope
   { -- | The set of child threads that are currently running, each keyed by a monotonically increasing int.
     childrenVar :: {-# UNPACK #-} !(TVar (IntMap ThreadId)),
-    -- | The key to use for the next child thread.
-    nextChildIdVar :: {-# UNPACK #-} !(TVar Int),
+    -- | The counter that holds the (int) key to use for the next child thread.
+    nextChildIdCounter :: {-# UNPACK #-} !Counter,
     -- | The number of child threads that are guaranteed to be about to start, in the sense that only the GHC scheduler
     -- can continue to delay; no async exception can strike here and prevent one of these threads from starting.
     --
@@ -64,19 +65,17 @@ instance Exception ScopeClosing where
   fromException = asyncExceptionFromException
 
 lowLevelFork :: Scope -> (Unmask IO -> IO a) -> (Either SomeException a -> IO ()) -> IO ThreadId
-lowLevelFork Scope {childrenVar, nextChildIdVar, startingVar} action k =
+lowLevelFork Scope {childrenVar, nextChildIdCounter, startingVar} action k =
   uninterruptibleMask \restore -> do
-    -- Record the thread as being about to start, and grab an id for it
-    childId <-
-      atomically do
-        starting <- readTVar startingVar
-        if starting == -1
-          then throwSTM (ErrorCall "ki: scope closed")
-          else do
-            childId <- readTVar nextChildIdVar
-            writeTVar nextChildIdVar $! childId + 1
-            writeTVar startingVar $! starting + 1
-            pure childId
+    -- Record the thread as being about to start.
+    atomically do
+      starting <- readTVar startingVar
+      if starting == -1
+        then throwSTM (ErrorCall "ki: scope closed")
+        else writeTVar startingVar $! starting + 1
+
+    -- Grab a unique id for this child.
+    childId <- incrCounter nextChildIdCounter
 
     childThreadId <-
       forkIO do
@@ -121,9 +120,9 @@ scoped action =
 scopedIO :: (Scope -> IO a) -> IO a
 scopedIO f = do
   childrenVar <- newTVarIO IntMap.empty
-  nextChildIdVar <- newTVarIO 0
+  nextChildIdCounter <- newCounter
   startingVar <- newTVarIO 0
-  let scope = Scope {childrenVar, nextChildIdVar, startingVar}
+  let scope = Scope {childrenVar, nextChildIdCounter, startingVar}
 
   uninterruptibleMask \restore -> do
     result <- try (restore (f scope))
