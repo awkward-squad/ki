@@ -1,7 +1,0 @@
-cradle:
-  cabal:
-    - path: "./src"
-      component: "lib:ki"
-
-    - path: "./test"
-      component: "ki:test:tests"
