@@ -10,14 +10,14 @@ module Ki.Scope
     Thread,
     Unmask,
     async,
-    asyncMasked,
+    asyncWith,
     await,
     awaitFor,
     awaitSTM,
     fork,
     fork_,
-    forkMasked,
-    forkMasked_,
+    forkWith,
+    forkWith_,
   )
 where
 
@@ -38,7 +38,7 @@ import qualified Data.IntMap.Lazy as IntMap
 import Data.Maybe (isJust)
 import qualified Data.Monoid as Monoid
 import Data.Ord (comparing)
-import GHC.Base (maskAsyncExceptions#)
+import GHC.Base (maskAsyncExceptions#, maskUninterruptible#)
 import GHC.IO (IO (IO), unsafeUnmask)
 import Ki.Counter
 import Ki.Duration (Duration)
@@ -70,10 +70,19 @@ instance Exception ScopeClosing where
   toException = asyncExceptionToException
   fromException = asyncExceptionFromException
 
--- executes argument with exceptions interruptibly masked (regardless of previous masking state)
-lowLevelFork :: Scope -> IO a -> (Either SomeException a -> IO ()) -> IO ThreadId
-lowLevelFork Scope {childrenVar, nextChildIdCounter, startingVar} action k =
-  interruptiblyMasked_ do
+-- TODO document, rename
+lowLevelFork :: Scope -> MaskingState -> IO a -> (Either SomeException a -> IO ()) -> IO ThreadId
+lowLevelFork Scope {childrenVar, nextChildIdCounter, startingVar} maskingState1 action k = do
+  maskingState0 <- getMaskingState
+
+  let atLeastBlockI :: IO a -> IO a
+      atLeastBlockI =
+        case maskingState0 of
+          Unmasked -> blockI
+          MaskedInterruptible -> id
+          MaskedUninterruptible -> id
+
+  atLeastBlockI do
     -- Record the thread as being about to start.
     atomically do
       readTVar startingVar >>= \case
@@ -85,7 +94,21 @@ lowLevelFork Scope {childrenVar, nextChildIdCounter, startingVar} action k =
 
     childThreadId <-
       forkIO do
-        result <- try action
+        result <-
+          -- run the action at the requested masking state
+          case maskingState1 of
+            Unmasked -> try (unsafeUnmask action)
+            MaskedInterruptible ->
+              case maskingState0 of
+                Unmasked -> try action
+                MaskedInterruptible -> try action
+                MaskedUninterruptible -> try (blockI action)
+            MaskedUninterruptible ->
+              case maskingState0 of
+                Unmasked -> try (blockU action)
+                MaskedInterruptible -> try (blockU action)
+                MaskedUninterruptible -> try action
+
         -- Perform the internal callback (this is where we decide to propagate the exception and whatnot)
         k result
         -- Common case: we alter the map at key `childId`, setting `Just childThreadId` to `Nothing` (unrecording the
@@ -109,13 +132,13 @@ lowLevelFork Scope {childrenVar, nextChildIdCounter, startingVar} action k =
 
     pure childThreadId
 
--- | Run the given action with asynchronous exceptions interruptibly masked.
-interruptiblyMasked_ :: IO a -> IO a
-interruptiblyMasked_ (IO io) =
-  getMaskingState >>= \case
-    Unmasked -> IO (maskAsyncExceptions# io)
-    MaskedInterruptible -> IO io
-    MaskedUninterruptible -> IO (maskAsyncExceptions# io)
+blockI :: IO a -> IO a
+blockI (IO io) =
+  IO (maskAsyncExceptions# io)
+
+blockU :: IO a -> IO a
+blockU (IO io) =
+  IO (maskUninterruptible# io)
 
 -- | Open a __scope__, perform an action with it, then close the __scope__.
 --
@@ -231,13 +254,13 @@ waitSTM Scope {childrenVar, startingVar} = do
   blockUntil0 startingVar
 {-# INLINE waitSTM #-}
 
--- | Block until an @IntMap@ becomes empty.
+-- Block until an @IntMap@ becomes empty.
 blockUntilEmpty :: TVar (IntMap a) -> STM ()
 blockUntilEmpty var = do
   x <- readTVar var
   when (not (IntMap.null x)) retry
 
--- | Block until a @TVar@ becomes 0.
+-- Block until a @TVar@ becomes 0.
 blockUntil0 :: TVar Int -> STM ()
 blockUntil0 var =
   readTVar var >>= \case
@@ -280,25 +303,25 @@ type Unmask m =
 async :: MonadUnliftIO m => Scope -> m a -> m (Thread (Either SomeException a))
 async scope action =
   withRunInIO \unlift ->
-    asyncMaskedIO scope (unsafeUnmask (unlift action))
+    async_ scope Unmasked (unlift action)
 {-# INLINE async #-}
 {-# SPECIALIZE async :: Scope -> IO a -> IO (Thread (Either SomeException a)) #-}
 
 -- | Variant of 'Ki.async' that provides the __thread__ a function that unmasks asynchronous exceptions.
--- FIXME document masked
-asyncMasked :: MonadUnliftIO m => Scope -> (Unmask m -> m a) -> m (Thread (Either SomeException a))
-asyncMasked scope action =
+-- FIXME fix docs
+asyncWith :: MonadUnliftIO m => Scope -> MaskingState -> m a -> m (Thread (Either SomeException a))
+asyncWith scope maskingState action =
   withRunInIO \unlift ->
-    asyncMaskedIO scope (unlift (action (liftIO . unsafeUnmask . unlift)))
-{-# INLINE asyncMasked #-}
-{-# SPECIALIZE asyncMasked :: Scope -> (Unmask IO -> IO a) -> IO (Thread (Either SomeException a)) #-}
+    async_ scope maskingState (unlift action)
+{-# INLINE asyncWith #-}
+{-# SPECIALIZE asyncWith :: Scope -> MaskingState -> IO a -> IO (Thread (Either SomeException a)) #-}
 
-asyncMaskedIO :: Scope -> IO a -> IO (Thread (Either SomeException a))
-asyncMaskedIO scope action = do
+async_ :: Scope -> MaskingState -> IO a -> IO (Thread (Either SomeException a))
+async_ scope maskingState action = do
   parentThreadId <- myThreadId
   resultVar <- newEmptyTMVarIO
   ident <-
-    lowLevelFork scope action \result -> do
+    lowLevelFork scope maskingState action \result -> do
       case result of
         Left exception -> maybePropagateException parentThreadId exception isAsyncException
         Right _ -> pure ()
@@ -348,9 +371,8 @@ awaitSTM =
 --
 -- FIXME document unmasked
 fork :: MonadUnliftIO m => Scope -> m a -> m (Thread a)
-fork scope action =
-  withRunInIO \unlift ->
-    forkMaskedIO scope (unsafeUnmask (unlift action))
+fork scope =
+  forkWith scope Unmasked
 {-# INLINE fork #-}
 {-# SPECIALIZE fork :: Scope -> IO a -> IO (Thread a) #-}
 
@@ -364,67 +386,56 @@ fork scope action =
 --
 --   * Calls 'error' if the __scope__ is /closed/.
 fork_ :: MonadUnliftIO m => Scope -> m () -> m ()
-fork_ scope action =
-  withRunInIO \unlift ->
-    forkMaskedIO_ scope (unsafeUnmask (unlift action))
+fork_ scope =
+  forkWith_ scope Unmasked
 {-# INLINE fork_ #-}
 {-# SPECIALIZE fork_ :: Scope -> IO () -> IO () #-}
 
 -- | Variant of 'Ki.fork' that provides the child __thread__ a function that unmasks asynchronous exceptions.
 --
--- FIXME document masked
+-- FIXME fix docs
 --
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-forkMasked :: MonadUnliftIO m => Scope -> (Unmask m -> m a) -> m (Thread a)
-forkMasked scope action =
-  withRunInIO \unlift ->
-    forkMaskedIO scope (unlift (action (liftIO . unsafeUnmask . unlift)))
-{-# INLINE forkMasked #-}
-{-# SPECIALIZE forkMasked :: Scope -> (Unmask IO -> IO a) -> IO (Thread a) #-}
+forkWith :: MonadUnliftIO m => Scope -> MaskingState -> m a -> m (Thread a)
+forkWith scope maskingState action =
+  withRunInIO \unlift -> do
+    parentThreadId <- myThreadId
+    resultVar <- newEmptyTMVarIO
+    ident <-
+      lowLevelFork scope maskingState (unlift action) \result -> do
+        case result of
+          Left exception -> maybePropagateException parentThreadId exception (const True)
+          Right _ -> pure ()
+        -- even put async exceptions that we propagated
+        -- this isn't totally ideal because a caller awaiting this thread would not be able to distinguish between async
+        -- exceptions delivered to this thread, or itself
+        putTMVarIO resultVar result
+    pure
+      Thread
+        { await_ = readTMVar resultVar >>= either throwSTM pure,
+          ident
+        }
+{-# SPECIALIZE forkWith :: Scope -> MaskingState -> IO a -> IO (Thread a) #-}
 
 -- | Variant of 'Ki.forkWithUnmask' that does not return a handle to the child __thread__.
 --
--- FIXME document masked
+-- FIXME fix docs
 --
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-forkMasked_ :: MonadUnliftIO m => Scope -> (Unmask m -> m ()) -> m ()
-forkMasked_ scope action =
-  withRunInIO \unlift ->
-    forkMaskedIO_ scope (unlift (action (liftIO . unsafeUnmask . unlift)))
-{-# INLINE forkMasked_ #-}
-{-# SPECIALIZE forkMasked_ :: Scope -> (Unmask IO -> IO ()) -> IO () #-}
-
-forkMaskedIO :: Scope -> IO a -> IO (Thread a)
-forkMaskedIO scope action = do
-  parentThreadId <- myThreadId
-  resultVar <- newEmptyTMVarIO
-  ident <-
-    lowLevelFork scope action \result -> do
-      case result of
+forkWith_ :: MonadUnliftIO m => Scope -> MaskingState -> m () -> m ()
+forkWith_ scope maskingState action =
+  withRunInIO \unlift -> do
+    parentThreadId <- myThreadId
+    _childThreadId <-
+      lowLevelFork scope maskingState (unlift action) \case
         Left exception -> maybePropagateException parentThreadId exception (const True)
-        Right _ -> pure ()
-      -- even put async exceptions that we propagated
-      -- this isn't totally ideal because a caller awaiting this thread would not be able to distinguish between async
-      -- exceptions delivered to this thread, or itself
-      putTMVarIO resultVar result
-  pure
-    Thread
-      { await_ = readTMVar resultVar >>= either throwSTM pure,
-        ident
-      }
-
-forkMaskedIO_ :: Scope -> IO () -> IO ()
-forkMaskedIO_ scope action = do
-  parentThreadId <- myThreadId
-  _childThreadId <-
-    lowLevelFork scope action \case
-      Left exception -> maybePropagateException parentThreadId exception (const True)
-      Right () -> pure ()
-  pure ()
+        Right () -> pure ()
+    pure ()
+{-# SPECIALIZE forkWith_ :: Scope -> MaskingState -> IO () -> IO () #-}
 
 maybePropagateException :: ThreadId -> SomeException -> (SomeException -> Bool) -> IO ()
 maybePropagateException parentThreadId exception should =

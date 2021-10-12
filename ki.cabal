@@ -15,8 +15,6 @@ version: 0.2.0.1
 
 description:
   A lightweight structured-concurrency library.
-  .
-  Please read "Ki.Documentation" for an overview of how to use this library.
 
 extra-source-files:
   CHANGELOG.md
