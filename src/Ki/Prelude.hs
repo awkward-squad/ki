@@ -61,6 +61,7 @@ import Data.Coerce as X (coerce)
 import Data.Foldable as X (for_)
 import Data.Function as X (fix)
 import Data.Functor as X (void, ($>), (<&>))
+import Data.Int as X
 import Data.IntMap.Strict as X (IntMap)
 import Data.Map.Strict as X (Map)
 import Data.Maybe as X (fromMaybe)

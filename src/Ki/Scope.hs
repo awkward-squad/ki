@@ -37,10 +37,10 @@ import qualified Data.IntMap.Lazy as IntMap
 import Data.Maybe (isJust)
 import qualified Data.Monoid as Monoid
 import GHC.Base (maskAsyncExceptions#, maskUninterruptible#)
+import GHC.Conc (enableAllocationLimit, labelThread, setAllocationCounter)
 import GHC.IO (IO (IO), unsafeUnmask)
 import Ki.Counter
 import Ki.Duration (Duration)
-import GHC.Conc (labelThread)
 import Ki.Prelude
 import Ki.Timeout
 
@@ -73,7 +73,7 @@ instance Exception ScopeClosing where
 lowLevelFork :: Scope -> ThreadOpts -> IO a -> (Either SomeException a -> IO ()) -> IO ThreadId
 lowLevelFork
   Scope {childrenVar, nextChildIdCounter, startingVar}
-  ThreadOpts {label, maskingState = maskingState1}
+  ThreadOpts {allocationLimit, label, maskingState = maskingState1}
   action
   k = do
     maskingState0 <- getMaskingState
@@ -101,6 +101,10 @@ lowLevelFork
             childThreadId <- myThreadId
             labelThread childThreadId s
 
+          whenJust allocationLimit \n -> do
+            setAllocationCounter n
+            enableAllocationLimit
+
           result <-
             -- run the action at the requested masking state
             case maskingState1 of
@@ -121,20 +125,21 @@ lowLevelFork
           -- Common case: we alter the map at key `childId`, setting `Just childThreadId` to `Nothing` (unrecording the
           -- child as running)
           --
-          -- Uncommon case: we alter the map at key `childId`, but it's still `Nothing` (wow!) indicating that we finished
-          -- before the parent was scheduled to record the child as running, so delicately place a "certificate of quick
+          -- Uncommon case: we alter the map at key `childId`, but it's still `Nothing` (wow!) indicating that we
+          -- finished before the parent was scheduled to record the child as running, so delicately place a "certificate
+          -- of quick
           -- death" `Just undefined` in there.
           atomically (modifyTVar' childrenVar (IntMap.alter (maybe (Just undefined) (const Nothing)) childId))
 
       -- Record the child as having started
       atomically do
         modifyTVar' startingVar \n -> n -1
-        -- Common case: we alter the map at key `childId`, setting `Nothing` to `Just childThreadId` (recording the child
-        -- as running)
+        -- Common case: we alter the map at key `childId`, setting `Nothing` to `Just childThreadId` (recording the
+        -- child as running)
         --
-        -- Uncommon case: we alter the map at key `childId`, but it's already `Just undefined` (wow!) indicating that the
-        -- child already finished, so no need to record it as having started - set to `Nothing`, though, to delete this
-        -- now-unneeded `Just undefined` "certificate of quick death".
+        -- Uncommon case: we alter the map at key `childId`, but it's already `Just undefined` (wow!) indicating that
+        -- the child already finished, so no need to record it as having started - set to `Nothing`, though, to delete
+        -- this now-unneeded `Just undefined` "certificate of quick death".
         modifyTVar' childrenVar (IntMap.alter (maybe (Just childThreadId) (const Nothing)) childId)
 
       pure childThreadId
@@ -294,15 +299,18 @@ instance Ord (Thread a) where
 
 -- | TODO document
 data ThreadOpts = ThreadOpts
-  { label :: Maybe String,
+  { allocationLimit :: Maybe Int64,
+    label :: Maybe String,
     maskingState :: MaskingState
   }
+  deriving stock (Show)
 
 -- | TODO document
 defaultThreadOpts :: ThreadOpts
 defaultThreadOpts =
   ThreadOpts
-    { label = Nothing,
+    { allocationLimit = Nothing,
+      label = Nothing,
       maskingState = Unmasked
     }
 
