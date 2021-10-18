@@ -1,48 +1,38 @@
-# Changelog
+## [0.3.0] - Unreleased
 
-All notable changes to this project will be documented in this file.
+- Breaking: Remove `Context` type, `Ki.Implicit` module, and the ability to soft-cancel a `Scope`.
+- Breaking: Remove `Ki.Internal` module.
+- Breaking: Make `async`/`fork` create an unmasked thread, rather than inherit the parent's masking state.
+- Breaking: Replace `asyncWithUnmask`/`forkWithUnmask` with a more general `asyncWith`/`forkWith`.
 
-The format is based on [Keep a Changelog](http://keepachangelog.com/)
-and this project adheres to the [Haskell Package Versioning Policy](https://pvp.haskell.org/).
+- Change: Generalize API to use `MonadUnliftIO`, with `IO` specializations.
+- Change: Make `scoped` kill threads in the order they were created.
 
-## Unreleased
+- Bugfix: Fix small memory leak related to closing a scope.
+- Bugfix: Fix subtle bug related to GHC's treatment of deadlocked threads.
+- Bugfix: make `async` propagate async exceptions.
 
-### Changed
-- Generalize API to use `MonadUnliftIO`, with `IO` specializations.
-- Make `async` propagate async exceptions.
-- Make `scoped` kill threads in the order they were created.
-- Bump `base` upper bound to `< 4.16`
+- Performance: Use atomic fetch-and-add rather than a TVar to track internal child thread ids
 
-### Removed
-- Remove `Context` type, `Ki.Implicit` module, and the ability to soft-cancel a `Scope`.
+- Misc: Remove `dejafu` test suite because it was too much of a pain to maintain.
 
-### Fixed
-- Fix small memory leak related to closing a scope.
-- Fix subtle bug related to GHC's treatment of deadlocked threads.
-
-### Removed
-- Remove `dejafu` test suite because it was too much of a pain to maintain.
+- Bounds: Bump `base` upper bound to `< 4.16`
 
 ## [0.2.0.1] - 2020-12-20
 
-### Changed
-- Mark `dejafu` test suite as "not buildable" by default.
+- Internal: Mark `dejafu` test suite as "not buildable" by default.
 
 ## [0.2.0] - 2020-12-17
 
-### Changed
-- Rename `cancelScope` to `cancel`.
-
-### Removed
-- Remove `ThreadFailed` exception wrapper.
+- Breaking: Remove `ThreadFailed` exception wrapper.
+- Breaking: Rename `cancelScope` to `cancel`.
 
 ## [0.1.0.1] - 2020-11-30
 
-### Changed
-- Lower `cabal-version` from 3.0 to 2.2 because `stack` cannot parse 3.0.
-- Replace `AtomicCounter` with `Int` to drop the `atomic-primops` dependency.
+- Misc: Replace `AtomicCounter` with `Int` to drop the `atomic-primops` dependency.
+
+- Bounds: Lower `cabal-version` from 3.0 to 2.2 because `stack` cannot parse 3.0.
 
 ## [0.1.0] - 2020-11-11
 
-### Added
 - Initial release.

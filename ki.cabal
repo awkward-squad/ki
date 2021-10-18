@@ -11,7 +11,7 @@ maintainer: Mitchell Rosen <mitchellwrosen@gmail.com>
 name: ki
 stability: experimental
 synopsis: A lightweight structured-concurrency library
-version: 0.2.0.1
+version: 0.3.0
 
 description:
   A lightweight structured-concurrency library.
