@@ -9,6 +9,7 @@ module Ki
 
     -- * Thread
     Thread,
+    ThreadOpts (..),
     fork,
     fork_,
     forkWith,
@@ -45,6 +46,7 @@ import Ki.Prelude
 import Ki.Scope
   ( Scope,
     Thread,
+    ThreadOpts (..),
     async,
     asyncWith,
     await,

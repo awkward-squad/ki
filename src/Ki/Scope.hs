@@ -8,6 +8,7 @@ module Ki.Scope
     waitSTM,
     --
     Thread,
+    ThreadOpts (..),
     async,
     asyncWith,
     await,
@@ -32,11 +33,9 @@ import Control.Exception
     pattern ErrorCall,
   )
 import Control.Monad.IO.Unlift (MonadUnliftIO (withRunInIO))
-import Data.Function (on)
 import qualified Data.IntMap.Lazy as IntMap
 import Data.Maybe (isJust)
 import qualified Data.Monoid as Monoid
-import Data.Ord (comparing)
 import GHC.Base (maskAsyncExceptions#, maskUninterruptible#)
 import GHC.IO (IO (IO), unsafeUnmask)
 import Ki.Counter
@@ -70,8 +69,8 @@ instance Exception ScopeClosing where
   fromException = asyncExceptionFromException
 
 -- TODO document, rename
-lowLevelFork :: Scope -> MaskingState -> IO a -> (Either SomeException a -> IO ()) -> IO ThreadId
-lowLevelFork Scope {childrenVar, nextChildIdCounter, startingVar} maskingState1 action k = do
+lowLevelFork :: Scope -> ThreadOpts -> IO a -> (Either SomeException a -> IO ()) -> IO ThreadId
+lowLevelFork Scope {childrenVar, nextChildIdCounter, startingVar} ThreadOpts {maskingState = maskingState1} action k = do
   maskingState0 <- getMaskingState
 
   let atLeastBlockI :: IO a -> IO a
@@ -277,14 +276,26 @@ data Thread a = Thread
   deriving stock (Functor)
 
 instance Eq (Thread a) where
-  (==) =
-    (==) `on` ident
+  Thread {ident = x} == Thread {ident = y} =
+    x == y
 
 instance Ord (Thread a) where
-  compare =
-    comparing ident
+  compare Thread {ident = x} Thread {ident = y} =
+    compare x y
 
--- | Exception thrown by a child __thread__ to its parent, if it fails unexpectedly.
+-- | TODO document
+data ThreadOpts = ThreadOpts
+  { maskingState :: MaskingState
+  }
+
+-- | TODO document
+defaultThreadOpts :: ThreadOpts
+defaultThreadOpts =
+  ThreadOpts
+    { maskingState = Unmasked
+    }
+
+-- | Internal exception type thrown by a child __thread__ to its parent, if it fails unexpectedly.
 newtype ThreadFailed
   = ThreadFailed SomeException
   deriving stock (Show)
@@ -298,25 +309,25 @@ instance Exception ThreadFailed where
 async :: MonadUnliftIO m => Scope -> m a -> m (Thread (Either SomeException a))
 async scope action =
   withRunInIO \unlift ->
-    async_ scope Unmasked (unlift action)
+    async_ scope defaultThreadOpts (unlift action)
 {-# INLINE async #-}
 {-# SPECIALIZE async :: Scope -> IO a -> IO (Thread (Either SomeException a)) #-}
 
 -- | Variant of 'Ki.async' that provides the __thread__ a function that unmasks asynchronous exceptions.
 -- FIXME fix docs
-asyncWith :: MonadUnliftIO m => Scope -> MaskingState -> m a -> m (Thread (Either SomeException a))
-asyncWith scope maskingState action =
+asyncWith :: MonadUnliftIO m => Scope -> ThreadOpts -> m a -> m (Thread (Either SomeException a))
+asyncWith scope opts action =
   withRunInIO \unlift ->
-    async_ scope maskingState (unlift action)
+    async_ scope opts (unlift action)
 {-# INLINE asyncWith #-}
-{-# SPECIALIZE asyncWith :: Scope -> MaskingState -> IO a -> IO (Thread (Either SomeException a)) #-}
+{-# SPECIALIZE asyncWith :: Scope -> ThreadOpts -> IO a -> IO (Thread (Either SomeException a)) #-}
 
-async_ :: Scope -> MaskingState -> IO a -> IO (Thread (Either SomeException a))
-async_ scope maskingState action = do
+async_ :: Scope -> ThreadOpts -> IO a -> IO (Thread (Either SomeException a))
+async_ scope opts action = do
   parentThreadId <- myThreadId
   resultVar <- newEmptyTMVarIO
   ident <-
-    lowLevelFork scope maskingState action \result -> do
+    lowLevelFork scope opts action \result -> do
       case result of
         Left exception -> maybePropagateException parentThreadId exception isAsyncException
         Right _ -> pure ()
@@ -367,7 +378,7 @@ awaitSTM =
 -- FIXME document unmasked
 fork :: MonadUnliftIO m => Scope -> m a -> m (Thread a)
 fork scope =
-  forkWith scope Unmasked
+  forkWith scope defaultThreadOpts
 {-# INLINE fork #-}
 {-# SPECIALIZE fork :: Scope -> IO a -> IO (Thread a) #-}
 
@@ -382,7 +393,7 @@ fork scope =
 --   * Calls 'error' if the __scope__ is /closed/.
 fork_ :: MonadUnliftIO m => Scope -> m () -> m ()
 fork_ scope =
-  forkWith_ scope Unmasked
+  forkWith_ scope defaultThreadOpts
 {-# INLINE fork_ #-}
 {-# SPECIALIZE fork_ :: Scope -> IO () -> IO () #-}
 
@@ -393,13 +404,13 @@ fork_ scope =
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-forkWith :: MonadUnliftIO m => Scope -> MaskingState -> m a -> m (Thread a)
-forkWith scope maskingState action =
+forkWith :: MonadUnliftIO m => Scope -> ThreadOpts -> m a -> m (Thread a)
+forkWith scope opts action =
   withRunInIO \unlift -> do
     parentThreadId <- myThreadId
     resultVar <- newEmptyTMVarIO
     ident <-
-      lowLevelFork scope maskingState (unlift action) \result -> do
+      lowLevelFork scope opts (unlift action) \result -> do
         case result of
           Left exception -> maybePropagateException parentThreadId exception (const True)
           Right _ -> pure ()
@@ -412,7 +423,7 @@ forkWith scope maskingState action =
         { await_ = readTMVar resultVar >>= either throwSTM pure,
           ident
         }
-{-# SPECIALIZE forkWith :: Scope -> MaskingState -> IO a -> IO (Thread a) #-}
+{-# SPECIALIZE forkWith :: Scope -> ThreadOpts -> IO a -> IO (Thread a) #-}
 
 -- | Variant of 'Ki.forkWithUnmask' that does not return a handle to the child __thread__.
 --
@@ -421,16 +432,16 @@ forkWith scope maskingState action =
 -- /Throws/:
 --
 --   * Calls 'error' if the __scope__ is /closed/.
-forkWith_ :: MonadUnliftIO m => Scope -> MaskingState -> m () -> m ()
-forkWith_ scope maskingState action =
+forkWith_ :: MonadUnliftIO m => Scope -> ThreadOpts -> m () -> m ()
+forkWith_ scope opts action =
   withRunInIO \unlift -> do
     parentThreadId <- myThreadId
     _childThreadId <-
-      lowLevelFork scope maskingState (unlift action) \case
+      lowLevelFork scope opts (unlift action) \case
         Left exception -> maybePropagateException parentThreadId exception (const True)
         Right () -> pure ()
     pure ()
-{-# SPECIALIZE forkWith_ :: Scope -> MaskingState -> IO () -> IO () #-}
+{-# SPECIALIZE forkWith_ :: Scope -> ThreadOpts -> IO () -> IO () #-}
 
 maybePropagateException :: ThreadId -> SomeException -> (SomeException -> Bool) -> IO ()
 maybePropagateException parentThreadId exception should =
