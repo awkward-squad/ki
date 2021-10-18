@@ -8,7 +8,6 @@ module Ki.Scope
     waitSTM,
     --
     Thread,
-    Unmask,
     async,
     asyncWith,
     await,
@@ -293,10 +292,6 @@ newtype ThreadFailed
 instance Exception ThreadFailed where
   toException = asyncExceptionToException
   fromException = asyncExceptionFromException
-
--- | A function that unmasks asynchronous exceptions.
-type Unmask m =
-  forall x. m x -> m x
 
 -- | Create a child __thread__ within a __scope__.
 -- FIXME document that exceptions are unmasked
