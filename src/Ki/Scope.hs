@@ -8,7 +8,6 @@ module Ki.Scope
     waitSTM,
     --
     Thread,
-    ThreadOpts (..),
     async,
     asyncWith,
     await,
@@ -18,6 +17,10 @@ module Ki.Scope
     fork_,
     forkWith,
     forkWith_,
+    --
+    ThreadAffinity (..),
+    ThreadOpts (..),
+    defaultThreadOpts,
   )
 where
 
@@ -36,9 +39,8 @@ import Control.Monad.IO.Unlift (MonadUnliftIO (withRunInIO))
 import qualified Data.IntMap.Lazy as IntMap
 import Data.Maybe (isJust)
 import qualified Data.Monoid as Monoid
-import GHC.Base (maskAsyncExceptions#, maskUninterruptible#)
 import GHC.Conc (enableAllocationLimit, labelThread, setAllocationCounter)
-import GHC.IO (IO (IO), unsafeUnmask)
+import GHC.IO (unsafeUnmask)
 import Ki.Counter
 import Ki.Duration (Duration)
 import Ki.Prelude
@@ -73,7 +75,7 @@ instance Exception ScopeClosing where
 lowLevelFork :: Scope -> ThreadOpts -> IO a -> (Either SomeException a -> IO ()) -> IO ThreadId
 lowLevelFork
   Scope {childrenVar, nextChildIdCounter, startingVar}
-  ThreadOpts {allocationLimit, label, maskingState = maskingState1}
+  ThreadOpts {affinity, allocationLimit, label, maskingState = maskingState1}
   action
   k = do
     maskingState0 <- getMaskingState
@@ -96,7 +98,7 @@ lowLevelFork
       childId <- incrCounter nextChildIdCounter
 
       childThreadId <-
-        forkIO do
+        doFork do
           whenJust label \s -> do
             childThreadId <- myThreadId
             labelThread childThreadId s
@@ -143,14 +145,14 @@ lowLevelFork
         modifyTVar' childrenVar (IntMap.alter (maybe (Just childThreadId) (const Nothing)) childId)
 
       pure childThreadId
-
-blockI :: IO a -> IO a
-blockI (IO io) =
-  IO (maskAsyncExceptions# io)
-
-blockU :: IO a -> IO a
-blockU (IO io) =
-  IO (maskUninterruptible# io)
+    where
+      -- forkIO/forkOn/forkOS, switching on affinity
+      doFork :: IO () -> IO ThreadId
+      doFork =
+        case affinity of
+          Nothing -> forkIO
+          Just (Capability n) -> forkOn n
+          Just OsThread -> forkOS
 
 -- | Open a __scope__, perform an action with it, then close the __scope__.
 --
@@ -297,19 +299,26 @@ instance Ord (Thread a) where
   compare Thread {ident = x} Thread {ident = y} =
     compare x y
 
+data ThreadAffinity
+  = Capability Int
+  | OsThread
+  deriving stock (Eq, Generic, Show)
+
 -- | TODO document
 data ThreadOpts = ThreadOpts
-  { allocationLimit :: Maybe Int64,
+  { affinity :: Maybe ThreadAffinity,
+    allocationLimit :: Maybe Int64,
     label :: Maybe String,
     maskingState :: MaskingState
   }
-  deriving stock (Show)
+  deriving stock (Eq, Generic, Show)
 
 -- | TODO document
 defaultThreadOpts :: ThreadOpts
 defaultThreadOpts =
   ThreadOpts
-    { allocationLimit = Nothing,
+    { affinity = Nothing,
+      allocationLimit = Nothing,
       label = Nothing,
       maskingState = Unmasked
     }

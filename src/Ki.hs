@@ -9,7 +9,6 @@ module Ki
 
     -- * Thread
     Thread,
-    ThreadOpts (..),
     fork,
     fork_,
     forkWith,
@@ -19,6 +18,11 @@ module Ki
     await,
     awaitSTM,
     awaitFor,
+
+    -- ** Thread options
+    ThreadAffinity (..),
+    ThreadOpts (..),
+    defaultThreadOpts,
 
     -- * Miscellaneous
     Duration,
@@ -46,12 +50,14 @@ import Ki.Prelude
 import Ki.Scope
   ( Scope,
     Thread,
+    ThreadAffinity (..),
     ThreadOpts (..),
     async,
     asyncWith,
     await,
     awaitFor,
     awaitSTM,
+    defaultThreadOpts,
     fork,
     forkWith,
     forkWith_,

@@ -34,8 +34,12 @@
 module Ki.Prelude
   ( Unique,
     atomicallyIO,
+    blockI,
+    blockU,
     debug,
     forkIO,
+    forkOn,
+    forkOS,
     newUnique,
     onLeft,
     putTMVarIO,
@@ -48,7 +52,7 @@ module Ki.Prelude
 where
 
 import Control.Applicative as X (optional, (<|>))
-import Control.Concurrent hiding (forkIO)
+import Control.Concurrent hiding (forkIO, forkOS, forkOn)
 import Control.Concurrent as X (ThreadId, myThreadId, threadDelay, throwTo)
 import Control.Concurrent.MVar as X
 import Control.Concurrent.STM as X hiding (registerDelay)
@@ -68,26 +72,30 @@ import Data.Maybe as X (fromMaybe)
 import Data.Sequence as X (Seq)
 import Data.Set as X (Set)
 import Data.Word as X (Word32)
-import GHC.Conc (ThreadId (ThreadId))
+import Foreign.C.Types (CInt (CInt))
+import Foreign.StablePtr (StablePtr, freeStablePtr, newStablePtr)
 #if defined(mingw32_HOST_OS)
 import GHC.Conc.Windows
 #else
 import GHC.Event
 #endif
 
+import GHC.Base (maskAsyncExceptions#, maskUninterruptible#)
+import GHC.Conc (ThreadId (ThreadId))
 import GHC.Exts
   ( Int (I#),
     MutableByteArray#,
     RealWorld,
     addr2Int#,
     fork#,
+    forkOn#,
     isTrue#,
     newByteArray#,
     sameMutableByteArray#,
     unsafeCoerce#,
   )
 import GHC.Generics as X (Generic)
-import GHC.IO (IO (IO))
+import GHC.IO (IO (IO), unsafeUnmask)
 import System.IO.Unsafe (unsafePerformIO)
 import Prelude as X
 
@@ -108,6 +116,14 @@ atomicallyIO :: STM (IO a) -> IO a
 atomicallyIO =
   join . atomically
 
+blockI :: IO a -> IO a
+blockI (IO io) =
+  IO (maskAsyncExceptions# io)
+
+blockU :: IO a -> IO a
+blockU (IO io) =
+  IO (maskUninterruptible# io)
+
 debug :: Monad m => String -> m ()
 debug message =
   unsafePerformIO output `seq` pure ()
@@ -125,9 +141,45 @@ lock =
 -- Control.Concurrent.forkIO without the dumb exception handler
 forkIO :: IO () -> IO ThreadId
 forkIO action =
-  IO \s ->
-    case fork# action s of
+  IO \s0 ->
+    case fork# action s0 of
       (# s1, tid #) -> (# s1, ThreadId tid #)
+
+-- Control.Concurrent.forkOn without the dumb exception handler
+forkOn :: Int -> IO () -> IO ThreadId
+forkOn (I# cap) action =
+  IO \s0 ->
+    case forkOn# cap action s0 of
+      (# s1, tid #) -> (# s1, ThreadId tid #)
+
+-- Control.Concurrent.forkOS without the dumb exception handler
+forkOS :: IO () -> IO ThreadId
+forkOS action0 = do
+  when (not rtsSupportsBoundThreads) do
+    fail "RTS doesn't support multiple OS threads (use ghc -threaded when linking)"
+
+  threadIdVar <- newEmptyMVar
+
+  actionStablePtr <- do
+    action <-
+      -- createThread creates a MaskedInterruptible thread; this computation emulates forkIO's inheriting masking state
+      getMaskingState <&> \case
+        Unmasked -> unsafeUnmask action0
+        MaskedInterruptible -> action0
+        MaskedUninterruptible -> blockU action0
+
+    newStablePtr do
+      threadId <- myThreadId
+      putMVar threadIdVar threadId
+      action
+
+  createThread actionStablePtr >>= \case
+    0 -> pure ()
+    _ -> fail "Cannot create OS thread."
+
+  threadId <- takeMVar threadIdVar
+  freeStablePtr actionStablePtr
+  return threadId
 
 onLeft :: (a -> IO b) -> Either a b -> IO b
 onLeft f =
@@ -170,3 +222,9 @@ whenM x y =
   x >>= \case
     False -> pure ()
     True -> y
+
+------------------------------------------------------------------------------------------------------------------------
+-- FFI calls
+
+foreign import ccall
+  createThread :: StablePtr (IO ()) -> IO CInt
