@@ -40,6 +40,7 @@ import GHC.Base (maskAsyncExceptions#, maskUninterruptible#)
 import GHC.IO (IO (IO), unsafeUnmask)
 import Ki.Counter
 import Ki.Duration (Duration)
+import GHC.Conc (labelThread)
 import Ki.Prelude
 import Ki.Timeout
 
@@ -70,65 +71,73 @@ instance Exception ScopeClosing where
 
 -- TODO document, rename
 lowLevelFork :: Scope -> ThreadOpts -> IO a -> (Either SomeException a -> IO ()) -> IO ThreadId
-lowLevelFork Scope {childrenVar, nextChildIdCounter, startingVar} ThreadOpts {maskingState = maskingState1} action k = do
-  maskingState0 <- getMaskingState
+lowLevelFork
+  Scope {childrenVar, nextChildIdCounter, startingVar}
+  ThreadOpts {label, maskingState = maskingState1}
+  action
+  k = do
+    maskingState0 <- getMaskingState
 
-  let atLeastBlockI :: IO a -> IO a
-      atLeastBlockI =
-        case maskingState0 of
-          Unmasked -> blockI
-          MaskedInterruptible -> id
-          MaskedUninterruptible -> id
+    let atLeastBlockI :: IO a -> IO a
+        atLeastBlockI =
+          case maskingState0 of
+            Unmasked -> blockI
+            MaskedInterruptible -> id
+            MaskedUninterruptible -> id
 
-  atLeastBlockI do
-    -- Record the thread as being about to start.
-    atomically do
-      readTVar startingVar >>= \case
-        -1 -> throwSTM (ErrorCall "ki: scope closed")
-        n -> writeTVar startingVar $! n + 1
+    atLeastBlockI do
+      -- Record the thread as being about to start.
+      atomically do
+        readTVar startingVar >>= \case
+          -1 -> throwSTM (ErrorCall "ki: scope closed")
+          n -> writeTVar startingVar $! n + 1
 
-    -- Grab a unique id for this child.
-    childId <- incrCounter nextChildIdCounter
+      -- Grab a unique id for this child.
+      childId <- incrCounter nextChildIdCounter
 
-    childThreadId <-
-      forkIO do
-        result <-
-          -- run the action at the requested masking state
-          case maskingState1 of
-            Unmasked -> try (unsafeUnmask action)
-            MaskedInterruptible ->
-              case maskingState0 of
-                Unmasked -> try action
-                MaskedInterruptible -> try action
-                MaskedUninterruptible -> try (blockI action)
-            MaskedUninterruptible ->
-              case maskingState0 of
-                Unmasked -> try (blockU action)
-                MaskedInterruptible -> try (blockU action)
-                MaskedUninterruptible -> try action
+      childThreadId <-
+        forkIO do
+          whenJust label \s -> do
+            childThreadId <- myThreadId
+            labelThread childThreadId s
 
-        -- Perform the internal callback (this is where we decide to propagate the exception and whatnot)
-        k result
-        -- Common case: we alter the map at key `childId`, setting `Just childThreadId` to `Nothing` (unrecording the
-        -- child as running)
+          result <-
+            -- run the action at the requested masking state
+            case maskingState1 of
+              Unmasked -> try (unsafeUnmask action)
+              MaskedInterruptible ->
+                case maskingState0 of
+                  Unmasked -> try action
+                  MaskedInterruptible -> try action
+                  MaskedUninterruptible -> try (blockI action)
+              MaskedUninterruptible ->
+                case maskingState0 of
+                  Unmasked -> try (blockU action)
+                  MaskedInterruptible -> try (blockU action)
+                  MaskedUninterruptible -> try action
+
+          -- Perform the internal callback (this is where we decide to propagate the exception and whatnot)
+          k result
+          -- Common case: we alter the map at key `childId`, setting `Just childThreadId` to `Nothing` (unrecording the
+          -- child as running)
+          --
+          -- Uncommon case: we alter the map at key `childId`, but it's still `Nothing` (wow!) indicating that we finished
+          -- before the parent was scheduled to record the child as running, so delicately place a "certificate of quick
+          -- death" `Just undefined` in there.
+          atomically (modifyTVar' childrenVar (IntMap.alter (maybe (Just undefined) (const Nothing)) childId))
+
+      -- Record the child as having started
+      atomically do
+        modifyTVar' startingVar \n -> n -1
+        -- Common case: we alter the map at key `childId`, setting `Nothing` to `Just childThreadId` (recording the child
+        -- as running)
         --
-        -- Uncommon case: we alter the map at key `childId`, but it's still `Nothing` (wow!) indicating that we finished
-        -- before the parent was scheduled to record the child as running, so delicately place a "certificate of quick
-        -- death" `Just undefined` in there.
-        atomically (modifyTVar' childrenVar (IntMap.alter (maybe (Just undefined) (const Nothing)) childId))
+        -- Uncommon case: we alter the map at key `childId`, but it's already `Just undefined` (wow!) indicating that the
+        -- child already finished, so no need to record it as having started - set to `Nothing`, though, to delete this
+        -- now-unneeded `Just undefined` "certificate of quick death".
+        modifyTVar' childrenVar (IntMap.alter (maybe (Just childThreadId) (const Nothing)) childId)
 
-    -- Record the child as having started
-    atomically do
-      modifyTVar' startingVar \n -> n -1
-      -- Common case: we alter the map at key `childId`, setting `Nothing` to `Just childThreadId` (recording the child
-      -- as running)
-      --
-      -- Uncommon case: we alter the map at key `childId`, but it's already `Just undefined` (wow!) indicating that the
-      -- child already finished, so no need to record it as having started - set to `Nothing`, though, to delete this
-      -- now-unneeded `Just undefined` "certificate of quick death".
-      modifyTVar' childrenVar (IntMap.alter (maybe (Just childThreadId) (const Nothing)) childId)
-
-    pure childThreadId
+      pure childThreadId
 
 blockI :: IO a -> IO a
 blockI (IO io) =
@@ -285,14 +294,16 @@ instance Ord (Thread a) where
 
 -- | TODO document
 data ThreadOpts = ThreadOpts
-  { maskingState :: MaskingState
+  { label :: Maybe String,
+    maskingState :: MaskingState
   }
 
 -- | TODO document
 defaultThreadOpts :: ThreadOpts
 defaultThreadOpts =
   ThreadOpts
-    { maskingState = Unmasked
+    { label = Nothing,
+      maskingState = Unmasked
     }
 
 -- | Internal exception type thrown by a child __thread__ to its parent, if it fails unexpectedly.
