@@ -96,6 +96,7 @@ import GHC.Exts
   )
 import GHC.Generics as X (Generic)
 import GHC.IO (IO (IO), unsafeUnmask)
+import Numeric.Natural as X (Natural)
 import System.IO.Unsafe (unsafePerformIO)
 import Prelude as X
 

@@ -29,6 +29,8 @@ module Ki
     microseconds,
     milliseconds,
     seconds,
+    minutes,
+    hours,
     timeoutSTM,
     sleep,
 
@@ -45,7 +47,7 @@ module Ki
   )
 where
 
-import Ki.Duration (Duration, microseconds, milliseconds, seconds)
+import Ki.Duration (Duration, hours, microseconds, milliseconds, minutes, seconds)
 import Ki.Prelude
 import Ki.Scope
   ( Scope,

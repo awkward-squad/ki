@@ -4,6 +4,8 @@
 - Breaking: Remove `Ki.Internal` module.
 - Breaking: Make `async`/`fork` create an unmasked thread, rather than inherit the parent's masking state.
 - Breaking: Replace `asyncWithUnmask`/`forkWithUnmask` with a more general `asyncWith`/`forkWith`.
+- Breaking: Remove `Enum`, `Read`, and `Num`-related instances from `Duration`.
+- Breaking: Alter types of `microseconds`, `milliseconds`, and `seconds`
 
 - Change: Generalize API to use `MonadUnliftIO`, with `IO` specializations.
 - Change: Make `scoped` kill threads in the order they were created.
