@@ -20,19 +20,26 @@ module Ki
     awaitFor,
 
     -- ** Thread options
-    ThreadAffinity (..),
     ThreadOpts (..),
     defaultThreadOpts,
+    ThreadAffinity (..),
 
     -- * Miscellaneous
+    timeoutSTM,
+    sleep,
+
+    -- ** Bytes
+    Bytes,
+    kilobytes,
+    megabytes,
+
+    -- ** Duration
     Duration,
     microseconds,
     milliseconds,
     seconds,
     minutes,
     hours,
-    timeoutSTM,
-    sleep,
 
     -- * Documentation
 
@@ -47,6 +54,7 @@ module Ki
   )
 where
 
+import Ki.Bytes (Bytes, kilobytes, megabytes)
 import Ki.Duration (Duration, hours, microseconds, milliseconds, minutes, seconds)
 import Ki.Prelude
 import Ki.Scope

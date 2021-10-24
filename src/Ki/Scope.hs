@@ -41,6 +41,7 @@ import Data.Maybe (isJust)
 import qualified Data.Monoid as Monoid
 import GHC.Conc (enableAllocationLimit, labelThread, setAllocationCounter)
 import GHC.IO (unsafeUnmask)
+import Ki.Bytes
 import Ki.Counter
 import Ki.Duration (Duration)
 import Ki.Prelude
@@ -103,7 +104,7 @@ lowLevelFork
             childThreadId <- myThreadId
             labelThread childThreadId s
 
-          whenJust allocationLimit \n -> do
+          whenJust allocationLimit \(Bytes n) -> do
             setAllocationCounter n
             enableAllocationLimit
 
@@ -284,7 +285,7 @@ blockUntil0 var =
 ------------------------------------------------------------------------------------------------------------------------
 -- Thread
 
--- | A running __thread__.
+-- | A __thread__.
 data Thread a = Thread
   { await_ :: !(STM a),
     ident :: {-# UNPACK #-} !ThreadId
@@ -302,16 +303,16 @@ instance Ord (Thread a) where
 data ThreadAffinity
   = Capability Int
   | OsThread
-  deriving stock (Eq, Generic, Show)
+  deriving stock (Eq, Show)
 
 -- | TODO document
 data ThreadOpts = ThreadOpts
   { affinity :: Maybe ThreadAffinity,
-    allocationLimit :: Maybe Int64,
+    allocationLimit :: Maybe Bytes,
     label :: Maybe String,
     maskingState :: MaskingState
   }
-  deriving stock (Eq, Generic, Show)
+  deriving stock (Eq, Show)
 
 -- | TODO document
 defaultThreadOpts :: ThreadOpts

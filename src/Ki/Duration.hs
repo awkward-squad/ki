@@ -9,13 +9,11 @@ module Ki.Duration
   )
 where
 
-import Data.Data (Data)
 import Data.Fixed
 import Ki.Prelude
 
 -- | A length of time with microsecond precision.
 newtype Duration = Duration (Fixed E6)
-  deriving stock (Data, Generic)
   deriving newtype (Eq, Ord)
 
 instance Show Duration where
@@ -31,27 +29,27 @@ toMicroseconds :: Duration -> Int
 toMicroseconds (Duration (MkFixed us)) =
   fromIntegral us
 
--- | Construct a duration from a number of microseconds.
+-- | A number of microseconds.
 microseconds :: Natural -> Duration
 microseconds n =
   Duration (MkFixed (fromIntegral n))
 
--- | Construct a duration from a number of milliseconds.
+-- | A number of milliseconds.
 milliseconds :: Natural -> Duration
 milliseconds n =
   Duration (MkFixed (1000 * fromIntegral n))
 
--- | Construct a duration from a number of seconds.
+-- | A number of seconds.
 seconds :: Double -> Duration
 seconds n =
   Duration (MkFixed (floor (1000000 * n)))
 
--- | Construct a duration from a number of minutes.
+-- | A number of minutes.
 minutes :: Double -> Duration
 minutes n =
   Duration (MkFixed (floor (60000000 * n)))
 
--- | Construct a duration from a number of hours.
+-- | A number of hours.
 hours :: Double -> Duration
 hours n =
   Duration (MkFixed (floor (3600000000 * n)))

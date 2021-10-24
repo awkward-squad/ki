@@ -76,6 +76,7 @@ library
     Ki
   hs-source-dirs: src
   other-modules:
+    Ki.Bytes
     Ki.Counter
     Ki.Duration
     Ki.Prelude
