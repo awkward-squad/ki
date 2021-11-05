@@ -18,7 +18,7 @@
 
 - Misc: Remove `dejafu` test suite because it was too much of a pain to maintain.
 
-- Bounds: Bump `base` upper bound to `< 4.16`
+- Bounds: Bump `base` upper bound to `< 4.17`
 
 ## [0.2.0.1] - 2020-12-20
 
