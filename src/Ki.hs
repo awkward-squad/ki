@@ -1,32 +1,42 @@
--- | Please read the documentation at the bottom of this module for an overview of how to use this library.
 module Ki
-  ( -- * Scope
+  ( -- * Documentation
+
+    -- ** Structured concurrency
+    -- $doc-structured-concurrency
+
+    -- ** Creating threads
+    -- $doc-creating-threads
+
+    -- ** Exception propagation
+    -- $doc-exception-propagation
+
+    -- * Core API
     Scope,
+    Thread,
     scoped,
     wait,
+    fork,
+    async,
+    await,
+
+    -- * Extended API
     waitSTM,
     waitFor,
-
-    -- * Thread
-    Thread,
-    fork,
-    fork_,
     forkWith,
+    fork_,
     forkWith_,
-    async,
     asyncWith,
-    await,
     awaitSTM,
     awaitFor,
+
+    -- * Miscellaneous
+    timeoutSTM,
+    sleep,
 
     -- ** Thread options
     ThreadOpts (..),
     defaultThreadOpts,
     ThreadAffinity (..),
-
-    -- * Miscellaneous
-    timeoutSTM,
-    sleep,
 
     -- ** Bytes
     Bytes,
@@ -40,17 +50,6 @@ module Ki
     seconds,
     minutes,
     hours,
-
-    -- * Documentation
-
-    -- ** Structured concurrency
-    -- $tutorial-structured-concurrency
-
-    -- ** Creating threads
-    -- $tutorial-creating-threads
-
-    -- ** Exception propagation
-    -- $tutorial-exception-propagation
   )
 where
 
@@ -79,9 +78,7 @@ import Ki.Scope
   )
 import Ki.Timeout (timeoutSTM)
 
--- $documentation
-
--- $tutorial-structured-concurrency
+-- $doc-structured-concurrency
 --
 -- "Structured concurrency" is a style of concurrent programming in which threads are always created within a lexical
 -- scope, and cannot outlive the scope in which they were created.
@@ -100,7 +97,7 @@ import Ki.Timeout (timeoutSTM)
 -- becomes significantly easier to understand if, whenever a function is invoked, the reader can be certain that no
 -- matter what the function does internally, control will return to the very next statement.
 
--- $tutorial-creating-threads
+-- $doc-creating-threads
 --
 -- In @ki@, the scope in which threads are created is a first-class value called 'Scope'. A scope can only be created
 -- by the 'Ki.scoped' function, which is a "with-style" (or "bracket-style") function that accepts a callback; the
@@ -156,7 +153,7 @@ import Ki.Timeout (timeoutSTM)
 -- implementing concurrency abstractions such as worker pools, actors, and supervisors. But be careful - wherever the
 -- scope goes, so goes the ability to create threads within it!
 
--- $tutorial-exception-propagation
+-- $doc-exception-propagation
 --
 -- In @ki@, exception propagation is bi-directional between parent and child threads. We've already discussed one
 -- circumstance in which a parent throws exceptions to its children: when the callback provided to 'Ki.scoped' returns.
@@ -190,7 +187,7 @@ import Ki.Timeout (timeoutSTM)
 -- Each child thread can be thought to increases the "surface area" of the parent thread's identity, in the sense that
 -- any synchronous or asynchronous exception thrown by or to a child will ultimately be re-thrown by or to the parent.
 
--- | Duration-based @threadDelay@.
+-- | Sleep for a duration.
 sleep ::
   MonadIO m =>
   -- |

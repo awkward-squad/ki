@@ -9,7 +9,6 @@ import Ki.Prelude
 
 -- | A number of bytes.
 newtype Bytes = Bytes Int64
-  deriving stock (Data, Generic)
   deriving newtype (Eq, Ord)
 
 instance Show Bytes where

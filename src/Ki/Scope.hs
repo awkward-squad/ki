@@ -100,9 +100,9 @@ lowLevelFork
 
       childThreadId <-
         doFork do
-          whenJust label \s -> do
+          when (not (null label)) do
             childThreadId <- myThreadId
-            labelThread childThreadId s
+            labelThread childThreadId label
 
           whenJust allocationLimit \(Bytes n) -> do
             setAllocationCounter n
@@ -285,7 +285,7 @@ blockUntil0 var =
 ------------------------------------------------------------------------------------------------------------------------
 -- Thread
 
--- | A __thread__.
+-- | A __thread__ created with 'Ki.fork' or 'Ki.async', whose value can be 'Ki.await'ed.
 data Thread a = Thread
   { await_ :: !(STM a),
     ident :: {-# UNPACK #-} !ThreadId
@@ -301,26 +301,39 @@ instance Ord (Thread a) where
     compare x y
 
 data ThreadAffinity
-  = Capability Int
-  | OsThread
+  = -- | Bound to a capability.
+    Capability Int
+  | -- | Bound to an OS thread.
+    OsThread
   deriving stock (Eq, Show)
 
 -- | TODO document
 data ThreadOpts = ThreadOpts
   { affinity :: Maybe ThreadAffinity,
+    -- | The maximum amount of bytes a thread may allocate before it is delivered an 'AllocationLimitExceeded'
+    -- exception.
     allocationLimit :: Maybe Bytes,
-    label :: Maybe String,
+    label :: String,
+    -- | The masking state a thread is created in.
     maskingState :: MaskingState
   }
   deriving stock (Eq, Show)
 
--- | TODO document
+-- |
+-- @
+-- ThreadOpts
+--   { affinity = Nothing
+--   , allocationLimit = Nothing
+--   , label = ""
+--   , maskingState = Unmasked
+--   }
+-- @
 defaultThreadOpts :: ThreadOpts
 defaultThreadOpts =
   ThreadOpts
     { affinity = Nothing,
       allocationLimit = Nothing,
-      label = Nothing,
+      label = "",
       maskingState = Unmasked
     }
 
@@ -400,10 +413,6 @@ awaitSTM =
 --
 -- If the child __thread__ throws an exception, the exception is immediately propagated to its parent __thread__.
 --
--- /Throws/:
---
---   * Calls 'error' if the __scope__ is /closed/.
---
 -- FIXME document unmasked
 fork :: MonadUnliftIO m => Scope -> m a -> m (Thread a)
 fork scope =
@@ -416,10 +425,6 @@ fork scope =
 -- FIXME document unmasked
 --
 -- If the child __thread__ throws an exception, the exception is immediately propagated to its parent __thread__.
---
--- /Throws/:
---
---   * Calls 'error' if the __scope__ is /closed/.
 fork_ :: MonadUnliftIO m => Scope -> m () -> m ()
 fork_ scope =
   forkWith_ scope defaultThreadOpts
@@ -429,10 +434,6 @@ fork_ scope =
 -- | Variant of 'Ki.fork' that provides the child __thread__ a function that unmasks asynchronous exceptions.
 --
 -- FIXME fix docs
---
--- /Throws/:
---
---   * Calls 'error' if the __scope__ is /closed/.
 forkWith :: MonadUnliftIO m => Scope -> ThreadOpts -> m a -> m (Thread a)
 forkWith scope opts action =
   withRunInIO \unlift -> do
@@ -457,10 +458,6 @@ forkWith scope opts action =
 -- | Variant of 'Ki.forkWithUnmask' that does not return a handle to the child __thread__.
 --
 -- FIXME fix docs
---
--- /Throws/:
---
---   * Calls 'error' if the __scope__ is /closed/.
 forkWith_ :: MonadUnliftIO m => Scope -> ThreadOpts -> m () -> m ()
 forkWith_ scope opts action =
   withRunInIO \unlift -> do

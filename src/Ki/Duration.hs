@@ -1,6 +1,5 @@
 module Ki.Duration
-  ( Duration (..),
-    toMicroseconds,
+  ( Duration (Micros),
     microseconds,
     milliseconds,
     seconds,
@@ -24,10 +23,10 @@ instance Show Duration where
     | (n, 0) <- quotRem us 1000, n > 0 = "milliseconds " ++ show n
     | otherwise = "microseconds " ++ show us
 
+pattern Micros :: Int -> Duration
+pattern Micros us <- (Duration (MkFixed (fromIntegral -> us)))
 
-toMicroseconds :: Duration -> Int
-toMicroseconds (Duration (MkFixed us)) =
-  fromIntegral us
+{-# COMPLETE Micros #-}
 
 -- | A number of microseconds.
 microseconds :: Natural -> Duration

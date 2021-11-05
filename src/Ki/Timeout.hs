@@ -3,8 +3,7 @@ module Ki.Timeout
   )
 where
 
-import Ki.Duration (Duration)
-import qualified Ki.Duration
+import Ki.Duration (Duration(Micros))
 import Ki.Prelude
 
 -- | Wait for an @STM@ action to return an @m@ action, or if the given duration elapses, return the given @m@ action
@@ -18,7 +17,15 @@ timeoutSTM ::
   -- |
   m a ->
   m a
-timeoutSTM duration action fallback = do
-  (delay, unregister) <- liftIO (registerDelay (Ki.Duration.toMicroseconds duration))
-  join (liftIO (atomically (delay $> fallback <|> (liftIO unregister >>) <$> action)))
+timeoutSTM (Micros us) action fallback = do
+  (delay, unregister) <- liftIO (registerDelay us)
+  let lhs = do
+        delay
+        pure fallback
+  let rhs = do
+        io <- action
+        pure do
+          liftIO unregister
+          io
+  join (liftIO (atomically (lhs <|> rhs)))
 {-# SPECIALIZE timeoutSTM :: Duration -> STM (IO a) -> IO a -> IO a #-}
