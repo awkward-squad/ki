@@ -14,29 +14,29 @@ module Ki
     Scope,
     Thread,
     scoped,
-    wait,
     fork,
     async,
     await,
+    wait,
 
     -- * Extended API
-    waitSTM,
-    waitFor,
-    forkWith,
     fork_,
+    forkWith,
     forkWith_,
     asyncWith,
     awaitSTM,
     awaitFor,
-
-    -- * Miscellaneous
-    timeoutSTM,
-    sleep,
+    waitSTM,
+    waitFor,
 
     -- ** Thread options
     ThreadOpts (..),
     defaultThreadOpts,
     ThreadAffinity (..),
+
+    -- * Miscellaneous
+    timeoutSTM,
+    sleep,
 
     -- ** Bytes
     Bytes,

@@ -195,8 +195,8 @@ spawn
             childThreadId <- myThreadId
             labelThread childThreadId label
 
-          whenJust allocationLimit \(Bytes n) -> do
-            setAllocationCounter n
+          whenJust allocationLimit \bytes -> do
+            setAllocationCounter (bytesToInt64 bytes)
             enableAllocationLimit
 
           action case requestedChildMaskingState of
@@ -205,7 +205,7 @@ spawn
               case parentMaskingState of
                 Unmasked -> id
                 MaskedInterruptible -> id
-                MaskedUninterruptible -> blockI
+                MaskedUninterruptible -> blockI -- downgrade
             MaskedUninterruptible ->
               case parentMaskingState of
                 Unmasked -> blockU

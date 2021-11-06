@@ -1,7 +1,8 @@
 module Ki.Bytes
-  ( Bytes (..),
+  ( Bytes,
     kilobytes,
     megabytes,
+    bytesToInt64,
   )
 where
 
@@ -26,3 +27,7 @@ kilobytes n =
 megabytes :: Natural -> Bytes
 megabytes n =
   Bytes (fromIntegral n * 1048576)
+
+bytesToInt64 :: Bytes -> Int64
+bytesToInt64 =
+  coerce
