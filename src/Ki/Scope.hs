@@ -50,7 +50,7 @@ import Ki.Timeout
 ------------------------------------------------------------------------------------------------------------------------
 -- Scope
 
--- | A __scope__ delimits the lifetime of all __threads__ created within it.
+-- | A scope delimits the lifetime of all threads created within it.
 data Scope = Scope
   { -- | The set of child threads that are currently running, each keyed by a monotonically increasing int.
     childrenVar :: {-# UNPACK #-} !(TVar (IntMap ThreadId)),
@@ -63,102 +63,18 @@ data Scope = Scope
     startingVar :: {-# UNPACK #-} !(TVar Int)
   }
 
--- | Exception thrown by a parent __thread__ to its children when its __scope__ is closing.
+-- Exception thrown by a parent thread to its children when its scope is closing.
 data ScopeClosing
   = ScopeClosing
-  deriving stock (Eq, Show)
+
+instance Show ScopeClosing where
+  show _ = "ScopeClosing"
 
 instance Exception ScopeClosing where
   toException = asyncExceptionToException
   fromException = asyncExceptionFromException
 
--- TODO document, rename
-lowLevelFork :: Scope -> ThreadOpts -> IO a -> (Either SomeException a -> IO ()) -> IO ThreadId
-lowLevelFork
-  Scope {childrenVar, nextChildIdCounter, startingVar}
-  ThreadOpts {affinity, allocationLimit, label, maskingState = maskingState1}
-  action
-  k = do
-    maskingState0 <- getMaskingState
-
-    let atLeastBlockI :: IO a -> IO a
-        atLeastBlockI =
-          case maskingState0 of
-            Unmasked -> blockI
-            MaskedInterruptible -> id
-            MaskedUninterruptible -> id
-
-    atLeastBlockI do
-      -- Record the thread as being about to start.
-      atomically do
-        readTVar startingVar >>= \case
-          -1 -> throwSTM (ErrorCall "ki: scope closed")
-          n -> writeTVar startingVar $! n + 1
-
-      -- Grab a unique id for this child.
-      childId <- incrCounter nextChildIdCounter
-
-      childThreadId <-
-        doFork do
-          when (not (null label)) do
-            childThreadId <- myThreadId
-            labelThread childThreadId label
-
-          whenJust allocationLimit \(Bytes n) -> do
-            setAllocationCounter n
-            enableAllocationLimit
-
-          result <-
-            -- run the action at the requested masking state
-            case maskingState1 of
-              Unmasked -> try (unsafeUnmask action)
-              MaskedInterruptible ->
-                case maskingState0 of
-                  Unmasked -> try action
-                  MaskedInterruptible -> try action
-                  MaskedUninterruptible -> try (blockI action)
-              MaskedUninterruptible ->
-                case maskingState0 of
-                  Unmasked -> try (blockU action)
-                  MaskedInterruptible -> try (blockU action)
-                  MaskedUninterruptible -> try action
-
-          -- Perform the internal callback (this is where we decide to propagate the exception and whatnot)
-          k result
-          -- Common case: we alter the map at key `childId`, setting `Just childThreadId` to `Nothing` (unrecording the
-          -- child as running)
-          --
-          -- Uncommon case: we alter the map at key `childId`, but it's still `Nothing` (wow!) indicating that we
-          -- finished before the parent was scheduled to record the child as running, so delicately place a "certificate
-          -- of quick
-          -- death" `Just undefined` in there.
-          atomically (modifyTVar' childrenVar (IntMap.alter (maybe (Just undefined) (const Nothing)) childId))
-
-      -- Record the child as having started
-      atomically do
-        modifyTVar' startingVar \n -> n -1
-        -- Common case: we alter the map at key `childId`, setting `Nothing` to `Just childThreadId` (recording the
-        -- child as running)
-        --
-        -- Uncommon case: we alter the map at key `childId`, but it's already `Just undefined` (wow!) indicating that
-        -- the child already finished, so no need to record it as having started - set to `Nothing`, though, to delete
-        -- this now-unneeded `Just undefined` "certificate of quick death".
-        modifyTVar' childrenVar (IntMap.alter (maybe (Just childThreadId) (const Nothing)) childId)
-
-      pure childThreadId
-    where
-      -- forkIO/forkOn/forkOS, switching on affinity
-      doFork :: IO () -> IO ThreadId
-      doFork =
-        case affinity of
-          Nothing -> forkIO
-          Just (Capability n) -> forkOn n
-          Just OsThread -> forkOS
-
--- | Open a __scope__, perform an action with it, then close the __scope__.
---
--- When the __scope__ is closed, all remaining __threads__ created within it are thrown an asynchronous exception in the
--- order they were created, and FIXME we block until they all terminate.
+-- | Perform an action in a new scope. When the action returns, all living threads created within the scope are killed.
 --
 -- ==== __Examples__
 --
@@ -248,7 +164,91 @@ scopedIO f = do
                 Right () -> loop acc threadIds
        in loop mempty
 
--- | Wait until all __threads__ created within a __scope__ terminate.
+-- Spawn a thread in a scope, providing it a function that sets the masking state to the requested masking state. The given action must not
+-- throw an exception.
+spawn :: Scope -> ThreadOpts -> ((forall x. IO x -> IO x) -> IO ()) -> IO ThreadId
+spawn
+  Scope {childrenVar, nextChildIdCounter, startingVar}
+  ThreadOpts {affinity, allocationLimit, label, maskingState = requestedChildMaskingState}
+  action = do
+    parentMaskingState <- getMaskingState
+
+    let atLeastBlockI :: IO a -> IO a
+        atLeastBlockI =
+          case parentMaskingState of
+            Unmasked -> blockI
+            MaskedInterruptible -> id
+            MaskedUninterruptible -> id
+
+    atLeastBlockI do
+      -- Record the thread as being about to start.
+      atomically do
+        readTVar startingVar >>= \case
+          -1 -> throwSTM (ErrorCall "ki: scope closed")
+          n -> writeTVar startingVar $! n + 1
+
+      childId <- incrCounter nextChildIdCounter
+
+      childThreadId <-
+        forkWithAffinity affinity do
+          when (not (null label)) do
+            childThreadId <- myThreadId
+            labelThread childThreadId label
+
+          whenJust allocationLimit \(Bytes n) -> do
+            setAllocationCounter n
+            enableAllocationLimit
+
+          action case requestedChildMaskingState of
+            Unmasked -> unsafeUnmask
+            MaskedInterruptible ->
+              case parentMaskingState of
+                Unmasked -> id
+                MaskedInterruptible -> id
+                MaskedUninterruptible -> blockI
+            MaskedUninterruptible ->
+              case parentMaskingState of
+                Unmasked -> blockU
+                MaskedInterruptible -> blockU
+                MaskedUninterruptible -> id
+
+          atomically (unrecordChild childrenVar childId)
+
+      -- Record the child as having started
+      atomically do
+        modifyTVar' startingVar \n -> n -1
+        recordChild childrenVar childId childThreadId
+
+      pure childThreadId
+
+-- Record our child by either:
+--
+--   * Flipping `Nothing` to `Just childThreadId` (common case: we record child before it unrecords itself)
+--   * Flipping `Just _` to `Nothing` (uncommon case: we observe that a child already unrecorded itself)
+--
+-- Never retries.
+recordChild :: TVar (IntMap ThreadId) -> Int -> ThreadId -> STM ()
+recordChild childrenVar childId childThreadId =
+  modifyTVar' childrenVar (IntMap.alter (maybe (Just childThreadId) (const Nothing)) childId)
+
+-- Unrecord a child (ourselves) by either:
+--
+--   * Flipping `Just childThreadId` to `Nothing` (common case: parent recorded us first)
+--   * Flipping `Nothing` to `Just undefined` (uncommon case: we die and unrecord before parent can record us).
+--
+-- Never retries.
+unrecordChild :: TVar (IntMap ThreadId) -> Int -> STM ()
+unrecordChild childrenVar childId =
+  modifyTVar' childrenVar (IntMap.alter (maybe (Just undefined) (const Nothing)) childId)
+
+-- forkIO/forkOn/forkOS, switching on affinity
+forkWithAffinity :: Maybe ThreadAffinity -> IO () -> IO ThreadId
+forkWithAffinity = \case
+  Nothing -> forkIO
+  Just (Capability n) -> forkOn n
+  Just OsThread -> forkOS
+
+-- | Wait until all threads created within a scope terminate.
 wait :: MonadIO m => Scope -> m ()
 wait =
   liftIO . atomically . waitSTM
@@ -269,13 +269,13 @@ waitSTM Scope {childrenVar, startingVar} = do
   blockUntil0 startingVar
 {-# INLINE waitSTM #-}
 
--- Block until an @IntMap@ becomes empty.
+-- Block until an IntMap becomes empty.
 blockUntilEmpty :: TVar (IntMap a) -> STM ()
 blockUntilEmpty var = do
   x <- readTVar var
   when (not (IntMap.null x)) retry
 
--- Block until a @TVar@ becomes 0.
+-- Block until a TVar becomes 0.
 blockUntil0 :: TVar Int -> STM ()
 blockUntil0 var =
   readTVar var >>= \case
@@ -285,7 +285,7 @@ blockUntil0 var =
 ------------------------------------------------------------------------------------------------------------------------
 -- Thread
 
--- | A __thread__ created with 'Ki.fork' or 'Ki.async', whose value can be 'Ki.await'ed.
+-- | A thread created within a scope.
 data Thread a = Thread
   { await_ :: !(STM a),
     ident :: {-# UNPACK #-} !ThreadId
@@ -293,12 +293,12 @@ data Thread a = Thread
   deriving stock (Functor)
 
 instance Eq (Thread a) where
-  Thread {ident = x} == Thread {ident = y} =
-    x == y
+  Thread _ ix == Thread _ iy =
+    ix == iy
 
 instance Ord (Thread a) where
-  compare Thread {ident = x} Thread {ident = y} =
-    compare x y
+  compare (Thread _ ix) (Thread _ iy) =
+    compare ix iy
 
 data ThreadAffinity
   = -- | Bound to a capability.
@@ -307,7 +307,7 @@ data ThreadAffinity
     OsThread
   deriving stock (Eq, Show)
 
--- | TODO document
+-- | Thread options that can be provided at the time a thread is created.
 data ThreadOpts = ThreadOpts
   { affinity :: Maybe ThreadAffinity,
     -- | The maximum amount of bytes a thread may allocate before it is delivered an 'AllocationLimitExceeded'
@@ -337,7 +337,7 @@ defaultThreadOpts =
       maskingState = Unmasked
     }
 
--- | Internal exception type thrown by a child __thread__ to its parent, if it fails unexpectedly.
+-- Internal exception type thrown by a child thread to its parent, if it fails unexpectedly.
 newtype ThreadFailed
   = ThreadFailed SomeException
   deriving stock (Show)
@@ -346,7 +346,7 @@ instance Exception ThreadFailed where
   toException = asyncExceptionToException
   fromException = asyncExceptionFromException
 
--- | Create a child __thread__ within a __scope__.
+-- | Create a child thread within a scope.
 -- FIXME document that exceptions are unmasked
 async :: MonadUnliftIO m => Scope -> m a -> m (Thread (Either SomeException a))
 async scope action =
@@ -355,7 +355,7 @@ async scope action =
 {-# INLINE async #-}
 {-# SPECIALIZE async :: Scope -> IO a -> IO (Thread (Either SomeException a)) #-}
 
--- | Variant of 'Ki.async' that provides the __thread__ a function that unmasks asynchronous exceptions.
+-- | Variant of 'Ki.async' that provides the thread a function that unmasks asynchronous exceptions.
 -- FIXME fix docs
 asyncWith :: MonadUnliftIO m => Scope -> ThreadOpts -> m a -> m (Thread (Either SomeException a))
 asyncWith scope opts action =
@@ -369,7 +369,8 @@ async_ scope opts action = do
   parentThreadId <- myThreadId
   resultVar <- newEmptyTMVarIO
   ident <-
-    lowLevelFork scope opts action \result -> do
+    spawn scope opts \masking -> do
+      result <- try (masking action)
       case result of
         Left exception -> maybePropagateException parentThreadId exception isAsyncException
         Right _ -> pure ()
@@ -384,7 +385,7 @@ async_ scope opts action = do
     isAsyncException =
       isJust . fromException @SomeAsyncException
 
--- | Wait for a __thread__ to terminate.
+-- | Wait for a thread to terminate, and return its value.
 await :: MonadIO m => Thread a -> m a
 await thread =
   -- If *they* are deadlocked, we will *both* will be delivered a wakeup from the RTS. We want to shrug this exception
@@ -409,9 +410,9 @@ awaitSTM :: Thread a -> STM a
 awaitSTM =
   await_
 
--- | Create a child __thread__ within a __scope__.
+-- | Create a thread within a scope.
 --
--- If the child __thread__ throws an exception, the exception is immediately propagated to its parent __thread__.
+-- If the thread terminates with an exception, the exception is propagated to its parent thread.
 --
 -- FIXME document unmasked
 fork :: MonadUnliftIO m => Scope -> m a -> m (Thread a)
@@ -420,18 +421,18 @@ fork scope =
 {-# INLINE fork #-}
 {-# SPECIALIZE fork :: Scope -> IO a -> IO (Thread a) #-}
 
--- | Variant of 'Ki.fork' that does not return a handle to the child __thread__.
+-- | Variant of 'Ki.fork' that does not return a handle to the child thread.
 --
 -- FIXME document unmasked
 --
--- If the child __thread__ throws an exception, the exception is immediately propagated to its parent __thread__.
+-- If the child thread throws an exception, the exception is immediately propagated to its parent thread.
 fork_ :: MonadUnliftIO m => Scope -> m () -> m ()
 fork_ scope =
   forkWith_ scope defaultThreadOpts
 {-# INLINE fork_ #-}
 {-# SPECIALIZE fork_ :: Scope -> IO () -> IO () #-}
 
--- | Variant of 'Ki.fork' that provides the child __thread__ a function that unmasks asynchronous exceptions.
+-- | Variant of 'Ki.fork' that provides the child thread a function that unmasks asynchronous exceptions.
 --
 -- FIXME fix docs
 forkWith :: MonadUnliftIO m => Scope -> ThreadOpts -> m a -> m (Thread a)
@@ -440,7 +441,8 @@ forkWith scope opts action =
     parentThreadId <- myThreadId
     resultVar <- newEmptyTMVarIO
     ident <-
-      lowLevelFork scope opts (unlift action) \result -> do
+      spawn scope opts \masking -> do
+        result <- try (masking (unlift action))
         case result of
           Left exception -> maybePropagateException parentThreadId exception (const True)
           Right _ -> pure ()
@@ -455,7 +457,7 @@ forkWith scope opts action =
         }
 {-# SPECIALIZE forkWith :: Scope -> ThreadOpts -> IO a -> IO (Thread a) #-}
 
--- | Variant of 'Ki.forkWithUnmask' that does not return a handle to the child __thread__.
+-- | Variant of 'Ki.forkWithUnmask' that does not return a handle to the child thread.
 --
 -- FIXME fix docs
 forkWith_ :: MonadUnliftIO m => Scope -> ThreadOpts -> m () -> m ()
@@ -463,9 +465,10 @@ forkWith_ scope opts action =
   withRunInIO \unlift -> do
     parentThreadId <- myThreadId
     _childThreadId <-
-      lowLevelFork scope opts (unlift action) \case
-        Left exception -> maybePropagateException parentThreadId exception (const True)
-        Right () -> pure ()
+      spawn scope opts \masking ->
+        try (masking (unlift action)) >>= \case
+          Left exception -> maybePropagateException parentThreadId exception (const True)
+          Right _unit -> pure ()
     pure ()
 {-# SPECIALIZE forkWith_ :: Scope -> ThreadOpts -> IO () -> IO () #-}
 
