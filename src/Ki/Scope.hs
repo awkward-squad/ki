@@ -384,7 +384,14 @@ await thread =
   -- If *they* are deadlocked, we will *both* will be delivered a wakeup from the RTS. We want to shrug this exception off, because
   -- afterwards they'll have put to the result var. But don't shield indefinitely, once will cover this use case and prevent any accidental
   -- infinite loops.
-  liftIO (go `catch` \BlockedIndefinitelyOnSTM -> go)
+  liftIO do
+    join do
+      catch
+        ( do
+            result <- go
+            pure (pure result)
+        )
+        \BlockedIndefinitelyOnSTM -> pure go
   where
     go =
       atomically (await_ thread)
