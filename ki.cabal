@@ -12,6 +12,7 @@ name: ki
 stability: experimental
 synopsis: A lightweight, structured-concurrency library
 version: 0.2.0.1
+x-revision: 1
 
 description:
   A lightweight, structured-concurrency library.
@@ -95,7 +96,7 @@ flag dejafu-tests
 library
   import: component
   build-depends:
-    base >= 4.12.0.0 && < 4.15,
+    base >= 4.12.0.0 && < 4.17,
     containers
   if !flag(dejafu-tests)
     build-depends:
