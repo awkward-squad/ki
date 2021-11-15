@@ -37,7 +37,6 @@ import Control.Exception
   )
 import Control.Monad.IO.Unlift (MonadUnliftIO (withRunInIO))
 import qualified Data.IntMap.Lazy as IntMap
-import qualified Data.Monoid as Monoid
 import GHC.Conc (enableAllocationLimit, labelThread, setAllocationCounter)
 import GHC.IO (unsafeUnmask)
 import Ki.Bytes
@@ -59,7 +58,10 @@ data Scope = Scope
     -- delay; no async exception can strike here and prevent one of these threads from starting.
     --
     -- Sentinel value: -1 means the scope is closed.
-    startingVar :: {-# UNPACK #-} !(TVar Int)
+    startingVar :: {-# UNPACK #-} !(TVar Int),
+    -- | The MVar that a child puts to before propagating the exception to the parent because the delivery is not guaranteed. This is
+    -- because the parent must kill its children with asynchronous exceptions uninterruptibly masked for correctness.
+    childExceptionVar :: {-# UNPACK #-} !(MVar SomeException)
   }
 
 -- Exception thrown by a parent thread to its children when its scope is closing.
@@ -89,7 +91,8 @@ scoped action =
     childrenVar <- newTVarIO IntMap.empty
     nextChildIdCounter <- newCounter
     startingVar <- newTVarIO 0
-    let scope = Scope {childrenVar, nextChildIdCounter, startingVar}
+    childExceptionVar <- newEmptyMVar
+    let scope = Scope {childrenVar, nextChildIdCounter, startingVar, childExceptionVar}
 
     uninterruptibleMask \restore -> do
       result <- try (restore (unlift (action scope)))
@@ -105,9 +108,8 @@ scoped action =
           -- `blockUntil0` above). That's fine - kill them all!
           readTVar childrenVar
 
-      -- Deliver an async exception to every child. While doing so, we may get hit by an arbitrary number of async exceptions ourselves, but
-      -- it's unclear what we should do with such a list, so we only remember the first one, and ignore the others.
-      firstExceptionReceivedWhileKillingChildren <- killThreads (IntMap.elems children)
+      -- Deliver an async exception to every child in the order they were created.
+      traverse_ (flip throwTo ScopeClosing) (IntMap.elems children)
 
       -- Block until all children have terminated; this relies on children respecting the async exception, which they must, for correctness.
       -- Otherwise, a thread could indeed outlive the scope in which it's created, which is definitely not structured concurrency!
@@ -116,49 +118,16 @@ scoped action =
       -- If the callback failed, we don't care if we were thrown an async exception while closing the scope. Otherwise, throw that exception
       -- (if it exists).
       case result of
-        Left exception -> throw exception
+        -- If applicable, unwrap the 'ThreadFailed' (assumed to have come from one of our children).
+        Left exception -> case fromException exception of
+          Just (ThreadFailed threadFailedException) -> throwIO threadFailedException
+          Nothing -> throwIO exception
         Right value -> do
-          whenJust firstExceptionReceivedWhileKillingChildren throw
-          pure value
-  where
-    -- If applicable, unwrap the 'ThreadFailed' (assumed to have come from one of our children).
-    throw :: SomeException -> IO a
-    throw exception =
-      case fromException exception of
-        Just (ThreadFailed threadFailedException) -> throwIO threadFailedException
-        Nothing -> throwIO exception
+          tryTakeMVar childExceptionVar >>= \case
+            Nothing -> pure value
+            Just ex -> throwIO ex
 {-# INLINE scoped #-}
 {-# SPECIALIZE scoped :: (Scope -> IO a) -> IO a #-}
-
--- In the order they were created, throw at least one ScopeClosing exception to each of the given threads.
---
--- This function must be called with asynchronous exceptions masked, but we unmask in order to throw each ScopeClosing in order to avoid a
--- deadlock with that child thread, in case it is trying to propagate an exception to us at the same time, which which *it* does with
--- asynchronous exceptions masked, so its failure does not go unnoticed.
---
--- It's possible, therefore, that we get hit by an asynchronous exception just *before* or just *after* throwing each ScopeClosing. If this
--- occurs, we do not remove the ThreadId from the list of ThreadIds to which we will throw a ScopeClosing, in case we got hit by some
--- asynchronous exception *before* delivering the ScopeClosing. This is why each child thread will ultimately receive *at least one*
--- ScopeClosing exception.
---
--- As far as what to do with the asynchronous exceptions that are delivered to us - because there's no convenient or ergonomic way to throw
--- or catch a "multi-exception", we only remember the first one, to re-throw after all of the threads we are trying to kill here actually
--- terminate.
-killThreads :: [ThreadId] -> IO (Maybe SomeException)
-killThreads =
-  let loop :: Monoid.First SomeException -> [ThreadId] -> IO (Maybe SomeException)
-      loop !acc = \case
-        [] -> pure (Monoid.getFirst acc)
-        threadId : threadIds ->
-          join do
-            catch
-              ( do
-                  unsafeUnmask (throwTo threadId ScopeClosing)
-                  pure (loop acc threadIds)
-              )
-              -- intentionally don't drop threadId, since we don't know if we delivered it an exception or not
-              \exception -> pure (loop (acc <> Monoid.First (Just exception)) (threadId : threadIds))
-   in loop (Monoid.First Nothing)
 
 -- Spawn a thread in a scope, providing it a function that sets the masking state to the requested masking state. The given action must not
 -- throw an exception.
@@ -361,7 +330,7 @@ asyncWith scope opts action =
       spawn scope opts \masking -> do
         result <- try (masking (unlift action))
         case result of
-          Left exception -> maybePropagateException parentThreadId exception isAsyncException
+          Left exception -> maybePropagateException parentThreadId exception isAsyncException (childExceptionVar scope)
           Right _ -> pure ()
         putTMVarIO resultVar result -- even put async exceptions that we propagated
     pure
@@ -437,7 +406,7 @@ forkWith scope opts action =
       spawn scope opts \masking -> do
         result <- try (masking (unlift action))
         case result of
-          Left exception -> maybePropagateException parentThreadId exception (const True)
+          Left exception -> maybePropagateException parentThreadId exception (const True) (childExceptionVar scope)
           Right _ -> pure ()
         -- even put async exceptions that we propagated. this isn't totally ideal because a caller awaiting this thread would not be able to
         -- distinguish between async exceptions delivered to this thread, or itself
@@ -462,13 +431,20 @@ forkWith_ scope opts action =
                 masking (unlift action)
                 pure (pure ())
             )
-            \exception -> pure (maybePropagateException parentThreadId exception (const True))
+            \exception -> pure (maybePropagateException parentThreadId exception (const True) (childExceptionVar scope))
     pure ()
 {-# SPECIALIZE forkWith_ :: Scope -> ThreadOpts -> IO () -> IO () #-}
 
-maybePropagateException :: ThreadId -> SomeException -> (SomeException -> Bool) -> IO ()
-maybePropagateException parentThreadId exception should =
-  when shouldPropagateException (throwTo parentThreadId (ThreadFailed exception))
+maybePropagateException :: ThreadId -> SomeException -> (SomeException -> Bool) -> MVar SomeException -> IO ()
+maybePropagateException parentThreadId exception should childExceptionVar =
+  when shouldPropagateException do
+    let go =
+          try (unsafeUnmask (throwTo parentThreadId (ThreadFailed exception))) >>= \case
+            Left e -> case fromException e of
+              Just ScopeClosing -> void (tryPutMVar childExceptionVar exception)
+              _ -> go
+            Right _ -> pure ()
+    go
   where
     shouldPropagateException :: Bool
     shouldPropagateException

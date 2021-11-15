@@ -13,6 +13,7 @@
 - Bugfix: Fix small memory leak related to closing a scope.
 - Bugfix: Fix subtle bug related to GHC's treatment of deadlocked threads.
 - Bugfix: make `async` propagate async exceptions.
+- Bugfix: make `scoped` honor `mask`
 
 - Performance: Use atomic fetch-and-add rather than a TVar to track internal child thread ids
 
