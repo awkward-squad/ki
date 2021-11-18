@@ -76,6 +76,17 @@ instance Exception ScopeClosing where
   toException = asyncExceptionToException
   fromException = asyncExceptionFromException
 
+-- Trust without verifying that any 'ScopeClosed' exception, which is not exported by this module, was indeed thrown to
+-- a thread by this library, and not randomly caught by a user and propagated to some thread.
+isScopeClosingException :: SomeException -> Bool
+isScopeClosingException exception =
+  case fromException exception of
+    Just ScopeClosing -> True
+    _ -> False
+
+pattern IsScopeClosingException :: SomeException
+pattern IsScopeClosingException <- (isScopeClosingException -> True)
+
 -- | Perform an action in a new scope. When the action returns, all living threads created within the scope are killed.
 --
 -- ==== __Examples__
@@ -359,9 +370,14 @@ forktryWith scope opts action =
         case result of
           Left exception ->
             case fromException @e exception of
-              Nothing -> maybePropagateException parentThreadId exception (const True) (childExceptionVar scope)
+              Nothing ->
+                when
+                  (not (isScopeClosingException exception))
+                  (propagateException parentThreadId exception (childExceptionVar scope))
               Just exception' -> do
-                maybePropagateException parentThreadId exception isAsyncException (childExceptionVar scope)
+                when
+                  (not (isScopeClosingException exception) && isAsyncException exception)
+                  (propagateException parentThreadId exception (childExceptionVar scope))
                 putTMVarIO resultVar (Left exception') -- even put async exceptions that we propagated
           Right value -> putTMVarIO resultVar (Right value)
     pure
@@ -430,7 +446,10 @@ forkWith scope opts action =
       spawn scope opts \masking -> do
         result <- try (masking (unlift action))
         case result of
-          Left exception -> maybePropagateException parentThreadId exception (const True) (childExceptionVar scope)
+          Left exception ->
+            when
+              (not (isScopeClosingException exception))
+              (propagateException parentThreadId exception (childExceptionVar scope))
           Right _ -> pure ()
         -- even put async exceptions that we propagated. this isn't totally ideal because a caller awaiting this thread
         -- would not be able to distinguish between async exceptions delivered to this thread, or itself
@@ -450,30 +469,26 @@ forkWith_ scope opts action =
     _childThreadId <-
       spawn scope opts \masking ->
         tryEither
-          (\exception -> maybePropagateException parentThreadId exception (const True) (childExceptionVar scope))
+          ( \exception ->
+              when
+                (not (isScopeClosingException exception))
+                (propagateException parentThreadId exception (childExceptionVar scope))
+          )
           (\_unit -> pure ())
           (masking (unlift action))
     pure ()
 {-# SPECIALIZE forkWith_ :: Scope -> ThreadOpts -> IO () -> IO () #-}
 
-maybePropagateException :: ThreadId -> SomeException -> (SomeException -> Bool) -> MVar SomeException -> IO ()
-maybePropagateException parentThreadId exception should childExceptionVar =
-  when shouldPropagateException propagateException
-  where
-    shouldPropagateException :: Bool
-    shouldPropagateException
-      -- Trust without verifying that any 'ScopeClosed' exception, which is not exported by this module, was indeed
-      -- thrown to a thread by this library, and not randomly caught by a user and propagated to some thread.
-      | Just ScopeClosing <- fromException exception = False
-      | otherwise = should exception
-
-    propagateException :: IO ()
-    propagateException =
-      try (unsafeUnmask (throwTo parentThreadId (ThreadFailed exception))) >>= \case
-        Left e -> case fromException e of
-          Just ScopeClosing -> void (tryPutMVar childExceptionVar exception)
-          _ -> propagateException
-        Right _ -> pure ()
+propagateException :: ThreadId -> SomeException -> MVar SomeException -> IO ()
+propagateException parentThreadId exception childExceptionVar =
+  fix \again ->
+    try (unsafeUnmask (throwTo parentThreadId (ThreadFailed exception))) >>= \case
+      Left IsScopeClosingException -> void (tryPutMVar childExceptionVar exception)
+      -- while blocking on notifying the parent of this exception, we got hit by a random async exception from
+      -- elsewhere. that's weird and unexpected, but we already have an exception to deliver, so it just gets tossed to
+      -- the void...
+      Left _ -> again
+      Right _ -> pure ()
 
 -- Like try, but with continuations
 tryEither :: Exception e => (e -> IO b) -> (a -> IO b) -> IO a -> IO b
