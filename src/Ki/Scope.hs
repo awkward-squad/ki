@@ -8,15 +8,15 @@ module Ki.Scope
     waitSTM,
     --
     Thread,
-    async,
-    asyncWith,
     await,
     awaitFor,
     awaitSTM,
     fork,
-    fork_,
     forkWith,
     forkWith_,
+    fork_,
+    forktry,
+    forktryWith,
     --
     ThreadAffinity (..),
     ThreadOpts (..),
@@ -335,15 +335,21 @@ unwrapThreadFailed e0 =
 -- | Create a thread within a scope.
 --
 -- The thread is created with asynchronous exceptions unmasked.
-async :: MonadUnliftIO m => Scope -> m a -> m (Thread (Either SomeException a))
-async scope =
-  asyncWith scope defaultThreadOpts
-{-# INLINE async #-}
-{-# SPECIALIZE async :: Scope -> IO a -> IO (Thread (Either SomeException a)) #-}
+forktry :: forall e m a. (Exception e, MonadUnliftIO m) => Scope -> m a -> m (Thread (Either e a))
+forktry scope =
+  forktryWith scope defaultThreadOpts
+{-# INLINE forktry #-}
+{-# SPECIALIZE forktry :: forall e a. Exception e => Scope -> IO a -> IO (Thread (Either e a)) #-}
 
--- | Variant of 'Ki.async' that takes an additional options argument.
-asyncWith :: MonadUnliftIO m => Scope -> ThreadOpts -> m a -> m (Thread (Either SomeException a))
-asyncWith scope opts action =
+-- | Variant of 'Ki.forktry' that takes an additional options argument.
+forktryWith ::
+  forall e m a.
+  (Exception e, MonadUnliftIO m) =>
+  Scope ->
+  ThreadOpts ->
+  m a ->
+  m (Thread (Either e a))
+forktryWith scope opts action =
   withRunInIO \unlift -> do
     parentThreadId <- myThreadId
     resultVar <- newEmptyTMVarIO
@@ -351,9 +357,13 @@ asyncWith scope opts action =
       spawn scope opts \masking -> do
         result <- try (masking (unlift action))
         case result of
-          Left exception -> maybePropagateException parentThreadId exception isAsyncException (childExceptionVar scope)
-          Right _ -> pure ()
-        putTMVarIO resultVar result -- even put async exceptions that we propagated
+          Left exception ->
+            case fromException @e exception of
+              Nothing -> maybePropagateException parentThreadId exception (const True) (childExceptionVar scope)
+              Just exception' -> do
+                maybePropagateException parentThreadId exception isAsyncException (childExceptionVar scope)
+                putTMVarIO resultVar (Left exception') -- even put async exceptions that we propagated
+          Right value -> putTMVarIO resultVar (Right value)
     pure
       Thread
         { await_ = readTMVar resultVar,
@@ -365,8 +375,8 @@ asyncWith scope opts action =
       case fromException @SomeAsyncException exception of
         Nothing -> False
         Just _ -> True
-{-# INLINE asyncWith #-}
-{-# SPECIALIZE asyncWith :: Scope -> ThreadOpts -> IO a -> IO (Thread (Either SomeException a)) #-}
+{-# INLINE forktryWith #-}
+{-# SPECIALIZE forktryWith :: forall e a. Exception e => Scope -> ThreadOpts -> IO a -> IO (Thread (Either e a)) #-}
 
 -- | Wait for a thread to terminate, and return its value.
 await :: MonadIO m => Thread a -> m a

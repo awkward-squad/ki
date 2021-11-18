@@ -2,8 +2,9 @@
 
 - Breaking: Remove `Context` type, `Ki.Implicit` module, and the ability to soft-cancel a `Scope`.
 - Breaking: Remove `Ki.Internal` module.
-- Breaking: Make `async`/`fork` create an unmasked thread, rather than inherit the parent's masking state.
-- Breaking: Replace `asyncWithUnmask`/`forkWithUnmask` with a more general `asyncWith`/`forkWith`.
+- Breaking: Generalize `async` to `forktry`
+- Breaking: Generalize `forkWithUnmask` to `forkWith`.
+- Breaking: Make `fork` create an unmasked thread, rather than inherit the parent's masking state.
 - Breaking: Remove `Enum`, `Read`, and `Num`-related instances from `Duration`.
 - Breaking: Alter types of `microseconds`, `milliseconds`, and `seconds`
 
@@ -18,8 +19,6 @@
 - Performance: Use atomic fetch-and-add rather than a TVar to track internal child thread ids
 
 - Misc: Remove `dejafu` test suite because it was too much of a pain to maintain.
-
-- Bounds: Bump `base` upper bound to `< 4.17`
 
 ## [0.2.0.1] - 2020-12-20
 
