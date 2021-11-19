@@ -89,10 +89,10 @@ library
 test-suite tests
   import: component
   build-depends:
-    ki
+    ki,
+    tasty,
+    tasty-hunit,
   ghc-options: -rtsopts -threaded
   hs-source-dirs: test
   main-is: Tests.hs
-  other-modules:
-    TestUtils
   type: exitcode-stdio-1.0
