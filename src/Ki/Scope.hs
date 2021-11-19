@@ -345,82 +345,6 @@ unwrapThreadFailed e0 =
 
 -- | Create a thread within a scope.
 --
--- The thread is created with asynchronous exceptions unmasked.
-forktry :: forall e m a. (Exception e, MonadUnliftIO m) => Scope -> m a -> m (Thread (Either e a))
-forktry scope =
-  forktryWith scope defaultThreadOpts
-{-# INLINE forktry #-}
-{-# SPECIALIZE forktry :: forall e a. Exception e => Scope -> IO a -> IO (Thread (Either e a)) #-}
-
--- | Variant of 'Ki.forktry' that takes an additional options argument.
-forktryWith ::
-  forall e m a.
-  (Exception e, MonadUnliftIO m) =>
-  Scope ->
-  ThreadOpts ->
-  m a ->
-  m (Thread (Either e a))
-forktryWith scope opts action =
-  withRunInIO \unlift -> do
-    parentThreadId <- myThreadId
-    resultVar <- newEmptyTMVarIO
-    ident <-
-      spawn scope opts \masking -> do
-        result <- try (masking (unlift action))
-        case result of
-          Left exception ->
-            case fromException @e exception of
-              Nothing ->
-                when
-                  (not (isScopeClosingException exception))
-                  (propagateException parentThreadId exception (childExceptionVar scope))
-              Just exception' -> do
-                when
-                  (not (isScopeClosingException exception) && isAsyncException exception)
-                  (propagateException parentThreadId exception (childExceptionVar scope))
-                putTMVarIO resultVar (Left exception') -- even put async exceptions that we propagated
-          Right value -> putTMVarIO resultVar (Right value)
-    pure
-      Thread
-        { await_ = readTMVar resultVar,
-          ident
-        }
-  where
-    isAsyncException :: SomeException -> Bool
-    isAsyncException exception =
-      case fromException @SomeAsyncException exception of
-        Nothing -> False
-        Just _ -> True
-{-# INLINE forktryWith #-}
-{-# SPECIALIZE forktryWith :: forall e a. Exception e => Scope -> ThreadOpts -> IO a -> IO (Thread (Either e a)) #-}
-
--- | Wait for a thread to terminate, and return its value.
-await :: MonadIO m => Thread a -> m a
-await thread =
-  -- If *they* are deadlocked, we will *both* will be delivered a wakeup from the RTS. We want to shrug this exception
-  -- off, because afterwards they'll have put to the result var. But don't shield indefinitely, once will cover this use
-  -- case and prevent any accidental infinite loops.
-  liftIO (tryEither (\BlockedIndefinitelyOnSTM -> go) pure go)
-  where
-    go =
-      atomically (await_ thread)
-{-# INLINE await #-}
-{-# SPECIALIZE await :: Thread a -> IO a #-}
-
--- | Variant of 'Ki.await' that gives up after the given duration.
-awaitFor :: MonadIO m => Thread a -> Duration -> m (Maybe a)
-awaitFor thread duration =
-  liftIO (timeoutSTM duration (pure . Just <$> await_ thread) (pure Nothing))
-{-# INLINE awaitFor #-}
-{-# SPECIALIZE awaitFor :: Thread a -> Duration -> IO (Maybe a) #-}
-
--- | @STM@ variant of 'Ki.await'.
-awaitSTM :: Thread a -> STM a
-awaitSTM =
-  await_
-
--- | Create a thread within a scope.
---
 -- The thread is created with asynchronous exceptions unmasked. If the thread terminates with an exception, the
 -- exception is propagated to the thread's parent.
 fork :: MonadUnliftIO m => Scope -> m a -> m (Thread a)
@@ -478,6 +402,85 @@ forkWith_ scope opts action =
           (masking (unlift action))
     pure ()
 {-# SPECIALIZE forkWith_ :: Scope -> ThreadOpts -> IO () -> IO () #-}
+
+-- | Create a thread within a scope.
+--
+-- The thread is created with asynchronous exceptions unmasked.
+forktry :: forall e m a. (Exception e, MonadUnliftIO m) => Scope -> m a -> m (Thread (Either e a))
+forktry scope =
+  forktryWith scope defaultThreadOpts
+{-# INLINE forktry #-}
+{-# SPECIALIZE forktry :: forall e a. Exception e => Scope -> IO a -> IO (Thread (Either e a)) #-}
+
+-- | Variant of 'Ki.forktry' that takes an additional options argument.
+forktryWith ::
+  forall e m a.
+  (Exception e, MonadUnliftIO m) =>
+  Scope ->
+  ThreadOpts ->
+  m a ->
+  m (Thread (Either e a))
+forktryWith scope opts action =
+  withRunInIO \unlift -> do
+    parentThreadId <- myThreadId
+    resultVar <- newEmptyTMVarIO
+    ident <-
+      spawn scope opts \masking -> do
+        result <- try (masking (unlift action))
+        case result of
+          Left exception -> do
+            let shouldPropagate =
+                  case fromException @e exception of
+                    Nothing -> not (isScopeClosingException exception)
+                    -- if the user calls `forktry @MyAsyncException`, we still want to propagate the async exception
+                    Just _ -> not (isScopeClosingException exception) && isAsyncException exception
+            when shouldPropagate (propagateException parentThreadId exception (childExceptionVar scope))
+          Right _value -> pure ()
+        putTMVarIO resultVar result
+    pure
+      Thread
+        { await_ =
+            readTMVar resultVar >>= \case
+              Left exception ->
+                case fromException @e exception of
+                  Nothing -> throwSTM exception
+                  Just exception' -> pure (Left exception')
+              Right value -> pure (Right value),
+          ident
+        }
+  where
+    isAsyncException :: SomeException -> Bool
+    isAsyncException exception =
+      case fromException @SomeAsyncException exception of
+        Nothing -> False
+        Just _ -> True
+{-# INLINE forktryWith #-}
+{-# SPECIALIZE forktryWith :: forall e a. Exception e => Scope -> ThreadOpts -> IO a -> IO (Thread (Either e a)) #-}
+
+-- | Wait for a thread to terminate, and return its value.
+await :: MonadIO m => Thread a -> m a
+await thread =
+  -- If *they* are deadlocked, we will *both* will be delivered a wakeup from the RTS. We want to shrug this exception
+  -- off, because afterwards they'll have put to the result var. But don't shield indefinitely, once will cover this use
+  -- case and prevent any accidental infinite loops.
+  liftIO (tryEither (\BlockedIndefinitelyOnSTM -> go) pure go)
+  where
+    go =
+      atomically (await_ thread)
+{-# INLINE await #-}
+{-# SPECIALIZE await :: Thread a -> IO a #-}
+
+-- | Variant of 'Ki.await' that gives up after the given duration.
+awaitFor :: MonadIO m => Thread a -> Duration -> m (Maybe a)
+awaitFor thread duration =
+  liftIO (timeoutSTM duration (pure . Just <$> await_ thread) (pure Nothing))
+{-# INLINE awaitFor #-}
+{-# SPECIALIZE awaitFor :: Thread a -> Duration -> IO (Maybe a) #-}
+
+-- | @STM@ variant of 'Ki.await'.
+awaitSTM :: Thread a -> STM a
+awaitSTM =
+  await_
 
 propagateException :: ThreadId -> SomeException -> MVar SomeException -> IO ()
 propagateException parentThreadId exception childExceptionVar =
