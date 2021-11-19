@@ -278,18 +278,16 @@ blockUntil0 var =
 -- Thread
 
 -- | A thread created within a scope.
-data Thread a = Thread
-  { await_ :: !(STM a),
-    ident :: {-# UNPACK #-} !ThreadId
-  }
+data Thread a
+  = Thread {-# UNPACK #-} !ThreadId !(STM a)
   deriving stock (Functor)
 
 instance Eq (Thread a) where
-  Thread _ ix == Thread _ iy =
+  Thread ix _ == Thread iy _ =
     ix == iy
 
 instance Ord (Thread a) where
-  compare (Thread _ ix) (Thread _ iy) =
+  compare (Thread ix _) (Thread iy _) =
     compare ix iy
 
 data ThreadAffinity
@@ -379,11 +377,7 @@ forkWith scope opts action =
         -- even put async exceptions that we propagated. this isn't totally ideal because a caller awaiting this thread
         -- would not be able to distinguish between async exceptions delivered to this thread, or itself
         putTMVarIO resultVar result
-    pure
-      Thread
-        { await_ = readTMVar resultVar >>= either throwSTM pure,
-          ident
-        }
+    pure (Thread ident (readTMVar resultVar >>= either throwSTM pure))
 {-# SPECIALIZE forkWith :: Scope -> ThreadOpts -> IO a -> IO (Thread a) #-}
 
 -- | Variant of 'Ki.forkWith' that does not return the thread.
@@ -438,17 +432,14 @@ forktryWith scope opts action =
             when shouldPropagate (propagateException parentThreadId exception (childExceptionVar scope))
           Right _value -> pure ()
         putTMVarIO resultVar result
-    pure
-      Thread
-        { await_ =
-            readTMVar resultVar >>= \case
-              Left exception ->
-                case fromException @e exception of
-                  Nothing -> throwSTM exception
-                  Just exception' -> pure (Left exception')
-              Right value -> pure (Right value),
-          ident
-        }
+    let doAwait =
+          readTMVar resultVar >>= \case
+            Left exception ->
+              case fromException @e exception of
+                Nothing -> throwSTM exception
+                Just exception' -> pure (Left exception')
+            Right value -> pure (Right value)
+    pure (Thread ident doAwait)
   where
     isAsyncException :: SomeException -> Bool
     isAsyncException exception =
@@ -467,21 +458,21 @@ await thread =
   liftIO (tryEither (\BlockedIndefinitelyOnSTM -> go) pure go)
   where
     go =
-      atomically (await_ thread)
+      atomically (awaitSTM thread)
 {-# INLINE await #-}
 {-# SPECIALIZE await :: Thread a -> IO a #-}
 
 -- | Variant of 'Ki.await' that gives up after the given duration.
 awaitFor :: MonadIO m => Thread a -> Duration -> m (Maybe a)
 awaitFor thread duration =
-  liftIO (timeoutSTM duration (pure . Just <$> await_ thread) (pure Nothing))
+  liftIO (timeoutSTM duration (pure . Just <$> awaitSTM thread) (pure Nothing))
 {-# INLINE awaitFor #-}
 {-# SPECIALIZE awaitFor :: Thread a -> Duration -> IO (Maybe a) #-}
 
 -- | @STM@ variant of 'Ki.await'.
 awaitSTM :: Thread a -> STM a
-awaitSTM =
-  await_
+awaitSTM (Thread _threadId doAwait) =
+  doAwait
 
 -- TODO more docs
 -- No precondition on masking state
