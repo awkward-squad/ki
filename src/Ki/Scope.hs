@@ -149,7 +149,8 @@ scoped action =
 {-# SPECIALIZE scoped :: (Scope -> IO a) -> IO a #-}
 
 -- Spawn a thread in a scope, providing it a function that sets the masking state to the requested masking state. The
--- given action must not throw an exception.
+-- given action is called with async exceptions at least interruptibly masked, but maybe uninterruptibly, if spawn
+-- itself was called with async exceptions uninterruptible masked. The given action must not throw an exception.
 spawn :: Scope -> ThreadOpts -> ((forall x. IO x -> IO x) -> IO ()) -> IO ThreadId
 spawn
   Scope {childrenVar, nextChildIdCounter, startingVar}
@@ -157,15 +158,15 @@ spawn
   action = do
     parentMaskingState <- getMaskingState
 
-    let atLeastBlockI :: IO a -> IO a
-        atLeastBlockI =
+    let atLeastInterruptiblyMasked :: IO a -> IO a
+        atLeastInterruptiblyMasked =
           case parentMaskingState of
-            Unmasked -> blockI
+            Unmasked -> interruptiblyMasked
             MaskedInterruptible -> id
             MaskedUninterruptible -> id
 
-    -- Interruptible mask is enough because this STM operation cannot retry
-    atLeastBlockI do
+    -- Interruptible mask is enough because none of the STM operations below block
+    atLeastInterruptiblyMasked do
       -- Record the thread as being about to start.
       atomically do
         readTVar startingVar >>= \case
@@ -194,11 +195,11 @@ spawn
                     case parentMaskingState of
                       Unmasked -> id
                       MaskedInterruptible -> id
-                      MaskedUninterruptible -> blockI -- downgrade
+                      MaskedUninterruptible -> interruptiblyMasked -- downgrade
                   MaskedUninterruptible ->
                     case parentMaskingState of
-                      Unmasked -> blockU
-                      MaskedInterruptible -> blockU
+                      Unmasked -> uninterruptiblyMasked
+                      MaskedInterruptible -> uninterruptiblyMasked
                       MaskedUninterruptible -> id
 
           action masking
@@ -482,16 +483,21 @@ awaitSTM :: Thread a -> STM a
 awaitSTM =
   await_
 
+-- TODO more docs
+-- No precondition on masking state
 propagateException :: ThreadId -> SomeException -> MVar SomeException -> IO ()
 propagateException parentThreadId exception childExceptionVar =
-  fix \again ->
-    try (unsafeUnmask (throwTo parentThreadId (ThreadFailed exception))) >>= \case
-      Left IsScopeClosingException -> void (tryPutMVar childExceptionVar exception)
-      -- while blocking on notifying the parent of this exception, we got hit by a random async exception from
-      -- elsewhere. that's weird and unexpected, but we already have an exception to deliver, so it just gets tossed to
-      -- the void...
-      Left _ -> again
-      Right _ -> pure ()
+  -- `throwTo` cannot be called with async exceptions uninterruptibly masked, because that may deadlock with our parent
+  -- throwing to us
+  interruptiblyMasked do
+    fix \again ->
+      try (throwTo parentThreadId (ThreadFailed exception)) >>= \case
+        Left IsScopeClosingException -> void (tryPutMVar childExceptionVar exception)
+        -- while blocking on notifying the parent of this exception, we got hit by a random async exception from
+        -- elsewhere. that's weird and unexpected, but we already have an exception to deliver, so it just gets tossed
+        -- to the void...
+        Left _ -> again
+        Right _ -> pure ()
 
 -- Like try, but with continuations
 tryEither :: Exception e => (e -> IO b) -> (a -> IO b) -> IO a -> IO b

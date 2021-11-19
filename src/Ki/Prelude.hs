@@ -34,16 +34,16 @@
 module Ki.Prelude
   ( Unique,
     atomicallyIO,
-    blockI,
-    blockU,
     debug,
     forkIO,
-    forkOn,
     forkOS,
+    forkOn,
+    interruptiblyMasked,
     newUnique,
     onLeft,
     putTMVarIO,
     registerDelay,
+    uninterruptiblyMasked,
     whenJust,
     whenLeft,
     whenM,
@@ -118,12 +118,14 @@ atomicallyIO :: STM (IO a) -> IO a
 atomicallyIO =
   join . atomically
 
-blockI :: IO a -> IO a
-blockI (IO io) =
+-- | Call an action with asynchronous exceptions interruptibly masked.
+interruptiblyMasked :: IO a -> IO a
+interruptiblyMasked (IO io) =
   IO (maskAsyncExceptions# io)
 
-blockU :: IO a -> IO a
-blockU (IO io) =
+-- | Call an action with asynchronous exceptions uninterruptibly masked.
+uninterruptiblyMasked :: IO a -> IO a
+uninterruptiblyMasked (IO io) =
   IO (maskUninterruptible# io)
 
 debug :: Monad m => String -> m ()
@@ -168,7 +170,7 @@ forkOS action0 = do
       getMaskingState <&> \case
         Unmasked -> unsafeUnmask action0
         MaskedInterruptible -> action0
-        MaskedUninterruptible -> blockU action0
+        MaskedUninterruptible -> uninterruptiblyMasked action0
 
     newStablePtr do
       threadId <- myThreadId
