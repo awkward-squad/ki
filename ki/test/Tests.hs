@@ -71,7 +71,7 @@ main =
             Ki.wait scope,
         testCase "`forktry` can catch sync exceptions" do
           Ki.scoped \scope -> do
-            result :: Ki.Thread (Either A ()) <- Ki.forktry @_ @_ @() scope (throw A)
+            result :: Ki.Thread (Either A ()) <- Ki.forktry scope (throw A)
             Ki.await result `shouldReturn` Left A,
         testCase "`forktry` can propagate sync exceptions" do
           (`shouldThrow` A) do

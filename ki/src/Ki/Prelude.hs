@@ -60,7 +60,6 @@ import Control.Exception
 import Control.Exception as X (Exception, SomeException, mask_, throwIO, try, uninterruptibleMask, uninterruptibleMask_)
 import Control.Monad (unless)
 import Control.Monad as X (join, when)
-import Control.Monad.IO.Class as X (MonadIO (..))
 import Data.Coerce as X (coerce)
 import Data.Data as X (Data)
 import Data.Foldable as X (for_, traverse_)

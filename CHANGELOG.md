@@ -7,7 +7,6 @@
 - Breaking: Generalize `forkWithUnmask` to `forkWith`.
 - Breaking: Make `fork` create an unmasked thread, rather than inherit the parent's masking state.
 
-- Change: Generalize API to use `MonadUnliftIO`, with `IO` specializations.
 - Change: Make `scoped` kill threads in the order they were created.
 
 - Bugfix: Fix small memory leak related to closing a scope.

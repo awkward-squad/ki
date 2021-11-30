@@ -1,3 +1,4 @@
+{-# LANGUAGE UnicodeSyntax #-}
 {-# LANGUAGE MagicHash #-}
 
 module Ki.Scope
@@ -33,7 +34,6 @@ import Control.Exception
     getMaskingState,
     pattern ErrorCall,
   )
-import Control.Monad.IO.Unlift (MonadUnliftIO (withRunInIO))
 import qualified Data.IntMap.Lazy as IntMap
 import GHC.Conc (enableAllocationLimit, labelThread, setAllocationCounter)
 import GHC.IO (unsafeUnmask)
@@ -94,56 +94,53 @@ pattern IsScopeClosingException <- (isScopeClosingException -> True)
 --   'Ki.fork_' scope worker2
 --   'Ki.wait' scope
 -- @
-scoped :: MonadUnliftIO m => (Scope -> m a) -> m a
-scoped action =
-  withRunInIO \unlift -> do
-    childrenVar <- newTVarIO IntMap.empty
-    nextChildIdCounter <- newCounter
-    startingVar <- newTVarIO 0
-    childExceptionVar <- newEmptyMVar
-    let scope = Scope {childrenVar, nextChildIdCounter, startingVar, childExceptionVar}
+scoped :: (Scope -> IO a) -> IO a
+scoped action = do
+  childrenVar <- newTVarIO IntMap.empty
+  nextChildIdCounter <- newCounter
+  startingVar <- newTVarIO 0
+  childExceptionVar <- newEmptyMVar
+  let scope = Scope {childrenVar, nextChildIdCounter, startingVar, childExceptionVar}
 
-    uninterruptibleMask \restore -> do
-      result <- try (restore (unlift (action scope)))
+  uninterruptibleMask \restore -> do
+    result <- try (restore (action scope))
 
-      children <-
-        atomically do
-          -- Block until we haven't committed to starting any threads. Without this, we may create a thread concurrently
-          -- with closing its scope, and not grab its thread id to throw an exception to.
-          blockUntil0 startingVar
-          -- Write the sentinel value indicating that this scope is closed, and it is an error to try to create a thread
-          -- within it.
-          writeTVar startingVar (-1)
-          -- Return the list of currently-running children to kill. Some of them may have *just* started (e.g. if we
-          -- initially retried in `blockUntil0` above). That's fine - kill them all!
-          readTVar childrenVar
+    children <-
+      atomically do
+        -- Block until we haven't committed to starting any threads. Without this, we may create a thread concurrently
+        -- with closing its scope, and not grab its thread id to throw an exception to.
+        blockUntil0 startingVar
+        -- Write the sentinel value indicating that this scope is closed, and it is an error to try to create a thread
+        -- within it.
+        writeTVar startingVar (-1)
+        -- Return the list of currently-running children to kill. Some of them may have *just* started (e.g. if we
+        -- initially retried in `blockUntil0` above). That's fine - kill them all!
+        readTVar childrenVar
 
-      -- Deliver an async exception to every child in the order they were created.
-      traverse_ (flip throwTo ScopeClosing) (IntMap.elems children)
+    -- Deliver an async exception to every child in the order they were created.
+    traverse_ (flip throwTo ScopeClosing) (IntMap.elems children)
 
-      -- Block until all children have terminated; this relies on children respecting the async exception, which they
-      -- must, for correctness. Otherwise, a thread could indeed outlive the scope in which it's created, which is
-      -- definitely not structured concurrency!
-      atomically (blockUntilEmpty childrenVar)
+    -- Block until all children have terminated; this relies on children respecting the async exception, which they
+    -- must, for correctness. Otherwise, a thread could indeed outlive the scope in which it's created, which is
+    -- definitely not structured concurrency!
+    atomically (blockUntilEmpty childrenVar)
 
-      -- By now there are three sources of exception:
-      --
-      --   1) A sync or async exception thrown during the callback, captured in `result`. If applicable, we want to
-      --      unwrap the `ThreadFailed` off of this, which was only used to indicate it came from one of our children.
-      --   2) A sync or async exception left for us in `childExceptionVar` by a child that tried to propagate it to us
-      --      directly, but failed (because we killed it concurrently).
-      --   3) An async exception waiting in our exception queue, because we still have async exceptions uninterruptibly
-      --      masked.
-      --
-      -- We cannot throw more than one, so throw them in that priority order.
-      case result of
-        Left exception -> throwIO (unwrapThreadFailed exception)
-        Right value ->
-          tryTakeMVar childExceptionVar >>= \case
-            Nothing -> pure value
-            Just exception -> throwIO exception
-{-# INLINE scoped #-}
-{-# SPECIALIZE scoped :: (Scope -> IO a) -> IO a #-}
+    -- By now there are three sources of exception:
+    --
+    --   1) A sync or async exception thrown during the callback, captured in `result`. If applicable, we want to unwrap
+    --      the `ThreadFailed` off of this, which was only used to indicate it came from one of our children.
+    --   2) A sync or async exception left for us in `childExceptionVar` by a child that tried to propagate it to us
+    --      directly, but failed (because we killed it concurrently).
+    --   3) An async exception waiting in our exception queue, because we still have async exceptions uninterruptibly
+    --      masked.
+    --
+    -- We cannot throw more than one, so throw them in that priority order.
+    case result of
+      Left exception -> throwIO (unwrapThreadFailed exception)
+      Right value ->
+        tryTakeMVar childExceptionVar >>= \case
+          Nothing -> pure value
+          Just exception -> throwIO exception
 
 -- Spawn a thread in a scope, providing it a function that sets the masking state to the requested masking state. The
 -- given action is called with async exceptions at least interruptibly masked, but maybe uninterruptibly, if spawn
@@ -238,18 +235,15 @@ forkWithAffinity = \case
   Just OsThread -> forkOS
 
 -- | Wait until all threads created within a scope terminate.
-wait :: MonadIO m => Scope -> m ()
+wait :: Scope -> IO ()
 wait =
-  liftIO . atomically . waitSTM
-{-# INLINE wait #-}
-{-# SPECIALIZE wait :: Scope -> IO () #-}
+  atomically . waitSTM
 
 -- | @STM@ variant of 'Ki.wait'.
 waitSTM :: Scope -> STM ()
 waitSTM Scope {childrenVar, startingVar} = do
   blockUntilEmpty childrenVar
   blockUntil0 startingVar
-{-# INLINE waitSTM #-}
 
 -- Block until an IntMap becomes empty.
 blockUntilEmpty :: TVar (IntMap a) -> STM ()
@@ -290,8 +284,8 @@ data ThreadAffinity
 -- | Thread options that can be provided at the time a thread is created.
 data ThreadOpts = ThreadOpts
   { affinity :: Maybe ThreadAffinity,
-    -- | The maximum amount of bytes a thread may allocate before it is delivered an 'AllocationLimitExceeded'
-    -- exception.
+    -- | The maximum amount of bytes a thread may allocate before it is delivered an
+    -- 'Control.Exception.AllocationLimitExceeded' exception.
     allocationLimit :: Maybe Bytes,
     label :: String,
     -- | The masking state a thread is created in.
@@ -347,120 +341,99 @@ unwrapThreadFailed e0 =
 --
 -- Unlike @forkIO@ from @base@, the child thread is created with asynchronous exceptions unmasked, regardless of the
 -- calling thread's masking state. To create a child thread with a different initial masking state, use 'Ki.forkWith'.
-fork :: MonadUnliftIO m => Scope -> m a -> m (Thread a)
+fork :: Scope -> IO a -> IO (Thread a)
 fork scope =
   forkWith scope defaultThreadOpts
-{-# INLINE fork #-}
-{-# SPECIALIZE fork :: Scope -> IO a -> IO (Thread a) #-}
 
 -- | Variant of 'Ki.fork' that does not return the thread.
-fork_ :: MonadUnliftIO m => Scope -> m () -> m ()
+fork_ :: Scope -> IO () -> IO ()
 fork_ scope =
   forkWith_ scope defaultThreadOpts
-{-# INLINE fork_ #-}
-{-# SPECIALIZE fork_ :: Scope -> IO () -> IO () #-}
 
 -- | Variant of 'Ki.fork' that takes an additional options argument.
-forkWith :: MonadUnliftIO m => Scope -> ThreadOpts -> m a -> m (Thread a)
-forkWith scope opts action =
-  withRunInIO \unlift -> do
-    parentThreadId <- myThreadId
-    resultVar <- newEmptyTMVarIO
-    ident <-
-      spawn scope opts \masking -> do
-        result <- try (masking (unlift action))
-        case result of
-          Left exception ->
+forkWith :: Scope -> ThreadOpts -> IO a -> IO (Thread a)
+forkWith scope opts action = do
+  parentThreadId <- myThreadId
+  resultVar <- newEmptyTMVarIO
+  ident <-
+    spawn scope opts \masking -> do
+      result <- try (masking action)
+      case result of
+        Left exception ->
+          when
+            (not (isScopeClosingException exception))
+            (propagateException parentThreadId exception (childExceptionVar scope))
+        Right _ -> pure ()
+      -- even put async exceptions that we propagated. this isn't totally ideal because a caller awaiting this thread
+      -- would not be able to distinguish between async exceptions delivered to this thread, or itself
+      putTMVarIO resultVar result
+  pure (Thread ident (readTMVar resultVar >>= either throwSTM pure))
+
+-- | Variant of 'Ki.forkWith' that does not return the thread.
+forkWith_ :: Scope -> ThreadOpts -> IO () -> IO ()
+forkWith_ scope opts action = do
+  parentThreadId <- myThreadId
+  _childThreadId <-
+    spawn scope opts \masking ->
+      tryEither
+        ( \exception ->
             when
               (not (isScopeClosingException exception))
               (propagateException parentThreadId exception (childExceptionVar scope))
-          Right _ -> pure ()
-        -- even put async exceptions that we propagated. this isn't totally ideal because a caller awaiting this thread
-        -- would not be able to distinguish between async exceptions delivered to this thread, or itself
-        putTMVarIO resultVar result
-    pure (Thread ident (readTMVar resultVar >>= either throwSTM pure))
-{-# SPECIALIZE forkWith :: Scope -> ThreadOpts -> IO a -> IO (Thread a) #-}
-
--- | Variant of 'Ki.forkWith' that does not return the thread.
-forkWith_ :: MonadUnliftIO m => Scope -> ThreadOpts -> m () -> m ()
-forkWith_ scope opts action =
-  withRunInIO \unlift -> do
-    parentThreadId <- myThreadId
-    _childThreadId <-
-      spawn scope opts \masking ->
-        tryEither
-          ( \exception ->
-              when
-                (not (isScopeClosingException exception))
-                (propagateException parentThreadId exception (childExceptionVar scope))
-          )
-          (\_unit -> pure ())
-          (masking (unlift action))
-    pure ()
-{-# SPECIALIZE forkWith_ :: Scope -> ThreadOpts -> IO () -> IO () #-}
+        )
+        (\_unit -> pure ())
+        (masking action)
+  pure ()
 
 -- | Like 'Ki.fork', but if the action throws an exception that is an instance of the given exception type, then it is
 -- returned rather than propagated to the child's parent.
-forktry :: forall e m a. (Exception e, MonadUnliftIO m) => Scope -> m a -> m (Thread (Either e a))
+forktry :: ∀ e a. Exception e => Scope -> IO a -> IO (Thread (Either e a))
 forktry scope =
   forktryWith scope defaultThreadOpts
-{-# INLINE forktry #-}
-{-# SPECIALIZE forktry :: forall e a. Exception e => Scope -> IO a -> IO (Thread (Either e a)) #-}
 
 -- | Variant of 'Ki.forktry' that takes an additional options argument.
-forktryWith ::
-  forall e m a.
-  (Exception e, MonadUnliftIO m) =>
-  Scope ->
-  ThreadOpts ->
-  m a ->
-  m (Thread (Either e a))
-forktryWith scope opts action =
-  withRunInIO \unlift -> do
-    parentThreadId <- myThreadId
-    resultVar <- newEmptyTMVarIO
-    ident <-
-      spawn scope opts \masking -> do
-        result <- try (masking (unlift action))
-        case result of
-          Left exception -> do
-            let shouldPropagate =
-                  case fromException @e exception of
-                    Nothing -> not (isScopeClosingException exception)
-                    -- if the user calls `forktry @MyAsyncException`, we still want to propagate the async exception
-                    Just _ -> not (isScopeClosingException exception) && isAsyncException exception
-            when shouldPropagate (propagateException parentThreadId exception (childExceptionVar scope))
-          Right _value -> pure ()
-        putTMVarIO resultVar result
-    let doAwait =
-          readTMVar resultVar >>= \case
-            Left exception ->
-              case fromException @e exception of
-                Nothing -> throwSTM exception
-                Just exception' -> pure (Left exception')
-            Right value -> pure (Right value)
-    pure (Thread ident doAwait)
+forktryWith :: forall e a. Exception e => Scope -> ThreadOpts -> IO a -> IO (Thread (Either e a))
+forktryWith scope opts action = do
+  parentThreadId <- myThreadId
+  resultVar <- newEmptyTMVarIO
+  ident <-
+    spawn scope opts \masking -> do
+      result <- try (masking action)
+      case result of
+        Left exception -> do
+          let shouldPropagate =
+                case fromException @e exception of
+                  Nothing -> not (isScopeClosingException exception)
+                  -- if the user calls `forktry @MyAsyncException`, we still want to propagate the async exception
+                  Just _ -> not (isScopeClosingException exception) && isAsyncException exception
+          when shouldPropagate (propagateException parentThreadId exception (childExceptionVar scope))
+        Right _value -> pure ()
+      putTMVarIO resultVar result
+  let doAwait =
+        readTMVar resultVar >>= \case
+          Left exception ->
+            case fromException @e exception of
+              Nothing -> throwSTM exception
+              Just exception' -> pure (Left exception')
+          Right value -> pure (Right value)
+  pure (Thread ident doAwait)
   where
     isAsyncException :: SomeException -> Bool
     isAsyncException exception =
       case fromException @SomeAsyncException exception of
         Nothing -> False
         Just _ -> True
-{-# INLINE forktryWith #-}
-{-# SPECIALIZE forktryWith :: forall e a. Exception e => Scope -> ThreadOpts -> IO a -> IO (Thread (Either e a)) #-}
 
 -- | Wait for a thread to terminate, and return its value.
-await :: MonadIO m => Thread a -> m a
+await :: Thread a -> IO a
 await thread =
   -- If *they* are deadlocked, we will *both* will be delivered a wakeup from the RTS. We want to shrug this exception
   -- off, because afterwards they'll have put to the result var. But don't shield indefinitely, once will cover this use
   -- case and prevent any accidental infinite loops.
-  liftIO (tryEither (\BlockedIndefinitelyOnSTM -> go) pure go)
+  tryEither (\BlockedIndefinitelyOnSTM -> go) pure go
   where
     go =
       atomically (awaitSTM thread)
-{-# INLINE await #-}
-{-# SPECIALIZE await :: Thread a -> IO a #-}
 
 -- | @STM@ variant of 'Ki.await'.
 awaitSTM :: Thread a -> STM a
