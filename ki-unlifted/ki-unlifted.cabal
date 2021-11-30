@@ -1,0 +1,79 @@
+cabal-version: 2.2
+
+author: Mitchell Rosen
+bug-reports: https://github.com/awkward-squad/ki/issues
+category: Concurrency
+copyright: Copyright (C) 2020-2021 Mitchell Rosen, Travis Staton
+homepage: https://github.com/awkward-squad/ki
+license: BSD-3-Clause
+license-file: LICENSE
+maintainer: Mitchell Rosen <mitchellwrosen@gmail.com>, Travis Staton <hello@travisstaton.com>
+name: ki-unlifted
+stability: experimental
+synopsis: A lightweight structured-concurrency library
+version: 0.3.0
+
+description:
+  A lightweight structured-concurrency library.
+
+extra-source-files:
+  CHANGELOG.md
+  README.md
+
+source-repository head
+  type: git
+  location: https://github.com/awkward-squad/ki.git
+
+common component
+  build-depends:
+    base >= 4.12.0.0 && < 4.17,
+  default-extensions:
+    AllowAmbiguousTypes
+    BangPatterns
+    BlockArguments
+    ConstraintKinds
+    DeriveAnyClass
+    DeriveDataTypeable
+    DeriveFunctor
+    DeriveGeneric
+    DerivingStrategies
+    DuplicateRecordFields
+    ExistentialQuantification
+    GeneralizedNewtypeDeriving
+    InstanceSigs
+    LambdaCase
+    NamedFieldPuns
+    NoImplicitPrelude
+    NumericUnderscores
+    PartialTypeSignatures
+    PatternSynonyms
+    RankNTypes
+    RoleAnnotations
+    ScopedTypeVariables
+    TypeApplications
+    ViewPatterns
+  default-language: Haskell2010
+  ghc-options:
+    -Weverything
+    -Wno-all-missed-specialisations
+    -Wno-implicit-prelude
+    -Wno-missed-specialisations
+    -Wno-missing-import-lists
+    -Wno-safe
+    -Wno-unsafe
+  if impl(ghc >= 8.10)
+    ghc-options:
+      -Wno-missing-safe-haskell-mode
+      -Wno-prepositive-qualified-module
+  if impl(ghc >= 9.2)
+    ghc-options:
+      -Wno-missing-kind-signatures
+
+library
+  import: component
+  build-depends:
+    ki,
+    unliftio-core,
+  exposed-modules:
+    Ki.Unlifted
+  hs-source-dirs: src
