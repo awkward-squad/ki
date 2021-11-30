@@ -21,13 +21,17 @@ instance Show Bytes where
 -- | A number of kilobytes.
 kilobytes :: Natural -> Bytes
 kilobytes n =
-  Bytes (fromIntegral n * 1024)
+  Bytes (snip (n * 1024))
 
 -- | A number of megabytes.
 megabytes :: Natural -> Bytes
 megabytes n =
-  Bytes (fromIntegral n * 1048576)
+  Bytes (snip (n * 1048576))
 
 bytesToInt64 :: Bytes -> Int64
 bytesToInt64 =
   coerce
+
+snip :: Natural -> Int64
+snip n =
+  fromIntegral (min (fromIntegral (maxBound :: Int64)) n)

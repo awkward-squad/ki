@@ -3,7 +3,7 @@ module Ki.Timeout
   )
 where
 
-import Ki.Duration (Duration(Micros))
+import Ki.Duration (Duration (Micros))
 import Ki.Prelude
 
 -- | Wait for an @STM@ action to return an @m@ action, or if the given duration elapses, return the given @m@ action
