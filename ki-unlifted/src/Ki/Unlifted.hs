@@ -40,12 +40,12 @@ import qualified Ki
 import Prelude
 
 -- | See 'Ki.await'.
-await :: MonadIO m => Ki.Thread a -> m a
+await :: forall a m. MonadIO m => Ki.Thread a -> m a
 await thread =
   liftIO (Ki.await thread)
 
 -- | See 'Ki.fork'.
-fork :: MonadUnliftIO m => Ki.Scope -> m a -> m (Ki.Thread a)
+fork :: forall a m. MonadUnliftIO m => Ki.Scope -> m a -> m (Ki.Thread a)
 fork scope action =
   withRunInIO \unlift -> Ki.fork scope (unlift action)
 
@@ -55,7 +55,7 @@ fork_ scope action =
   withRunInIO \unlift -> Ki.fork_ scope (unlift action)
 
 -- | See 'Ki.forkWith'.
-forkWith :: MonadUnliftIO m => Ki.Scope -> Ki.ThreadOpts -> m a -> m (Ki.Thread a)
+forkWith :: forall a m. MonadUnliftIO m => Ki.Scope -> Ki.ThreadOpts -> m a -> m (Ki.Thread a)
 forkWith scope opts action =
   withRunInIO \unlift -> Ki.forkWith scope opts (unlift action)
 
@@ -81,7 +81,7 @@ forktryWith scope opts action =
   withRunInIO \unlift -> Ki.forktryWith scope opts (unlift action)
 
 -- | See 'Ki.scoped'.
-scoped :: MonadUnliftIO m => (Ki.Scope -> m a) -> m a
+scoped :: forall a m. MonadUnliftIO m => (Ki.Scope -> m a) -> m a
 scoped action =
   withRunInIO \unlift -> Ki.scoped \scope -> unlift (action scope)
 
