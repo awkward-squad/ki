@@ -4,12 +4,10 @@ module Ki.Scope
   ( Scope,
     scoped,
     wait,
-    waitFor,
     waitSTM,
     --
     Thread,
     await,
-    awaitFor,
     awaitSTM,
     fork,
     forkWith,
@@ -41,9 +39,7 @@ import GHC.Conc (enableAllocationLimit, labelThread, setAllocationCounter)
 import GHC.IO (unsafeUnmask)
 import Ki.Bytes
 import Ki.Counter
-import Ki.Duration (Duration)
 import Ki.Prelude
-import Ki.Timeout
 
 ------------------------------------------------------------------------------------------------------------------------
 -- Scope
@@ -247,13 +243,6 @@ wait =
   liftIO . atomically . waitSTM
 {-# INLINE wait #-}
 {-# SPECIALIZE wait :: Scope -> IO () #-}
-
--- | Variant of 'Ki.wait' that waits for up to the given duration.
-waitFor :: MonadIO m => Scope -> Duration -> m ()
-waitFor scope duration =
-  liftIO (timeoutSTM duration (pure <$> waitSTM scope) (pure ()))
-{-# INLINE waitFor #-}
-{-# SPECIALIZE waitFor :: Scope -> Duration -> IO () #-}
 
 -- | @STM@ variant of 'Ki.wait'.
 waitSTM :: Scope -> STM ()
@@ -472,13 +461,6 @@ await thread =
       atomically (awaitSTM thread)
 {-# INLINE await #-}
 {-# SPECIALIZE await :: Thread a -> IO a #-}
-
--- | Variant of 'Ki.await' that gives up after the given duration.
-awaitFor :: MonadIO m => Thread a -> Duration -> m (Maybe a)
-awaitFor thread duration =
-  liftIO (timeoutSTM duration (pure . Just <$> awaitSTM thread) (pure Nothing))
-{-# INLINE awaitFor #-}
-{-# SPECIALIZE awaitFor :: Thread a -> Duration -> IO (Maybe a) #-}
 
 -- | @STM@ variant of 'Ki.await'.
 awaitSTM :: Thread a -> STM a

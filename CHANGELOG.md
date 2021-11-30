@@ -1,12 +1,11 @@
 ## [0.3.0] - Unreleased
 
 - Breaking: Remove `Context` type, `Ki.Implicit` module, and the ability to soft-cancel a `Scope`.
+- Breaking: Remove `Duration` type and its associated API, including `waitFor` and `awaitFor`.
 - Breaking: Remove `Ki.Internal` module.
-- Breaking: Generalize `async` to `forktry`
+- Breaking: Generalize `async` to `forktry`.
 - Breaking: Generalize `forkWithUnmask` to `forkWith`.
 - Breaking: Make `fork` create an unmasked thread, rather than inherit the parent's masking state.
-- Breaking: Remove `Enum`, `Read`, and `Num`-related instances from `Duration`.
-- Breaking: Alter types of `microseconds`, `milliseconds`, and `seconds`
 
 - Change: Generalize API to use `MonadUnliftIO`, with `IO` specializations.
 - Change: Make `scoped` kill threads in the order they were created.
@@ -16,13 +15,7 @@
 - Bugfix: make `async` propagate async exceptions.
 - Bugfix: make `scoped` honor `mask`
 
-- Performance: Use atomic fetch-and-add rather than a TVar to track internal child thread ids
-
-- Misc: Remove `dejafu` test suite because it was too much of a pain to maintain.
-
-## [0.2.0.1] - 2020-12-20
-
-- Internal: Mark `dejafu` test suite as "not buildable" by default.
+- Performance: Use atomic fetch-and-add rather than a TVar to track internal child thread ids.
 
 ## [0.2.0] - 2020-12-17
 

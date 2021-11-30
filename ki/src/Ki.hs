@@ -11,10 +11,12 @@ module Ki
     -- $doc-exception-propagation
 
     -- * Core API
+
     -- ** Scope
     Scope,
     scoped,
     wait,
+
     -- ** Thread
     Thread,
     fork,
@@ -27,44 +29,27 @@ module Ki
     forkWith_,
     forktryWith,
     awaitSTM,
-    awaitFor,
     waitSTM,
-    waitFor,
 
     -- ** Thread options
     ThreadOpts (..),
     defaultThreadOpts,
     ThreadAffinity (..),
 
-    -- * Miscellaneous
-    timeoutSTM,
-    sleep,
-
     -- ** Bytes
     Bytes,
     kilobytes,
     megabytes,
-
-    -- ** Duration
-    Duration,
-    microseconds,
-    milliseconds,
-    seconds,
-    minutes,
-    hours,
   )
 where
 
 import Ki.Bytes (Bytes, kilobytes, megabytes)
-import Ki.Duration (Duration, hours, microseconds, milliseconds, minutes, seconds)
-import Ki.Prelude
 import Ki.Scope
   ( Scope,
     Thread,
     ThreadAffinity (..),
     ThreadOpts (..),
     await,
-    awaitFor,
     awaitSTM,
     defaultThreadOpts,
     fork,
@@ -75,10 +60,8 @@ import Ki.Scope
     forktryWith,
     scoped,
     wait,
-    waitFor,
     waitSTM,
   )
-import Ki.Timeout (timeoutSTM)
 
 -- $doc-structured-concurrency
 --
@@ -188,13 +171,3 @@ import Ki.Timeout (timeoutSTM)
 --
 -- Each child thread can be thought to increases the "surface area" of the parent thread's identity, in the sense that
 -- any synchronous or asynchronous exception thrown by or to a child will ultimately be re-thrown by or to the parent.
-
--- | Sleep for a duration.
-sleep ::
-  MonadIO m =>
-  -- |
-  Duration ->
-  m ()
-sleep duration =
-  timeoutSTM duration (pure (pure ())) (pure ())
-{-# SPECIALIZE sleep :: Duration -> IO () #-}

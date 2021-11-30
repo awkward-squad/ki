@@ -81,10 +81,8 @@ library
   other-modules:
     Ki.Bytes
     Ki.Counter
-    Ki.Duration
     Ki.Prelude
     Ki.Scope
-    Ki.Timeout
 
 test-suite tests
   import: component
