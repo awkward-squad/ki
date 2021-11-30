@@ -11,13 +11,15 @@ module Ki
     -- $doc-exception-propagation
 
     -- * Core API
+    -- ** Scope
     Scope,
-    Thread,
     scoped,
+    wait,
+    -- ** Thread
+    Thread,
     fork,
     forktry,
     await,
-    wait,
 
     -- * Extended API
     fork_,

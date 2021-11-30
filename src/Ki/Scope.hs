@@ -48,7 +48,7 @@ import Ki.Timeout
 ------------------------------------------------------------------------------------------------------------------------
 -- Scope
 
--- | A scope delimits the lifetime of all threads created within it.
+-- | A thread scope, which delimits the lifetime of all threads created within it.
 data Scope = Scope
   { -- | The set of child threads that are currently running, each keyed by a monotonically increasing int.
     childrenVar :: {-# UNPACK #-} !(TVar (IntMap ThreadId)),
@@ -87,7 +87,8 @@ isScopeClosingException exception =
 pattern IsScopeClosingException :: SomeException
 pattern IsScopeClosingException <- (isScopeClosingException -> True)
 
--- | Perform an action in a new scope. When the action returns, all living threads created within the scope are killed.
+-- | Perform an action in a new scope. Before the action returns, whether with a value or an exception, all living
+-- threads created within the scope are killed.
 --
 -- ==== __Examples__
 --
@@ -342,10 +343,21 @@ unwrapThreadFailed e0 =
     Just (ThreadFailed e1) -> e1
     Nothing -> e0
 
--- | Create a thread within a scope.
+-- | Create a child thread to perform an action within a scope.
 --
--- The thread is created with asynchronous exceptions unmasked. If the thread terminates with an exception, the
--- exception is propagated to the thread's parent.
+-- If either
+--
+-- * The action throws an exception.
+-- * The child is thrown an asynchronous exception while performing the action.
+--
+-- then
+--
+-- * The child propagates the exception to its parent.
+-- * The parent kills all of its other children.
+-- * The parent rethrows the exception.
+--
+-- Unlike @forkIO@ from @base@, the child thread is created with asynchronous exceptions unmasked, regardless of the
+-- calling thread's masking state. To create a child thread with a different initial masking state, use 'Ki.forkWith'.
 fork :: MonadUnliftIO m => Scope -> m a -> m (Thread a)
 fork scope =
   forkWith scope defaultThreadOpts
@@ -398,9 +410,8 @@ forkWith_ scope opts action =
     pure ()
 {-# SPECIALIZE forkWith_ :: Scope -> ThreadOpts -> IO () -> IO () #-}
 
--- | Create a thread within a scope.
---
--- The thread is created with asynchronous exceptions unmasked.
+-- | Like 'Ki.fork', but if the action throws an exception that is an instance of the given exception type, then it is
+-- returned rather than propagated to the child's parent.
 forktry :: forall e m a. (Exception e, MonadUnliftIO m) => Scope -> m a -> m (Thread (Either e a))
 forktry scope =
   forktryWith scope defaultThreadOpts
