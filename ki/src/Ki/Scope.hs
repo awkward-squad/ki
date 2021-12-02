@@ -1,4 +1,3 @@
-{-# LANGUAGE UnicodeSyntax #-}
 {-# LANGUAGE MagicHash #-}
 
 module Ki.Scope
@@ -35,6 +34,7 @@ import Control.Exception
     pattern ErrorCall,
   )
 import qualified Data.IntMap.Lazy as IntMap
+import Data.Void (Void)
 import GHC.Conc (enableAllocationLimit, labelThread, setAllocationCounter)
 import GHC.IO (unsafeUnmask)
 import Ki.Bytes
@@ -90,9 +90,11 @@ pattern IsScopeClosingException <- (isScopeClosingException -> True)
 --
 -- @
 -- 'Ki.scoped' \\scope -> do
---   'Ki.fork_' scope worker1
---   'Ki.fork_' scope worker2
---   'Ki.wait' scope
+--   thread1 <- 'Ki.fork' scope action1
+--   thread2 <- 'Ki.fork' scope action2
+--   result1 <- 'Ki.await' thread1
+--   result2 <- 'Ki.await' result2
+--   pure (result1, result2)
 -- @
 scoped :: (Scope -> IO a) -> IO a
 scoped action = do
@@ -345,8 +347,8 @@ fork :: Scope -> IO a -> IO (Thread a)
 fork scope =
   forkWith scope defaultThreadOpts
 
--- | Variant of 'Ki.fork' that does not return the thread.
-fork_ :: Scope -> IO () -> IO ()
+-- | Variant of 'Ki.fork' for threads that should run until they are killed.
+fork_ :: Scope -> IO Void -> IO ()
 fork_ scope =
   forkWith_ scope defaultThreadOpts
 
@@ -369,8 +371,8 @@ forkWith scope opts action = do
       putTMVarIO resultVar result
   pure (Thread ident (readTMVar resultVar >>= either throwSTM pure))
 
--- | Variant of 'Ki.forkWith' that does not return the thread.
-forkWith_ :: Scope -> ThreadOpts -> IO () -> IO ()
+-- | Variant of 'Ki.forkWith' for threads that should run until they are killed.
+forkWith_ :: Scope -> ThreadOpts -> IO Void -> IO ()
 forkWith_ scope opts action = do
   parentThreadId <- myThreadId
   _childThreadId <-
@@ -387,7 +389,7 @@ forkWith_ scope opts action = do
 
 -- | Like 'Ki.fork', but if the action throws an exception that is an instance of the given exception type, then it is
 -- returned rather than propagated to the child's parent.
-forktry :: ∀ e a. Exception e => Scope -> IO a -> IO (Thread (Either e a))
+forktry :: forall e a. Exception e => Scope -> IO a -> IO (Thread (Either e a))
 forktry scope =
   forktryWith scope defaultThreadOpts
 

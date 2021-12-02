@@ -5,16 +5,17 @@
 - Breaking: Remove `Ki.Internal` module.
 - Breaking: Generalize `async` to `forktry`.
 - Breaking: Generalize `forkWithUnmask` to `forkWith`.
+- Breaking: Make `fork_` take an `IO Void` rather than an `IO ()`.
 - Breaking: Make `fork` create an unmasked thread, rather than inherit the parent's masking state.
 
 - Change: Make `scoped` kill threads in the order they were created.
 
 - Bugfix: Fix small memory leak related to closing a scope.
 - Bugfix: Fix subtle bug related to GHC's treatment of deadlocked threads.
-- Bugfix: make `async` propagate async exceptions.
-- Bugfix: make `scoped` honor `mask`
+- Bugfix: make `async` (now `forktry`) propagate async exceptions.
+- Bugfix: make `scoped` safe to run with asynchronous exceptions masked.
 
-- Performance: Use atomic fetch-and-add rather than a TVar to track internal child thread ids.
+- Performance: Use atomic fetch-and-add rather than a `TVar` to track internal child thread ids.
 
 ## [0.2.0] - 2020-12-17
 

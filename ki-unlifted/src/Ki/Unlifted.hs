@@ -36,6 +36,7 @@ where
 import Control.Exception (Exception)
 import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.IO.Unlift (MonadUnliftIO (withRunInIO))
+import Data.Void (Void)
 import qualified Ki
 import Prelude
 
@@ -50,7 +51,7 @@ fork scope action =
   withRunInIO \unlift -> Ki.fork scope (unlift action)
 
 -- | See 'Ki.fork_'.
-fork_ :: MonadUnliftIO m => Ki.Scope -> m () -> m ()
+fork_ :: MonadUnliftIO m => Ki.Scope -> m Void -> m ()
 fork_ scope action =
   withRunInIO \unlift -> Ki.fork_ scope (unlift action)
 
@@ -60,7 +61,7 @@ forkWith scope opts action =
   withRunInIO \unlift -> Ki.forkWith scope opts (unlift action)
 
 -- | See 'Ki.forkWith_'.
-forkWith_ :: MonadUnliftIO m => Ki.Scope -> Ki.ThreadOpts -> m () -> m ()
+forkWith_ :: MonadUnliftIO m => Ki.Scope -> Ki.ThreadOpts -> m Void -> m ()
 forkWith_ scope opts action =
   withRunInIO \unlift -> Ki.forkWith_ scope opts (unlift action)
 
