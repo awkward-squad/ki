@@ -1,4 +1,7 @@
--- | The "Ki" API, generalized to use 'MonadIO' and 'MonadUnliftIO'.
+-- | The `ki` API, generalized to use 'MonadIO' and 'MonadUnliftIO'.
+--
+-- For a variant of this API that does not use @<https://hackage.haskell.org/package/unliftio-core unliftio-core>@, see
+-- @<https://hackage.haskell.org/package/ki ki>@.
 module Ki.Unlifted
   ( -- * Core API
     Ki.Scope,
