@@ -76,7 +76,6 @@ library
   import: component
   build-depends:
     containers,
-    stm,
   exposed-modules:
     Ki
   hs-source-dirs: src

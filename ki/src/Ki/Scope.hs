@@ -31,7 +31,20 @@ import Control.Exception
   )
 import qualified Data.IntMap.Lazy as IntMap
 import Data.Void (Void)
-import GHC.Conc (enableAllocationLimit, labelThread, setAllocationCounter)
+import GHC.Conc
+  ( STM,
+    TVar,
+    atomically,
+    catchSTM,
+    enableAllocationLimit,
+    labelThread,
+    newTVarIO,
+    readTVar,
+    retry,
+    setAllocationCounter,
+    throwSTM,
+    writeTVar,
+  )
 import GHC.IO (unsafeUnmask)
 import Ki.Bytes
 import Ki.Counter
@@ -173,9 +186,11 @@ spawn
             childThreadId <- myThreadId
             labelThread childThreadId label
 
-          whenJust allocationLimit \bytes -> do
-            setAllocationCounter (bytesToInt64 bytes)
-            enableAllocationLimit
+          case allocationLimit of
+            Nothing -> pure ()
+            Just bytes -> do
+              setAllocationCounter (bytesToInt64 bytes)
+              enableAllocationLimit
 
           let -- Action that sets the masking state from the current (either MaskedInterruptible or
               -- MaskedUninterruptible) to the requested masking state
@@ -200,7 +215,8 @@ spawn
 
       -- Record the child as having started
       atomically do
-        modifyTVar' startingVar \n -> n -1
+        n <- readTVar startingVar
+        writeTVar startingVar $! n -1
         recordChild childrenVar childId childThreadId
 
       pure childThreadId
@@ -212,8 +228,9 @@ spawn
 --
 -- Never retries.
 recordChild :: TVar (IntMap ThreadId) -> Int -> ThreadId -> STM ()
-recordChild childrenVar childId childThreadId =
-  modifyTVar' childrenVar (IntMap.alter (maybe (Just childThreadId) (const Nothing)) childId)
+recordChild childrenVar childId childThreadId = do
+  children <- readTVar childrenVar
+  writeTVar childrenVar $! IntMap.alter (maybe (Just childThreadId) (const Nothing)) childId children
 
 -- Unrecord a child (ourselves) by either:
 --
@@ -222,8 +239,9 @@ recordChild childrenVar childId childThreadId =
 --
 -- Never retries.
 unrecordChild :: TVar (IntMap ThreadId) -> Int -> STM ()
-unrecordChild childrenVar childId =
-  modifyTVar' childrenVar (IntMap.alter (maybe (Just undefined) (const Nothing)) childId)
+unrecordChild childrenVar childId = do
+  children <- readTVar childrenVar
+  writeTVar childrenVar $! IntMap.alter (maybe (Just undefined) (const Nothing)) childId children
 
 -- forkIO/forkOn/forkOS, switching on affinity
 forkWithAffinity :: Maybe ThreadAffinity -> IO () -> IO ThreadId
@@ -353,7 +371,7 @@ fork_ scope =
 forkWith :: Scope -> ThreadOpts -> IO a -> IO (Thread a)
 forkWith scope opts action = do
   parentThreadId <- myThreadId
-  resultVar <- newEmptyTMVarIO
+  resultVar <- newTVarIO Nothing
   ident <-
     spawn scope opts \masking -> do
       result <- try (masking action)
@@ -365,8 +383,13 @@ forkWith scope opts action = do
         Right _ -> pure ()
       -- even put async exceptions that we propagated. this isn't totally ideal because a caller awaiting this thread
       -- would not be able to distinguish between async exceptions delivered to this thread, or itself
-      putTMVarIO resultVar result
-  pure (Thread ident (readTMVar resultVar >>= either throwSTM pure))
+      atomically (writeTVar resultVar (Just result))
+  let doAwait =
+        readTVar resultVar >>= \case
+          Nothing -> retry
+          Just (Left exception) -> throwSTM exception
+          Just (Right value) -> pure value
+  pure (Thread ident doAwait)
 
 -- | Variant of 'Ki.forkWith' for threads that should run until they are killed.
 forkWith_ :: Scope -> ThreadOpts -> IO Void -> IO ()
@@ -399,7 +422,7 @@ forktry scope =
 forktryWith :: forall e a. Exception e => Scope -> ThreadOpts -> IO a -> IO (Thread (Either e a))
 forktryWith scope opts action = do
   parentThreadId <- myThreadId
-  resultVar <- newEmptyTMVarIO
+  resultVar <- newTVarIO Nothing
   ident <-
     spawn scope opts \masking -> do
       result <- try (masking action)
@@ -412,14 +435,15 @@ forktryWith scope opts action = do
                   Just _ -> not (isScopeClosingException exception) && isAsyncException exception
           when shouldPropagate (propagateException parentThreadId exception (childExceptionVar scope))
         Right _value -> pure ()
-      putTMVarIO resultVar result
+      atomically (writeTVar resultVar (Just result))
   let doAwait =
-        readTMVar resultVar >>= \case
-          Left exception ->
+        readTVar resultVar >>= \case
+          Nothing -> retry
+          Just (Left exception) ->
             case fromException @e exception of
               Nothing -> throwSTM exception
               Just exception' -> pure (Left exception')
-          Right value -> pure (Right value)
+          Just (Right value) -> pure (Right value)
   pure (Thread ident doAwait)
   where
     isAsyncException :: SomeException -> Bool
