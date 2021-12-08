@@ -1,4 +1,4 @@
--- | The `ki` API, generalized to use 'MonadIO' and 'MonadUnliftIO'.
+-- | The `ki` API, generalized to use 'MonadUnliftIO'.
 --
 -- For a variant of this API that does not use @<https://hackage.haskell.org/package/unliftio-core unliftio-core>@, see
 -- @<https://hackage.haskell.org/package/ki ki>@.
@@ -10,14 +10,13 @@ module Ki.Unlifted
     Ki.Thread,
     fork,
     forktry,
-    await,
+    Ki.await,
 
     -- * Extended API
     fork_,
     forkWith,
     forkWith_,
     forktryWith,
-    Ki.awaitSTM,
 
     -- ** Thread options
     Ki.ThreadOpts (..),
@@ -32,16 +31,10 @@ module Ki.Unlifted
 where
 
 import Control.Exception (Exception)
-import Control.Monad.IO.Class (MonadIO (liftIO))
 import Control.Monad.IO.Unlift (MonadUnliftIO (withRunInIO))
 import Data.Void (Void)
 import qualified Ki
 import Prelude
-
--- | See 'Ki.await'.
-await :: forall a m. MonadIO m => Ki.Thread a -> m a
-await thread =
-  liftIO (Ki.await thread)
 
 -- | See 'Ki.fork'.
 fork :: forall a m. MonadUnliftIO m => Ki.Scope -> m a -> m (Ki.Thread a)

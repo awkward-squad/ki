@@ -15,7 +15,7 @@ main =
       "Unit tests"
       [ testCase "`fork` throws ErrorCall when the scope is closed" do
           scope <- Ki.scoped pure
-          (Ki.await =<< Ki.fork scope (pure ())) `shouldThrow` ErrorCall "ki: scope closed"
+          (atomically . Ki.await =<< Ki.fork scope (pure ())) `shouldThrow` ErrorCall "ki: scope closed"
           pure (),
         testCase "`wait` succeeds when no threads are alive" do
           Ki.scoped (atomically . Ki.wait),
@@ -30,7 +30,7 @@ main =
               mask \restore -> do
                 thread :: Ki.Thread () <- Ki.fork scope (throwIO A)
                 restore (atomically (Ki.wait scope)) `catch` \(e :: SomeException) -> print e
-                Ki.await thread,
+                atomically (Ki.await thread),
         testCase "`fork` forks in unmasked state regardless of parent's masking state" do
           Ki.scoped \scope -> do
             _ <- Ki.fork scope (getMaskingState `shouldReturn` Unmasked)
@@ -80,24 +80,24 @@ main =
         testCase "`forktry` can catch sync exceptions" do
           Ki.scoped \scope -> do
             result :: Ki.Thread (Either A ()) <- Ki.forktry scope (throw A)
-            Ki.await result `shouldReturn` Left A,
+            atomically (Ki.await result) `shouldReturn` Left A,
         testCase "`forktry` can propagate sync exceptions" do
           (`shouldThrow` A) do
             Ki.scoped \scope -> do
               thread :: Ki.Thread (Either A2 ()) <- Ki.forktry scope (throw A)
-              Ki.await thread,
+              atomically (Ki.await thread),
         testCase "`forktry` propagates async exceptions" do
           (`shouldThrow` B) do
             Ki.scoped \scope -> do
               thread :: Ki.Thread (Either B ()) <- Ki.forktry scope (throw B)
-              Ki.await thread,
+              atomically (Ki.await thread),
         testCase "`forktry` puts exceptions after propagating" do
           (`shouldThrow` A2) do
             Ki.scoped \scope -> do
               mask \restore -> do
                 thread :: Ki.Thread (Either A ()) <- Ki.forktry scope (throwIO A2)
                 restore (atomically (Ki.wait scope)) `catch` \(_ :: SomeException) -> pure ()
-                Ki.await thread
+                atomically (Ki.await thread)
       ]
 
 data A = A

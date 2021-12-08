@@ -1,5 +1,3 @@
-{-# LANGUAGE MagicHash #-}
-
 module Ki.Scope
   ( Scope,
     scoped,
@@ -7,7 +5,6 @@ module Ki.Scope
     --
     Thread,
     await,
-    awaitSTM,
     fork,
     forkWith,
     forkWith_,
@@ -432,20 +429,12 @@ forktryWith scope opts action = do
         Just _ -> True
 
 -- | Wait for a thread to terminate, and return its value.
-await :: Thread a -> IO a
-await thread =
+await :: Thread a -> STM a
+await (Thread _threadId doAwait) =
   -- If *they* are deadlocked, we will *both* will be delivered a wakeup from the RTS. We want to shrug this exception
   -- off, because afterwards they'll have put to the result var. But don't shield indefinitely, once will cover this use
   -- case and prevent any accidental infinite loops.
-  tryEither (\BlockedIndefinitelyOnSTM -> go) pure go
-  where
-    go =
-      atomically (awaitSTM thread)
-
--- | @STM@ variant of 'Ki.await'.
-awaitSTM :: Thread a -> STM a
-awaitSTM (Thread _threadId doAwait) =
-  doAwait
+  tryEitherSTM (\BlockedIndefinitelyOnSTM -> doAwait) pure doAwait
 
 -- TODO more docs
 -- No precondition on masking state
@@ -467,3 +456,8 @@ propagateException parentThreadId exception childExceptionVar =
 tryEither :: Exception e => (e -> IO b) -> (a -> IO b) -> IO a -> IO b
 tryEither onFailure onSuccess action =
   join (catch (onSuccess <$> action) (pure . onFailure))
+
+-- Like try, but with continuations
+tryEitherSTM :: Exception e => (e -> STM b) -> (a -> STM b) -> STM a -> STM b
+tryEitherSTM onFailure onSuccess action =
+  join (catchSTM (onSuccess <$> action) (pure . onFailure))

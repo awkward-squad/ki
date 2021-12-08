@@ -62,7 +62,6 @@ module Ki
     forkWith,
     forkWith_,
     forktryWith,
-    awaitSTM,
 
     -- ** Thread options
     ThreadOpts (..),
@@ -83,7 +82,6 @@ import Ki.Scope
     ThreadAffinity (..),
     ThreadOpts (..),
     await,
-    awaitSTM,
     defaultThreadOpts,
     fork,
     forkWith,
