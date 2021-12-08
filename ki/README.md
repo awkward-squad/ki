@@ -7,24 +7,24 @@
 [![Dependencies](https://img.shields.io/hackage-deps/v/ki)](https://packdeps.haskellers.com/reverse/ki)
 
 
-`ki` is a lightweight structured-concurrency library inspired by many other projects:
+`ki` is a lightweight structured-concurrency library inspired by many other projects and blog posts:
 
-* [`libdill`](http://libdill.org/)
-* [`trio`](https://github.com/python-trio/trio)
+* [libdill](http://libdill.org/)
+* [trio](https://github.com/python-trio/trio)
 * [Kotlin coroutines](https://kotlinlang.org/docs/reference/coroutines-overview.html)
-* https://vorpus.org/blog/notes-on-structured-concurrency-or-go-statement-considered-harmful/
-* https://250bpm.com/blog:124
-* https://250bpm.com/blog:137
-* https://250bpm.com/blog:139/
-* https://libdill.org/structured-concurrency.html
+* [Notes on structured concurrency, or: Go statement considered harmful](https://vorpus.org/blog/notes-on-structured-concurrency-or-go-statement-considered-harmful)
+* [Structured Concurrency in High-level Languages](https://250bpm.com/blog:124)
+* [Update on Structured Concurrency](https://250bpm.com/blog:137)
+* [Two Approaches to Structured Concurrency](https://250bpm.com/blog:139)
+* [libdill: Structured Concurrency for C](https://libdill.org/structured-concurrency.html)
 
 A previous version of `ki` also included a mechanism for soft-cancellation/graceful shutdown, which took inspiration
 from:
 
 * [Go Concurrency Patterns: Context](https://blog.golang.org/context)
-* [.NET 4 Cancellation Framework](https://devblogs.microsoft.com/pfxteam/net-4-cancellation-framework/)
-* https://vorpus.org/blog/timeouts-and-cancellation-for-humans/
-* https://250bpm.com/blog:146
+* [.NET 4 Cancellation Framework](https://devblogs.microsoft.com/pfxteam/net-4-cancellation-framework)
+* [Timeouts and cancellation for humans](https://vorpus.org/blog/timeouts-and-cancellation-for-humans)
+* [Graceful Shutdown](https://250bpm.com/blog:146)
 
 However, this feature was removed (perhaps temporarily) because the design of the API was unsatisfactory.
 
