@@ -63,7 +63,6 @@ module Ki
     forkWith_,
     forktryWith,
     awaitSTM,
-    waitSTM,
 
     -- ** Thread options
     ThreadOpts (..),
@@ -94,5 +93,4 @@ import Ki.Scope
     forktryWith,
     scoped,
     wait,
-    waitSTM,
   )

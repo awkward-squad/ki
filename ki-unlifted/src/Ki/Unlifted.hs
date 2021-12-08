@@ -6,7 +6,7 @@ module Ki.Unlifted
   ( -- * Core API
     Ki.Scope,
     scoped,
-    wait,
+    Ki.wait,
     Ki.Thread,
     fork,
     forktry,
@@ -18,7 +18,6 @@ module Ki.Unlifted
     forkWith_,
     forktryWith,
     Ki.awaitSTM,
-    Ki.waitSTM,
 
     -- ** Thread options
     Ki.ThreadOpts (..),
@@ -84,8 +83,3 @@ forktryWith scope opts action =
 scoped :: forall a m. MonadUnliftIO m => (Ki.Scope -> m a) -> m a
 scoped action =
   withRunInIO \unlift -> Ki.scoped \scope -> unlift (action scope)
-
--- | See 'Ki.wait'.
-wait :: MonadIO m => Ki.Scope -> m ()
-wait scope =
-  liftIO (Ki.wait scope)

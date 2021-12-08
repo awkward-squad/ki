@@ -4,7 +4,6 @@ module Ki.Scope
   ( Scope,
     scoped,
     wait,
-    waitSTM,
     --
     Thread,
     await,
@@ -237,13 +236,8 @@ forkWithAffinity = \case
   Just OsThread -> forkOS
 
 -- | Wait until all threads created within a scope terminate.
-wait :: Scope -> IO ()
-wait =
-  atomically . waitSTM
-
--- | @STM@ variant of 'Ki.wait'.
-waitSTM :: Scope -> STM ()
-waitSTM Scope {childrenVar, startingVar} = do
+wait :: Scope -> STM ()
+wait Scope {childrenVar, startingVar} = do
   blockUntilEmpty childrenVar
   blockUntil0 startingVar
 

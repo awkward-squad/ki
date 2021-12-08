@@ -1,5 +1,6 @@
 module Main (main) where
 
+import Control.Concurrent.STM (atomically)
 import Control.Exception
 import Control.Monad
 import qualified Ki
@@ -14,61 +15,68 @@ main =
       "Unit tests"
       [ testCase "`fork` throws ErrorCall when the scope is closed" do
           scope <- Ki.scoped pure
-          Ki.fork_ scope (pure ()) `shouldThrow` ErrorCall "ki: scope closed",
+          (Ki.await =<< Ki.fork scope (pure ())) `shouldThrow` ErrorCall "ki: scope closed"
+          pure (),
         testCase "`wait` succeeds when no threads are alive" do
-          Ki.scoped Ki.wait,
+          Ki.scoped (atomically . Ki.wait),
         testCase "`fork` propagates exceptions" do
           (`shouldThrow` A) do
             Ki.scoped \scope -> do
               Ki.fork_ scope (throwIO A)
-              Ki.wait scope,
+              atomically (Ki.wait scope),
         testCase "`fork` puts exceptions after propagating" do
           (`shouldThrow` A) do
             Ki.scoped \scope -> do
               mask \restore -> do
                 thread :: Ki.Thread () <- Ki.fork scope (throwIO A)
-                restore (Ki.wait scope) `catch` \(e :: SomeException) -> print e
+                restore (atomically (Ki.wait scope)) `catch` \(e :: SomeException) -> print e
                 Ki.await thread,
         testCase "`fork` forks in unmasked state regardless of parent's masking state" do
           Ki.scoped \scope -> do
-            Ki.fork_ scope (getMaskingState `shouldReturn` Unmasked)
-            mask_ (Ki.fork_ scope (getMaskingState `shouldReturn` Unmasked))
-            uninterruptibleMask_ (Ki.fork_ scope (getMaskingState `shouldReturn` Unmasked))
-            Ki.wait scope,
+            _ <- Ki.fork scope (getMaskingState `shouldReturn` Unmasked)
+            _ <- mask_ (Ki.fork scope (getMaskingState `shouldReturn` Unmasked))
+            _ <- uninterruptibleMask_ (Ki.fork scope (getMaskingState `shouldReturn` Unmasked))
+            atomically (Ki.wait scope),
         testCase "`forkWith` can fork in interruptibly masked state regardless of paren't masking state" do
           Ki.scoped \scope -> do
-            Ki.forkWith_
-              scope
-              Ki.defaultThreadOpts {Ki.maskingState = MaskedInterruptible}
-              (getMaskingState `shouldReturn` MaskedInterruptible)
-            mask_ do
-              Ki.forkWith_
+            _ <-
+              Ki.forkWith
                 scope
                 Ki.defaultThreadOpts {Ki.maskingState = MaskedInterruptible}
                 (getMaskingState `shouldReturn` MaskedInterruptible)
-            uninterruptibleMask_ do
-              Ki.forkWith_
-                scope
-                Ki.defaultThreadOpts {Ki.maskingState = MaskedInterruptible}
-                (getMaskingState `shouldReturn` MaskedInterruptible)
-            Ki.wait scope,
+            _ <-
+              mask_ do
+                Ki.forkWith
+                  scope
+                  Ki.defaultThreadOpts {Ki.maskingState = MaskedInterruptible}
+                  (getMaskingState `shouldReturn` MaskedInterruptible)
+            _ <-
+              uninterruptibleMask_ do
+                Ki.forkWith
+                  scope
+                  Ki.defaultThreadOpts {Ki.maskingState = MaskedInterruptible}
+                  (getMaskingState `shouldReturn` MaskedInterruptible)
+            atomically (Ki.wait scope),
         testCase "`forkWith` can fork in uninterruptibly masked state regardless of paren't masking state" do
           Ki.scoped \scope -> do
-            Ki.forkWith_
-              scope
-              Ki.defaultThreadOpts {Ki.maskingState = MaskedUninterruptible}
-              (getMaskingState `shouldReturn` MaskedUninterruptible)
-            mask_ do
-              Ki.forkWith_
+            _ <-
+              Ki.forkWith
                 scope
                 Ki.defaultThreadOpts {Ki.maskingState = MaskedUninterruptible}
                 (getMaskingState `shouldReturn` MaskedUninterruptible)
-            uninterruptibleMask_ do
-              Ki.forkWith_
-                scope
-                Ki.defaultThreadOpts {Ki.maskingState = MaskedUninterruptible}
-                (getMaskingState `shouldReturn` MaskedUninterruptible)
-            Ki.wait scope,
+            _ <-
+              mask_ do
+                Ki.forkWith
+                  scope
+                  Ki.defaultThreadOpts {Ki.maskingState = MaskedUninterruptible}
+                  (getMaskingState `shouldReturn` MaskedUninterruptible)
+            _ <-
+              uninterruptibleMask_ do
+                Ki.forkWith
+                  scope
+                  Ki.defaultThreadOpts {Ki.maskingState = MaskedUninterruptible}
+                  (getMaskingState `shouldReturn` MaskedUninterruptible)
+            atomically (Ki.wait scope),
         testCase "`forktry` can catch sync exceptions" do
           Ki.scoped \scope -> do
             result :: Ki.Thread (Either A ()) <- Ki.forktry scope (throw A)
@@ -88,7 +96,7 @@ main =
             Ki.scoped \scope -> do
               mask \restore -> do
                 thread :: Ki.Thread (Either A ()) <- Ki.forktry scope (throwIO A2)
-                restore (Ki.wait scope) `catch` \(_ :: SomeException) -> pure ()
+                restore (atomically (Ki.wait scope)) `catch` \(_ :: SomeException) -> pure ()
                 Ki.await thread
       ]
 

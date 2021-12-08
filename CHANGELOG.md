@@ -7,6 +7,7 @@
 - Breaking: Generalize `forkWithUnmask` to `forkWith`.
 - Breaking: Make `fork_` take an `IO Void` rather than an `IO ()`.
 - Breaking: Make `fork` create an unmasked thread, rather than inherit the parent's masking state.
+- Breaking: Rename `waitSTM` to `wait` (replacing the old `wait` in `IO`).
 
 - Change: Make `scoped` kill threads in the order they were created.
 

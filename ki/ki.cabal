@@ -90,6 +90,7 @@ test-suite tests
   import: component
   build-depends:
     ki,
+    stm,
     tasty,
     tasty-hunit,
   ghc-options: -rtsopts -threaded
