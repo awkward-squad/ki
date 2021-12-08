@@ -83,7 +83,7 @@ isScopeClosingException exception =
 pattern IsScopeClosingException :: SomeException
 pattern IsScopeClosingException <- (isScopeClosingException -> True)
 
--- | Perform an action in a new scope. Before the action returns, whether with a value or an exception, all living
+-- | Perform an action in a new scope. Just before the action returns, whether with a value or an exception, all living
 -- threads created within the scope are killed.
 --
 -- ==== __Examples__
@@ -330,6 +330,8 @@ unwrapThreadFailed e0 =
 
 -- | Create a child thread to perform an action within a scope.
 --
+-- ==== Exception propagation
+--
 -- If either
 --
 -- * The action throws an exception.
@@ -341,13 +343,17 @@ unwrapThreadFailed e0 =
 -- * The parent kills all of its other children.
 -- * The parent rethrows the exception.
 --
--- Unlike @forkIO@ from @base@, the child thread is created with asynchronous exceptions unmasked, regardless of the
--- calling thread's masking state. To create a child thread with a different initial masking state, use 'Ki.forkWith'.
+-- ==== Masking state
+--
+-- The child thread is created with asynchronous exceptions unmasked, regardless of the calling thread's masking state.
+--
+-- To create a child thread with a different initial masking state, use 'Ki.forkWith', and unmask with
+-- 'GHC.IO.unsafeUnmask'.
 fork :: Scope -> IO a -> IO (Thread a)
 fork scope =
   forkWith scope defaultThreadOpts
 
--- | Variant of 'Ki.fork' for threads that should run until they are killed.
+-- | Variant of 'Ki.fork' for threads that never return.
 fork_ :: Scope -> IO Void -> IO ()
 fork_ scope =
   forkWith_ scope defaultThreadOpts
@@ -389,6 +395,11 @@ forkWith_ scope opts action = do
 
 -- | Like 'Ki.fork', but if the action throws an exception that is an instance of the given exception type, then it is
 -- returned rather than propagated to the child's parent.
+--
+-- For example, @forktry \@SomeException@ creates a thread that does not propagate any synchronous exceptions, because
+-- every exception is an instance of 'Control.Exception.SomeException'.
+--
+-- It is not possible to prevent propagating asynchronous exceptions.
 forktry :: forall e a. Exception e => Scope -> IO a -> IO (Thread (Either e a))
 forktry scope =
   forktryWith scope defaultThreadOpts

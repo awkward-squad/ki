@@ -1,13 +1,9 @@
 -- | The "Ki" API, generalized to use 'MonadIO' and 'MonadUnliftIO'.
 module Ki.Unlifted
   ( -- * Core API
-
-    -- ** Scope
     Ki.Scope,
     scoped,
     wait,
-
-    -- ** Thread
     Ki.Thread,
     fork,
     forktry,

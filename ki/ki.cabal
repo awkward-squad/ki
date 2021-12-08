@@ -10,11 +10,11 @@ license-file: LICENSE
 maintainer: Mitchell Rosen <mitchellwrosen@gmail.com>, Travis Staton <hello@travisstaton.com>
 name: ki
 stability: experimental
-synopsis: A lightweight structured-concurrency library
+synopsis: A lightweight structured concurrency library
 version: 0.3.0
 
 description:
-  A lightweight structured-concurrency library.
+  A lightweight structured concurrency library.
 
 extra-source-files:
   CHANGELOG.md

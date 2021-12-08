@@ -28,7 +28,6 @@ from:
 
 However, this feature was removed (perhaps temporarily) because the design of the API was unsatisfactory.
 
-## Documentation
+# Documentation
 
-See the bottom of the main [Ki](https://hackage.haskell.org/package/ki/docs/Ki.html#g:4) module for a short
-general introduction to structured concurrency, and a mini-tutorial.
+[Hackage documentation](https://hackage.haskell.org/package/ki/docs/Ki.html)
