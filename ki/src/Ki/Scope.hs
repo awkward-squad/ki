@@ -105,7 +105,10 @@ pattern IsScopeClosingException <- (isScopeClosingException -> True)
 --   result2 <- 'Ki.await' result2
 --   pure (result1, result2)
 -- @
-scoped :: (Scope -> IO a) -> IO a
+scoped ::
+  -- |
+  (Scope -> IO a) ->
+  IO a
 scoped action = do
   childrenVar <- newTVarIO IntMap.empty
   nextChildIdCounter <- newCounter
@@ -251,7 +254,10 @@ forkWithAffinity = \case
   Just OsThread -> forkOS
 
 -- | Wait until all threads created within a scope terminate.
-wait :: Scope -> STM ()
+wait ::
+  -- |
+  Scope ->
+  STM ()
 wait Scope {childrenVar, startingVar} = do
   blockUntilEmpty childrenVar
   blockUntil0 startingVar
@@ -373,17 +379,34 @@ unwrapThreadFailed e0 =
 -- The child thread is created with asynchronous exceptions unmasked, regardless of the calling thread's masking state.
 --
 -- To create a child thread with a different initial masking state, use 'Ki.forkWith'.
-fork :: Scope -> IO a -> IO (Thread a)
+fork ::
+  -- |
+  Scope ->
+  -- |
+  IO a ->
+  IO (Thread a)
 fork scope =
   forkWith scope defaultThreadOptions
 
 -- | Variant of 'Ki.fork' for threads that never return.
-fork_ :: Scope -> IO Void -> IO ()
+fork_ ::
+  -- |
+  Scope ->
+  -- |
+  IO Void ->
+  IO ()
 fork_ scope =
   forkWith_ scope defaultThreadOptions
 
 -- | Variant of 'Ki.fork' that takes an additional options argument.
-forkWith :: Scope -> ThreadOptions -> IO a -> IO (Thread a)
+forkWith ::
+  -- |
+  Scope ->
+  -- |
+  ThreadOptions ->
+  -- |
+  IO a ->
+  IO (Thread a)
 forkWith scope opts action = do
   parentThreadId <- myThreadId
   resultVar <- newTVarIO Nothing
@@ -407,7 +430,14 @@ forkWith scope opts action = do
   pure (Thread ident doAwait)
 
 -- | Variant of 'Ki.forkWith' for threads that never return.
-forkWith_ :: Scope -> ThreadOptions -> IO Void -> IO ()
+forkWith_ ::
+  -- |
+  Scope ->
+  -- |
+  ThreadOptions ->
+  -- |
+  IO Void ->
+  IO ()
 forkWith_ scope opts action = do
   parentThreadId <- myThreadId
   _childThreadId <-
@@ -436,12 +466,27 @@ forkWith_ scope opts action = do
 -- The child thread is created with asynchronous exceptions unmasked, regardless of the calling thread's masking state.
 --
 -- To create a child thread with a different initial masking state, use 'Ki.forktryWith'.
-forktry :: Exception e => Scope -> IO a -> IO (Thread (Either e a))
+forktry ::
+  Exception e =>
+  -- |
+  Scope ->
+  -- |
+  IO a ->
+  -- |
+  IO (Thread (Either e a))
 forktry scope =
   forktryWith scope defaultThreadOptions
 
 -- | Variant of 'Ki.forktry' that takes an additional options argument.
-forktryWith :: Exception e => Scope -> ThreadOptions -> IO a -> IO (Thread (Either e a))
+forktryWith ::
+  Exception e =>
+  -- |
+  Scope ->
+  -- |
+  ThreadOptions ->
+  -- |
+  IO a ->
+  IO (Thread (Either e a))
 forktryWith = forktryWith' -- cleaner haddocks :/
 
 forktryWith' :: forall e a. Exception e => Scope -> ThreadOptions -> IO a -> IO (Thread (Either e a))
@@ -478,7 +523,10 @@ forktryWith' scope opts action = do
         Just _ -> True
 
 -- | Wait for a thread to terminate, and return its value.
-await :: Thread a -> STM a
+await ::
+  -- |
+  Thread a ->
+  STM a
 await (Thread _threadId doAwait) =
   -- If *they* are deadlocked, we will *both* will be delivered a wakeup from the RTS. We want to shrug this exception
   -- off, because afterwards they'll have put to the result var. But don't shield indefinitely, once will cover this use

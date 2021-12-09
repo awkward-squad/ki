@@ -19,12 +19,18 @@ instance Show Bytes where
     | otherwise = undefined
 
 -- | A number of kilobytes.
-kilobytes :: Natural -> Bytes
+kilobytes ::
+  -- |
+  Natural ->
+  Bytes
 kilobytes n =
   Bytes (snip (n * 1024))
 
 -- | A number of megabytes.
-megabytes :: Natural -> Bytes
+megabytes ::
+  -- |
+  Natural ->
+  Bytes
 megabytes n =
   Bytes (snip (n * 1048576))
 
