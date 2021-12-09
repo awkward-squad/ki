@@ -1,4 +1,4 @@
--- | `ki` is a lightweight concurrency library with a few distinctive features.
+-- | `ki` is a lightweight concurrency library.
 --
 -- For a variant of this API that uses @<https://hackage.haskell.org/package/unliftio-core unliftio-core>@, see
 -- @<https://hackage.haskell.org/package/ki-unlifted ki-unlifted>@.
@@ -8,45 +8,23 @@
 -- * Every thread is created within a lexical scope.
 -- * A thread cannot outlive the scope in which it was created.
 --
--- Thus, whether any given function internally creates threads is an
--- implementation detail. By the time the function returns, any threads it may
--- have created are guaranteed to have terminated.
---
 -- ==== Parent-child thread relationship
 --
--- * A thread's parent is the thread that opened the lexical scope in which the
---   thread was created. The main thread doesn't have a parent.
+-- * A thread __C__'s parent __P__ is the thread that opened the lexical scope in which __C__ was created. The main
+--   thread doesn't have a parent.
 --
--- * A thread's children are all of the threads that were created within lexical
---   scopes that the thread opened.
+-- * A thread __P__'s children __Cs__ are the threads that were created within lexical scopes that __P__ opened.
 --
--- Threads therefore form a "call tree", in which the main thread is the root
--- node, and each node has zero or more children.
---
--- ==== Threads compute values
+-- ==== Return value
 --
 -- * Every thread has a return value that can be awaited.
 --
--- For example, a thread that computes the 45th fibonacci number might have a
--- return value of type 'Integer', whereas a thread that never returns might
--- have a return value of type 'Data.Void.Void'.
---
--- ==== Threads may throw exceptions, which may be expected
---
--- * A thread may fail to compute its value, and instead throw an exception,
---   which may considered by the programmer to be expected or unexpected.
---
--- For example, a thread that downloads a webpage may be expected to sometimes
--- throw a @NetworkDown@ exception, but never a @DatabaseCorrupt@ exception.
---
 -- ==== Bidirectional exception propagation
 --
--- * If a child thread throws (or is thrown) an unexpected exception, it
---   propagates the exception to its parent before terminating.
+-- * If an unexpected exception is raised in a child thread, the exception is propagated to the parent.
 --
--- * If a parent thread throws (or is thrown) an exception, it kills all of its
---   children and waits for them to terminate before propagating the exception
---   up its call stack.
+-- * If an exception is raised in a parent, the parent kills all of its children and waits for them to terminate before
+--   re-raising the exception.
 module Ki
   ( -- * Core API
     Scope,
@@ -64,8 +42,8 @@ module Ki
     forktryWith,
 
     -- ** Thread options
-    ThreadOpts (..),
-    defaultThreadOpts,
+    ThreadOptions (..),
+    defaultThreadOptions,
     ThreadAffinity (..),
 
     -- ** Bytes
@@ -80,9 +58,9 @@ import Ki.Scope
   ( Scope,
     Thread,
     ThreadAffinity (..),
-    ThreadOpts (..),
+    ThreadOptions (..),
     await,
-    defaultThreadOpts,
+    defaultThreadOptions,
     fork,
     forkWith,
     forkWith_,

@@ -19,8 +19,8 @@ module Ki.Unlifted
     forktryWith,
 
     -- ** Thread options
-    Ki.ThreadOpts (..),
-    Ki.defaultThreadOpts,
+    Ki.ThreadOptions (..),
+    Ki.defaultThreadOptions,
     Ki.ThreadAffinity (..),
 
     -- ** Bytes
@@ -47,12 +47,12 @@ fork_ scope action =
   withRunInIO \unlift -> Ki.fork_ scope (unlift action)
 
 -- | See 'Ki.forkWith'.
-forkWith :: forall a m. MonadUnliftIO m => Ki.Scope -> Ki.ThreadOpts -> m a -> m (Ki.Thread a)
+forkWith :: forall a m. MonadUnliftIO m => Ki.Scope -> Ki.ThreadOptions -> m a -> m (Ki.Thread a)
 forkWith scope opts action =
   withRunInIO \unlift -> Ki.forkWith scope opts (unlift action)
 
 -- | See 'Ki.forkWith_'.
-forkWith_ :: MonadUnliftIO m => Ki.Scope -> Ki.ThreadOpts -> m Void -> m ()
+forkWith_ :: MonadUnliftIO m => Ki.Scope -> Ki.ThreadOptions -> m Void -> m ()
 forkWith_ scope opts action =
   withRunInIO \unlift -> Ki.forkWith_ scope opts (unlift action)
 
@@ -66,7 +66,7 @@ forktryWith ::
   forall e m a.
   (Exception e, MonadUnliftIO m) =>
   Ki.Scope ->
-  Ki.ThreadOpts ->
+  Ki.ThreadOptions ->
   m a ->
   m (Ki.Thread (Either e a))
 forktryWith scope opts action =

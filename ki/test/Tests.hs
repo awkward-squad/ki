@@ -42,19 +42,19 @@ main =
             _ <-
               Ki.forkWith
                 scope
-                Ki.defaultThreadOpts {Ki.maskingState = MaskedInterruptible}
+                Ki.defaultThreadOptions {Ki.maskingState = MaskedInterruptible}
                 (getMaskingState `shouldReturn` MaskedInterruptible)
             _ <-
               mask_ do
                 Ki.forkWith
                   scope
-                  Ki.defaultThreadOpts {Ki.maskingState = MaskedInterruptible}
+                  Ki.defaultThreadOptions {Ki.maskingState = MaskedInterruptible}
                   (getMaskingState `shouldReturn` MaskedInterruptible)
             _ <-
               uninterruptibleMask_ do
                 Ki.forkWith
                   scope
-                  Ki.defaultThreadOpts {Ki.maskingState = MaskedInterruptible}
+                  Ki.defaultThreadOptions {Ki.maskingState = MaskedInterruptible}
                   (getMaskingState `shouldReturn` MaskedInterruptible)
             atomically (Ki.wait scope),
         testCase "`forkWith` can fork in uninterruptibly masked state regardless of paren't masking state" do
@@ -62,19 +62,19 @@ main =
             _ <-
               Ki.forkWith
                 scope
-                Ki.defaultThreadOpts {Ki.maskingState = MaskedUninterruptible}
+                Ki.defaultThreadOptions {Ki.maskingState = MaskedUninterruptible}
                 (getMaskingState `shouldReturn` MaskedUninterruptible)
             _ <-
               mask_ do
                 Ki.forkWith
                   scope
-                  Ki.defaultThreadOpts {Ki.maskingState = MaskedUninterruptible}
+                  Ki.defaultThreadOptions {Ki.maskingState = MaskedUninterruptible}
                   (getMaskingState `shouldReturn` MaskedUninterruptible)
             _ <-
               uninterruptibleMask_ do
                 Ki.forkWith
                   scope
-                  Ki.defaultThreadOpts {Ki.maskingState = MaskedUninterruptible}
+                  Ki.defaultThreadOptions {Ki.maskingState = MaskedUninterruptible}
                   (getMaskingState `shouldReturn` MaskedUninterruptible)
             atomically (Ki.wait scope),
         testCase "`forktry` can catch sync exceptions" do

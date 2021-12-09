@@ -13,8 +13,8 @@ module Ki.Scope
     forktryWith,
     --
     ThreadAffinity (..),
-    ThreadOpts (..),
-    defaultThreadOpts,
+    ThreadOptions (..),
+    defaultThreadOptions,
   )
 where
 
@@ -55,16 +55,16 @@ import Ki.Prelude
 
 -- | A thread scope, which delimits the lifetime of all threads created within it.
 data Scope = Scope
-  { -- | The set of child threads that are currently running, each keyed by a monotonically increasing int.
+  { -- The set of child threads that are currently running, each keyed by a monotonically increasing int.
     childrenVar :: {-# UNPACK #-} !(TVar (IntMap ThreadId)),
-    -- | The counter that holds the (int) key to use for the next child thread.
+    -- The counter that holds the (int) key to use for the next child thread.
     nextChildIdCounter :: {-# UNPACK #-} !Counter,
-    -- | The number of child threads that are guaranteed to be about to start, in the sense that only the GHC scheduler
+    -- The number of child threads that are guaranteed to be about to start, in the sense that only the GHC scheduler
     -- can continue to delay; no async exception can strike here and prevent one of these threads from starting.
     --
     -- Sentinel value: -1 means the scope is closed.
     startingVar :: {-# UNPACK #-} !(TVar Int),
-    -- | The MVar that a child puts to before propagating the exception to the parent because the delivery is not
+    -- The MVar that a child puts to before propagating the exception to the parent because the delivery is not
     -- guaranteed. This is because the parent must kill its children with asynchronous exceptions uninterruptibly masked
     -- for correctness.
     childExceptionVar :: {-# UNPACK #-} !(MVar SomeException)
@@ -92,7 +92,7 @@ isScopeClosingException exception =
 pattern IsScopeClosingException :: SomeException
 pattern IsScopeClosingException <- (isScopeClosingException -> True)
 
--- | Perform an action in a new scope. Just before the action returns, whether with a value or an exception, all living
+-- | Execute an action in a new scope. Just before the action returns, whether with a value or an exception, all living
 -- threads created within the scope are killed.
 --
 -- ==== __Examples__
@@ -156,10 +156,10 @@ scoped action = do
 -- Spawn a thread in a scope, providing it a function that sets the masking state to the requested masking state. The
 -- given action is called with async exceptions at least interruptibly masked, but maybe uninterruptibly, if spawn
 -- itself was called with async exceptions uninterruptible masked. The given action must not throw an exception.
-spawn :: Scope -> ThreadOpts -> ((forall x. IO x -> IO x) -> IO ()) -> IO ThreadId
+spawn :: Scope -> ThreadOptions -> ((forall x. IO x -> IO x) -> IO ()) -> IO ThreadId
 spawn
   Scope {childrenVar, nextChildIdCounter, startingVar}
-  ThreadOpts {affinity, allocationLimit, label, maskingState = requestedChildMaskingState}
+  ThreadOptions {affinity, allocationLimit, label, maskingState = requestedChildMaskingState}
   action = do
     parentMaskingState <- getMaskingState
 
@@ -293,29 +293,54 @@ data ThreadAffinity
   deriving stock (Eq, Show)
 
 -- | Thread options that can be provided at the time a thread is created.
-data ThreadOpts = ThreadOpts
+--
+-- [@affinity@]:
+--
+--     The affinity of a thread. A thread can be unbound, bound to a specific capability, or bound to a specific OS
+--     thread.
+--
+--     Default: @Nothing@
+--
+-- [@allocationLimit@]:
+--
+--     The maximum number of bytes a thread may allocate before it is delivered an
+--     'Control.Exception.AllocationLimitExceeded' exception. If caught, the thread is allowed to allocate an additional
+--     100kb (tunable with @+RTS -xq@) to perform any necessary cleanup actions; if exceeded, the thread is delivered
+--     another.
+--
+--     Default: @Nothing@
+--
+-- [@label@]:
+--
+--     The label of a thread, used in the event log.
+--
+--     Default: @""@
+--
+-- [@maskingState@]:
+--
+--     The masking state a thread is created in. To unmask, use 'GHC.IO.unsafeUnmask'.
+--
+--     Default: @Unmasked@
+data ThreadOptions = ThreadOptions
   { affinity :: Maybe ThreadAffinity,
-    -- | The maximum amount of bytes a thread may allocate before it is delivered an
-    -- 'Control.Exception.AllocationLimitExceeded' exception.
     allocationLimit :: Maybe Bytes,
     label :: String,
-    -- | The masking state a thread is created in.
     maskingState :: MaskingState
   }
   deriving stock (Eq, Show)
 
 -- |
 -- @
--- ThreadOpts
---   { affinity = Nothing
---   , allocationLimit = Nothing
---   , label = ""
---   , maskingState = Unmasked
+-- 'Ki.ThreadOptions'
+--   { 'Ki.affinity' = Nothing
+--   , 'Ki.allocationLimit' = Nothing
+--   , 'Ki.label' = ""
+--   , 'Ki.maskingState' = Unmasked
 --   }
 -- @
-defaultThreadOpts :: ThreadOpts
-defaultThreadOpts =
-  ThreadOpts
+defaultThreadOptions :: ThreadOptions
+defaultThreadOptions =
+  ThreadOptions
     { affinity = Nothing,
       allocationLimit = Nothing,
       label = "",
@@ -337,38 +362,28 @@ unwrapThreadFailed e0 =
     Just (ThreadFailed e1) -> e1
     Nothing -> e0
 
--- | Create a child thread to perform an action within a scope.
+-- | Create a child thread to execute an action within a scope.
 --
 -- ==== Exception propagation
 --
--- If either
---
--- * The action throws an exception.
--- * The child is thrown an asynchronous exception while performing the action.
---
--- then
---
--- * The child propagates the exception to its parent.
--- * The parent kills all of its other children.
--- * The parent rethrows the exception.
+-- If an exception is raised while executing the action, the exception is propagated to the parent.
 --
 -- ==== Masking state
 --
 -- The child thread is created with asynchronous exceptions unmasked, regardless of the calling thread's masking state.
 --
--- To create a child thread with a different initial masking state, use 'Ki.forkWith', and unmask with
--- 'GHC.IO.unsafeUnmask'.
+-- To create a child thread with a different initial masking state, use 'Ki.forkWith'.
 fork :: Scope -> IO a -> IO (Thread a)
 fork scope =
-  forkWith scope defaultThreadOpts
+  forkWith scope defaultThreadOptions
 
 -- | Variant of 'Ki.fork' for threads that never return.
 fork_ :: Scope -> IO Void -> IO ()
 fork_ scope =
-  forkWith_ scope defaultThreadOpts
+  forkWith_ scope defaultThreadOptions
 
 -- | Variant of 'Ki.fork' that takes an additional options argument.
-forkWith :: Scope -> ThreadOpts -> IO a -> IO (Thread a)
+forkWith :: Scope -> ThreadOptions -> IO a -> IO (Thread a)
 forkWith scope opts action = do
   parentThreadId <- myThreadId
   resultVar <- newTVarIO Nothing
@@ -391,8 +406,8 @@ forkWith scope opts action = do
           Just (Right value) -> pure value
   pure (Thread ident doAwait)
 
--- | Variant of 'Ki.forkWith' for threads that should run until they are killed.
-forkWith_ :: Scope -> ThreadOpts -> IO Void -> IO ()
+-- | Variant of 'Ki.forkWith' for threads that never return.
+forkWith_ :: Scope -> ThreadOptions -> IO Void -> IO ()
 forkWith_ scope opts action = do
   parentThreadId <- myThreadId
   _childThreadId <-
@@ -407,20 +422,30 @@ forkWith_ scope opts action = do
         (masking action)
   pure ()
 
--- | Like 'Ki.fork', but if the action throws an exception that is an instance of the given exception type, then it is
--- returned rather than propagated to the child's parent.
+-- | Create a child thread to execute an action within a scope.
 --
--- For example, @forktry \@SomeException@ creates a thread that does not propagate any synchronous exceptions, because
--- every exception is an instance of 'Control.Exception.SomeException'.
+-- ==== Exception propagation
 --
--- It is not possible to prevent propagating asynchronous exceptions.
-forktry :: forall e a. Exception e => Scope -> IO a -> IO (Thread (Either e a))
+-- If an exception is raised while executing the action,
+--
+-- * If the exception is synchronous and an instance of __@e@__, it is caught.
+-- * Otherwise, it is propagated to the parent.
+--
+-- ==== Masking state
+--
+-- The child thread is created with asynchronous exceptions unmasked, regardless of the calling thread's masking state.
+--
+-- To create a child thread with a different initial masking state, use 'Ki.forktryWith'.
+forktry :: Exception e => Scope -> IO a -> IO (Thread (Either e a))
 forktry scope =
-  forktryWith scope defaultThreadOpts
+  forktryWith scope defaultThreadOptions
 
 -- | Variant of 'Ki.forktry' that takes an additional options argument.
-forktryWith :: forall e a. Exception e => Scope -> ThreadOpts -> IO a -> IO (Thread (Either e a))
-forktryWith scope opts action = do
+forktryWith :: Exception e => Scope -> ThreadOptions -> IO a -> IO (Thread (Either e a))
+forktryWith = forktryWith' -- cleaner haddocks :/
+
+forktryWith' :: forall e a. Exception e => Scope -> ThreadOptions -> IO a -> IO (Thread (Either e a))
+forktryWith' scope opts action = do
   parentThreadId <- myThreadId
   resultVar <- newTVarIO Nothing
   ident <-

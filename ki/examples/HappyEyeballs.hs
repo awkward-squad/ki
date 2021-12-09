@@ -96,9 +96,9 @@ connectAny result = do
       FullyResolved addrs -> loop Nothing addrs
       PartiallyResolved addrs more -> loop (Just more) addrs
   where
-    workerOpts :: Ki.ThreadOpts
+    workerOpts :: Ki.ThreadOptions
     workerOpts =
-      Ki.defaultThreadOpts
+      Ki.defaultThreadOptions
         { Ki.maskingState = MaskedInterruptible
         }
 
