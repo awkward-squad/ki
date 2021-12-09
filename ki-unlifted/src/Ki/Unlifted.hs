@@ -57,13 +57,12 @@ forkWith_ scope opts action =
   withRunInIO \unlift -> Ki.forkWith_ scope opts (unlift action)
 
 -- | See 'Ki.forktry'.
-forktry :: forall e m a. (Exception e, MonadUnliftIO m) => Ki.Scope -> m a -> m (Ki.Thread (Either e a))
+forktry :: (Exception e, MonadUnliftIO m) => Ki.Scope -> m a -> m (Ki.Thread (Either e a))
 forktry scope action =
   withRunInIO \unlift -> Ki.forktry scope (unlift action)
 
 -- | See 'Ki.forktryWith'.
 forktryWith ::
-  forall e m a.
   (Exception e, MonadUnliftIO m) =>
   Ki.Scope ->
   Ki.ThreadOptions ->
