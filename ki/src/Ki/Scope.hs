@@ -57,7 +57,11 @@ import Ki.Prelude
 --
 -- Introduce a scope with 'scoped'.
 data Scope = Scope
-  { -- The set of child threads that are currently running, each keyed by a monotonically increasing int.
+  { -- The MVar that a child puts to before propagating the exception to the parent because the delivery is not
+    -- guaranteed. This is because the parent must kill its children with asynchronous exceptions uninterruptibly masked
+    -- for correctness.
+    childExceptionVar :: {-# UNPACK #-} !(MVar SomeException),
+    -- The set of child threads that are currently running, each keyed by a monotonically increasing int.
     childrenVar :: {-# UNPACK #-} !(TVar (IntMap ThreadId)),
     -- The counter that holds the (int) key to use for the next child thread.
     nextChildIdCounter :: {-# UNPACK #-} !Counter,
@@ -65,11 +69,7 @@ data Scope = Scope
     -- can continue to delay; no async exception can strike here and prevent one of these threads from starting.
     --
     -- Sentinel value: -1 means the scope is closed.
-    startingVar :: {-# UNPACK #-} !(TVar Int),
-    -- The MVar that a child puts to before propagating the exception to the parent because the delivery is not
-    -- guaranteed. This is because the parent must kill its children with asynchronous exceptions uninterruptibly masked
-    -- for correctness.
-    childExceptionVar :: {-# UNPACK #-} !(MVar SomeException)
+    startingVar :: {-# UNPACK #-} !(TVar Int)
   }
 
 -- Exception thrown by a parent thread to its children when its scope is closing.
@@ -123,11 +123,11 @@ scoped ::
   (Scope -> IO a) ->
   IO a
 scoped action = do
+  childExceptionVar <- newEmptyMVar
   childrenVar <- newTVarIO IntMap.empty
   nextChildIdCounter <- newCounter
   startingVar <- newTVarIO 0
-  childExceptionVar <- newEmptyMVar
-  let scope = Scope {childrenVar, nextChildIdCounter, startingVar, childExceptionVar}
+  let scope = Scope {childExceptionVar, childrenVar, nextChildIdCounter, startingVar}
 
   uninterruptibleMask \restore -> do
     result <- try (restore (action scope))
