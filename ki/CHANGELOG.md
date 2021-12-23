@@ -15,6 +15,7 @@
 - Bugfix: Fix subtle bug related to GHC's treatment of deadlocked threads.
 - Bugfix: make `async` (now `forktry`) propagate async exceptions.
 - Bugfix: make `scoped` safe to run with asynchronous exceptions masked.
+- Bugfix: propagate exceptions to creator of scope, not creator of thread
 
 - Performance: Use atomic fetch-and-add rather than a `TVar` to track internal child thread ids.
 
