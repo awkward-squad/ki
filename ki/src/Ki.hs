@@ -10,10 +10,7 @@
 --
 -- ==== Parent-child thread relationship
 --
--- * A thread __C__'s parent __P__ is the thread that opened the lexical scope in which __C__ was created. The main
---   thread doesn't have a parent.
---
--- * A thread __P__'s children __Cs__ are the threads that were created within lexical scopes that __P__ opened.
+-- * A thread __C__'s parent __P__ is the thread that created the lexical scope in which __C__ was created.
 --
 -- ==== Return value
 --
@@ -23,17 +20,20 @@
 --
 -- * If an unexpected exception is raised in a child thread, the exception is propagated to the parent.
 --
--- * If an exception is raised in a parent, the parent kills all of its children and waits for them to terminate before
---   re-raising the exception.
+-- * If an exception is raised in a parent thread, the parent:
+--
+--     * Raises an asynchronous exception in all of its children.
+--     * Blocks until its children terminate.
+--     * Re-raises the original exception. 
 module Ki
   ( -- * Core API
     Scope,
-    scoped,
-    wait,
     Thread,
+    scoped,
     fork,
     forktry,
     await,
+    wait,
 
     -- * Extended API
     fork_,
@@ -46,14 +46,14 @@ module Ki
     defaultThreadOptions,
     ThreadAffinity (..),
 
-    -- ** Bytes
-    Bytes,
+    -- ** Byte count
+    ByteCount,
     kilobytes,
     megabytes,
   )
 where
 
-import Ki.Bytes (Bytes, kilobytes, megabytes)
+import Ki.ByteCount (ByteCount, kilobytes, megabytes)
 import Ki.Scope
   ( Scope,
     Thread,

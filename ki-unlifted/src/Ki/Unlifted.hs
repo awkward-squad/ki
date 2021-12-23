@@ -5,12 +5,12 @@
 module Ki.Unlifted
   ( -- * Core API
     Ki.Scope,
-    scoped,
-    Ki.wait,
     Ki.Thread,
+    scoped,
     fork,
     forktry,
     Ki.await,
+    Ki.wait,
 
     -- * Extended API
     fork_,

@@ -46,14 +46,16 @@ import GHC.Conc
     writeTVar,
   )
 import GHC.IO (unsafeUnmask)
-import Ki.Bytes
+import Ki.ByteCount
 import Ki.Counter
 import Ki.Prelude
 
 ------------------------------------------------------------------------------------------------------------------------
 -- Scope
 
--- | A thread scope, which delimits the lifetime of all threads created within it.
+-- | A thread scope.
+--
+-- Introduce a scope with 'scoped'.
 data Scope = Scope
   { -- The set of child threads that are currently running, each keyed by a monotonically increasing int.
     childrenVar :: {-# UNPACK #-} !(TVar (IntMap ThreadId)),
@@ -92,8 +94,19 @@ isScopeClosingException exception =
 pattern IsScopeClosingException :: SomeException
 pattern IsScopeClosingException <- (isScopeClosingException -> True)
 
--- | Execute an action in a new scope. Just before the action returns, whether with a value or an exception, all living
--- threads created within the scope are killed.
+-- | Execute an action in a new scope.
+--
+-- === Structured concurrency
+--
+-- Just before the action returns, whether with a value or because an exception was raised: 
+--
+-- * An asynchronous exception is raised in all living threads that were created within the scope, in the order that
+-- they were created.
+-- * The current thread blocks until those threads terminate.
+--
+-- === Exception propagation
+--
+-- If an unexpected exception is propagated from a child thread, it will be re-raised in the current thread.
 --
 -- ==== __Examples__
 --
@@ -192,7 +205,7 @@ spawn
           case allocationLimit of
             Nothing -> pure ()
             Just bytes -> do
-              setAllocationCounter (bytesToInt64 bytes)
+              setAllocationCounter (byteCountToInt64 bytes)
               enableAllocationLimit
 
           let -- Action that sets the masking state from the current (either MaskedInterruptible or
@@ -278,7 +291,9 @@ blockUntil0 var =
 ------------------------------------------------------------------------------------------------------------------------
 -- Thread
 
--- | A thread created within a scope.
+-- | A thread.
+--
+-- Introduce a thread with 'fork' or 'forktry'.
 data Thread a
   = Thread {-# UNPACK #-} !ThreadId !(STM a)
   deriving stock (Functor)
@@ -291,6 +306,7 @@ instance Ord (Thread a) where
   compare (Thread ix _) (Thread iy _) =
     compare ix iy
 
+-- | What a thread is bound to.
 data ThreadAffinity
   = -- | Bound to a capability.
     Capability Int
@@ -305,7 +321,7 @@ data ThreadAffinity
 --     The affinity of a thread. A thread can be unbound, bound to a specific capability, or bound to a specific OS
 --     thread.
 --
---     Default: @Nothing@
+--     Default: @Nothing@ (unbound)
 --
 -- [@allocationLimit@]:
 --
@@ -314,13 +330,13 @@ data ThreadAffinity
 --     100kb (tunable with @+RTS -xq@) to perform any necessary cleanup actions; if exceeded, the thread is delivered
 --     another.
 --
---     Default: @Nothing@
+--     Default: @Nothing@ (no limit)
 --
 -- [@label@]:
 --
 --     The label of a thread, used in the event log.
 --
---     Default: @""@
+--     Default: @""@ (no label)
 --
 -- [@maskingState@]:
 --
@@ -329,13 +345,14 @@ data ThreadAffinity
 --     Default: @Unmasked@
 data ThreadOptions = ThreadOptions
   { affinity :: Maybe ThreadAffinity,
-    allocationLimit :: Maybe Bytes,
+    allocationLimit :: Maybe ByteCount,
     label :: String,
     maskingState :: MaskingState
   }
   deriving stock (Eq, Show)
 
--- |
+-- | Default thread options.
+--
 -- @
 -- 'Ki.ThreadOptions'
 --   { 'Ki.affinity' = Nothing
@@ -456,7 +473,7 @@ forkWith_ scope opts action = do
 --
 -- ==== Exception propagation
 --
--- If an exception is raised while executing the action,
+-- If an exception is raised while executing the action:
 --
 -- * If the exception is synchronous and an instance of __@e@__, it is caught.
 -- * Otherwise, it is propagated to the parent.

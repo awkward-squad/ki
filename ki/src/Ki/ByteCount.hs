@@ -1,19 +1,19 @@
-module Ki.Bytes
-  ( Bytes,
+module Ki.ByteCount
+  ( ByteCount,
     kilobytes,
     megabytes,
-    bytesToInt64,
+    byteCountToInt64,
   )
 where
 
 import Ki.Prelude
 
 -- | A number of bytes.
-newtype Bytes = Bytes Int64
+newtype ByteCount = ByteCount Int64
   deriving newtype (Eq, Ord)
 
-instance Show Bytes where
-  show (Bytes b)
+instance Show ByteCount where
+  show (ByteCount b)
     | (mb, 0) <- quotRem b 1048576, mb > 0 = "megabytes " ++ show mb
     | (kb, 0) <- quotRem b 1024 = "kilobytes " ++ show kb
     | otherwise = undefined
@@ -22,20 +22,20 @@ instance Show Bytes where
 kilobytes ::
   -- |
   Natural ->
-  Bytes
+  ByteCount
 kilobytes n =
-  Bytes (snip (n * 1024))
+  ByteCount (snip (n * 1024))
 
 -- | A number of megabytes.
 megabytes ::
   -- |
   Natural ->
-  Bytes
+  ByteCount
 megabytes n =
-  Bytes (snip (n * 1048576))
+  ByteCount (snip (n * 1048576))
 
-bytesToInt64 :: Bytes -> Int64
-bytesToInt64 =
+byteCountToInt64 :: ByteCount -> Int64
+byteCountToInt64 =
   coerce
 
 snip :: Natural -> Int64
