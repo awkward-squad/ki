@@ -69,7 +69,9 @@ data Scope = Scope
     -- can continue to delay; no async exception can strike here and prevent one of these threads from starting.
     --
     -- Sentinel value: -1 means the scope is closed.
-    startingVar :: {-# UNPACK #-} !(TVar Int)
+    startingVar :: {-# UNPACK #-} !(TVar Int),
+    -- The id of the thread that created the scope.
+    threadId :: {-# UNPACK #-} !ThreadId
   }
 
 -- Exception thrown by a parent thread to its children when its scope is closing.
@@ -127,7 +129,8 @@ scoped action = do
   childrenVar <- newTVarIO IntMap.empty
   nextChildIdCounter <- newCounter
   startingVar <- newTVarIO 0
-  let scope = Scope {childExceptionVar, childrenVar, nextChildIdCounter, startingVar}
+  threadId <- myThreadId
+  let scope = Scope {childExceptionVar, childrenVar, nextChildIdCounter, startingVar, threadId}
 
   uninterruptibleMask \restore -> do
     result <- try (restore (action scope))
@@ -424,8 +427,7 @@ forkWith ::
   -- |
   IO a ->
   IO (Thread a)
-forkWith scope opts action = do
-  parentThreadId <- myThreadId
+forkWith scope@Scope{threadId = parentThreadId} opts action = do
   resultVar <- newTVarIO Nothing
   ident <-
     spawn scope opts \masking -> do
@@ -455,8 +457,7 @@ forkWith_ ::
   -- |
   IO Void ->
   IO ()
-forkWith_ scope opts action = do
-  parentThreadId <- myThreadId
+forkWith_ scope@Scope{threadId = parentThreadId} opts action = do
   _childThreadId <-
     spawn scope opts \masking ->
       tryEither
@@ -507,10 +508,9 @@ forktryWith ::
 forktryWith = forktryWith' -- cleaner haddocks :/
 
 forktryWith' :: forall e a. Exception e => Scope -> ThreadOptions -> IO a -> IO (Thread (Either e a))
-forktryWith' scope opts action = do
-  parentThreadId <- myThreadId
+forktryWith' scope@Scope{threadId = parentThreadId} opts action = do
   resultVar <- newTVarIO Nothing
-  ident <-
+  childThreadId <-
     spawn scope opts \masking -> do
       result <- try (masking action)
       case result of
@@ -531,7 +531,7 @@ forktryWith' scope opts action = do
               Nothing -> throwSTM exception
               Just exception' -> pure (Left exception')
           Just (Right value) -> pure (Right value)
-  pure (Thread ident doAwait)
+  pure (Thread childThreadId doAwait)
   where
     isAsyncException :: SomeException -> Bool
     isAsyncException exception =
