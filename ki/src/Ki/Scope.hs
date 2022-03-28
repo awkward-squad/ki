@@ -55,7 +55,31 @@ import Ki.Prelude
 
 -- | A thread scope.
 --
--- Introduce a scope with 'scoped'.
+-- /Click/ details /below for more information./
+--
+-- ==== __Details__
+--
+-- * A scope represents the explicit lexical scope introduced by 'scoped'.
+--
+-- * A scope is a resource that is only valid (or "open") for the duration of the callback provided to 'scoped',
+--     after which it is implicitly closed, and any subsequent attempt to use it results in a runtime error.
+--
+--     For example, the following program is erroneous, because it attempts to use a closed scope.
+--
+--     @
+--     scope <- 'scoped' \\scope -\> pure scope
+--     'fork' scope action
+--     @
+--
+-- * The thread that creates a scope (see 'scoped') is considered the parent of all threads that are created within it
+-- (see 'fork').
+--
+-- * Child threads created within a scope can be awaited individually (see 'await'), or as a collection (see 'wait').
+--
+-- * When a scope closes (i.e. just after the callback provided to 'scoped' returns), an asynchronous exception is
+--     first raised in all living child threads created within it, in the order that they were created. The parent
+--     thread blocks until they terminate, which prevents a child thread from outliving its parent. (A child thread
+--     should therefore endeavor to perform any necessary cleanup actions without blocking).
 data Scope = Scope
   { -- The MVar that a child puts to before propagating the exception to the parent because the delivery is not
     -- guaranteed. This is because the parent must kill its children with asynchronous exceptions uninterruptibly masked
@@ -98,17 +122,18 @@ pattern IsScopeClosingException <- (isScopeClosingException -> True)
 
 -- | Execute an action in a new scope.
 --
--- === Structured concurrency
+-- ==== Structured concurrency
 --
--- Just before the action returns, whether with a value or because an exception was raised: 
+-- Just before the action returns, whether with a value or because an exception was raised:
 --
--- * An asynchronous exception is raised in all living threads that were created within the scope, in the order that
--- they were created.
--- * The current thread blocks until those threads terminate.
+-- * An asynchronous exception is raised in all living child threads that were created within the scope, in the order
+-- that they were created.
+-- * The parent thread blocks until those threads terminate.
 --
--- === Exception propagation
+-- ===== Exception propagation
 --
--- If an unexpected exception is propagated from a child thread, it will be re-raised in the current thread.
+-- If an exception is propagated from a child thread created within the scope, it will be re-raised in the parent
+-- thread.
 --
 -- ==== __Examples__
 --
@@ -294,9 +319,26 @@ blockUntil0 var =
 ------------------------------------------------------------------------------------------------------------------------
 -- Thread
 
--- | A thread.
+-- | A thread, parameterized by the type of value it computes.
 --
--- Introduce a thread with 'fork' or 'forktry'.
+-- /Click/ details /below for more information./
+--
+-- ==== __Details__
+--
+-- * Each thread is associated with a single /expected/ exception type (which, due to the extensible exception
+-- hierarchy, is actually an arbitrary tree of exception types).
+--
+-- * If an /unexpected/ exception is raised in a thread, the exception is propagated to the thread's parent.
+--
+-- * By default (see 'fork'), the expected exception type is "no exception", which means any exception raised in a child
+-- is propagated to its parent. Use 'forktry' to expect a different exception type.
+--
+-- * Asynchronous exceptions (i.e. exception types that are instances of 'Control.Exception.SomeAsyncException') are
+-- always considered unexpected, and thus always propagated, except for the internal asynchronous exception this library
+-- uses to terminate the children that were created within a scope that is closing.
+--
+-- * An individual thread cannot be terminated explicitly ala 'Control.Concurrent.killThread'. However, all threads
+-- created within a scope are terminated (in the order they were created) when the scope closes.
 data Thread a
   = Thread {-# UNPACK #-} !ThreadId !(STM a)
   deriving stock (Functor)

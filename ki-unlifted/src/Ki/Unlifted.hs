@@ -1,6 +1,7 @@
 -- | The `ki` API, generalized to use 'MonadUnliftIO'.
 --
--- For a variant of this API that does not use @<https://hackage.haskell.org/package/unliftio-core unliftio-core>@, see
+-- For a specialized variant of this API that does not use
+-- @<https://hackage.haskell.org/package/unliftio-core unliftio-core>@, see
 -- @<https://hackage.haskell.org/package/ki ki>@.
 module Ki.Unlifted
   ( -- * Core API
@@ -23,8 +24,8 @@ module Ki.Unlifted
     Ki.defaultThreadOptions,
     Ki.ThreadAffinity (..),
 
-    -- ** Bytes
-    Ki.Bytes,
+    -- ** Byte count
+    Ki.ByteCount,
     Ki.kilobytes,
     Ki.megabytes,
   )

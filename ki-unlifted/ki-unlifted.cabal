@@ -15,6 +15,10 @@ version: 0.3.0
 
 description:
   A lightweight structured-concurrency library.
+  .
+  For a specialised variant of this API that does not use
+  @<https://hackage.haskell.org/package/unliftio-core unliftio-core>@, see
+  @<https://hackage.haskell.org/package/ki ki>@.
 
 extra-source-files:
   CHANGELOG.md
