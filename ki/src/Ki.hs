@@ -12,6 +12,29 @@
 --
 -- * If an unexpected exception is raised in a child thread, the exception is propagated to its parent.
 -- * If an exception is raised in a parent thread, the parent raises an asynchronous exception in all of its children.
+--
+-- ==== __👉 Quick start example__
+--
+-- First, create a new lexical scope in which threads can be created.
+--
+-- @
+-- 'scoped' \\scope ->
+-- @
+--
+-- Next, create a couple threads.
+--
+-- @
+--   thread1 <- 'fork' scope action1
+--   thread2 <- 'fork' scope action2
+-- @
+--
+-- Finally, wait for the threads to terminate.
+--
+-- @
+--   result1 <- atomically ('await' thread1)
+--   result2 <- atomically ('await' thread2)
+--   pure (result1, result2)
+-- @
 module Ki
   ( -- * Core API
     Scope,

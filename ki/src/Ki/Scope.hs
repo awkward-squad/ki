@@ -55,16 +55,32 @@ import Ki.Prelude
 
 -- | A thread scope.
 --
--- /Click/ details /below for more information./
+-- ==== __👉 Details__
 --
--- ==== __Details__
+-- * A scope represents the lexical scope introduced by 'scoped'.
 --
--- * A scope represents the explicit lexical scope introduced by 'scoped'.
+--     @
+--     'scoped' \scope ->
+--       -- This is the beginning of the lexical scope, represented by the explicit `scope` value
+--       ...
+--       -- This is the end of the lexical scope
+--     @
+--
+-- * A scope delimits the lifetime of all threads created within it. After a call to 'scoped' returns, all threads that
+--     were created within it are guaranteed to have terminated.
+--
+--     @
+--     'scoped' \scope ->
+--       ...
+--
+--     -- By the time the program reaches this point, any threads created within `...`
+--     -- above are guaranteed to have -- terminated.
+--     @
 --
 -- * A scope is a resource that is only valid (or "open") for the duration of the callback provided to 'scoped',
 --     after which it is implicitly closed, and any subsequent attempt to use it results in a runtime error.
 --
---     For example, the following program is erroneous, because it attempts to use a closed scope.
+--     The following program is erroneous, because it attempts to use a closed scope.
 --
 --     @
 --     scope <- 'scoped' \\scope -\> pure scope
@@ -135,14 +151,14 @@ pattern IsScopeClosingException <- (isScopeClosingException -> True)
 -- If an exception is propagated from a child thread created within the scope, it will be re-raised in the parent
 -- thread.
 --
--- ==== __Examples__
+-- ==== __👉 Examples__
 --
 -- @
 -- 'Ki.scoped' \\scope -> do
 --   thread1 <- 'Ki.fork' scope action1
 --   thread2 <- 'Ki.fork' scope action2
---   result1 <- 'Ki.await' thread1
---   result2 <- 'Ki.await' result2
+--   result1 <- atomically ('Ki.await' thread1)
+--   result2 <- atomically ('Ki.await' result2)
 --   pure (result1, result2)
 -- @
 scoped ::
@@ -321,9 +337,7 @@ blockUntil0 var =
 
 -- | A thread, parameterized by the type of value it computes.
 --
--- /Click/ details /below for more information./
---
--- ==== __Details__
+-- ==== __👉 Details__
 --
 -- * Each thread is associated with a single /expected/ exception type (which, due to the extensible exception
 -- hierarchy, is actually an arbitrary tree of exception types).
