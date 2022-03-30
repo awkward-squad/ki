@@ -93,9 +93,8 @@ import Ki.Prelude
 -- * Child threads created within a scope can be awaited individually (see 'await'), or as a collection (see 'wait').
 --
 -- * When a scope closes (i.e. just after the callback provided to 'scoped' returns), an asynchronous exception is
---     first raised in all living child threads created within it, in the order that they were created. The parent
---     thread blocks until they terminate, which prevents a child thread from outliving its parent. (A child thread
---     should therefore endeavor to perform any necessary cleanup actions without blocking).
+--     first raised in all living child threads created within it. The parent thread blocks until they terminate, which
+--     prevents a child thread from outliving its parent.
 data Scope = Scope
   { -- The MVar that a child puts to before propagating the exception to the parent because the delivery is not
     -- guaranteed. This is because the parent must kill its children with asynchronous exceptions uninterruptibly masked
@@ -142,8 +141,7 @@ pattern IsScopeClosingException <- (isScopeClosingException -> True)
 --
 -- Just before the action returns, whether with a value or because an exception was raised:
 --
--- * An asynchronous exception is raised in all living child threads that were created within the scope, in the order
--- that they were created.
+-- * An asynchronous exception is raised in all living child threads that were created within the scope.
 -- * The parent thread blocks until those threads terminate.
 --
 -- ===== Exception propagation
@@ -189,6 +187,8 @@ scoped action = do
         readTVar childrenVar
 
     -- Deliver an async exception to every child in the order they were created.
+    -- FIXME I think we decided this feature isn't very useful in practice, so maybe we should simplify the internals
+    -- and just keep a set of children.
     traverse_ (flip throwTo ScopeClosing) (IntMap.elems children)
 
     -- Block until all children have terminated; this relies on children respecting the async exception, which they
@@ -352,7 +352,7 @@ blockUntil0 var =
 -- uses to terminate the children that were created within a scope that is closing.
 --
 -- * An individual thread cannot be terminated explicitly ala 'Control.Concurrent.killThread'. However, all threads
--- created within a scope are terminated (in the order they were created) when the scope closes.
+-- created within a scope are terminated when the scope closes.
 data Thread a
   = Thread {-# UNPACK #-} !ThreadId !(STM a)
   deriving stock (Functor)
