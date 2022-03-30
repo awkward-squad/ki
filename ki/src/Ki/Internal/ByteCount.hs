@@ -1,4 +1,4 @@
-module Ki.ByteCount
+module Ki.Internal.ByteCount
   ( ByteCount,
     kilobytes,
     megabytes,
@@ -6,7 +6,7 @@ module Ki.ByteCount
   )
 where
 
-import Ki.Prelude
+import Ki.Internal.Prelude
 
 -- | A number of bytes.
 newtype ByteCount = ByteCount Int64

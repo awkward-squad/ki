@@ -20,7 +20,7 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
-module Ki.Counter
+module Ki.Internal.Counter
   ( Counter,
     newCounter,
     incrCounter,
@@ -29,7 +29,7 @@ where
 
 import Data.Bits
 import GHC.Base
-import Ki.Prelude
+import Ki.Internal.Prelude
 
 -- | A thread-safe counter implemented with atomic fetch-and-add.
 data Counter

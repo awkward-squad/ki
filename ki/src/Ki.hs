@@ -63,8 +63,8 @@ module Ki
   )
 where
 
-import Ki.ByteCount (ByteCount, kilobytes, megabytes)
-import Ki.Scope
+import Ki.Internal.ByteCount (ByteCount, kilobytes, megabytes)
+import Ki.Internal.Scope
   ( Scope,
     Thread,
     ThreadAffinity (..),

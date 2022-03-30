@@ -80,10 +80,10 @@ library
     Ki
   hs-source-dirs: src
   other-modules:
-    Ki.ByteCount
-    Ki.Counter
-    Ki.Prelude
-    Ki.Scope
+    Ki.Internal.ByteCount
+    Ki.Internal.Counter
+    Ki.Internal.Prelude
+    Ki.Internal.Scope
 
 test-suite tests
   import: component

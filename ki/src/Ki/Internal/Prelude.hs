@@ -1,7 +1,7 @@
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
-module Ki.Prelude
+module Ki.Internal.Prelude
   ( forkIO,
     forkOS,
     forkOn,

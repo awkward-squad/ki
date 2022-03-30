@@ -1,4 +1,4 @@
-module Ki.Scope
+module Ki.Internal.Scope
   ( Scope,
     scoped,
     wait,
@@ -46,9 +46,9 @@ import GHC.Conc
     writeTVar,
   )
 import GHC.IO (unsafeUnmask)
-import Ki.ByteCount
-import Ki.Counter
-import Ki.Prelude
+import Ki.Internal.ByteCount
+import Ki.Internal.Counter
+import Ki.Internal.Prelude
 
 ------------------------------------------------------------------------------------------------------------------------
 -- Scope
