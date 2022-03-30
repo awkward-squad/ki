@@ -66,11 +66,6 @@ where
 import Ki.Internal.ByteCount (ByteCount, kilobytes, megabytes)
 import Ki.Internal.Scope
   ( Scope,
-    Thread,
-    ThreadAffinity (..),
-    ThreadOptions (..),
-    await,
-    defaultThreadOptions,
     fork,
     forkWith,
     forkWith_,
@@ -79,4 +74,11 @@ import Ki.Internal.Scope
     forktryWith,
     scoped,
     wait,
+  )
+import Ki.Internal.Thread
+  ( Thread,
+    ThreadAffinity (..),
+    ThreadOptions (..),
+    await,
+    defaultThreadOptions,
   )
