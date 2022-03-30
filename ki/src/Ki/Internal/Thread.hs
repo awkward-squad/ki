@@ -54,7 +54,9 @@ instance Ord (Thread a) where
 
 -- | What a thread is bound to.
 data ThreadAffinity
-  = -- | Bound to a capability.
+  = -- | Unbound.
+    Unbound
+  | -- | Bound to a capability.
     Capability Int
   | -- | Bound to an OS thread.
     OsThread
@@ -67,7 +69,7 @@ data ThreadAffinity
 --     The affinity of a thread. A thread can be unbound, bound to a specific capability, or bound to a specific OS
 --     thread.
 --
---     Default: @Nothing@ (unbound)
+--     Default: 'Unbound'
 --
 -- [@allocationLimit@]:
 --
@@ -90,7 +92,7 @@ data ThreadAffinity
 --
 --     Default: @Unmasked@
 data ThreadOptions = ThreadOptions
-  { affinity :: Maybe ThreadAffinity,
+  { affinity :: ThreadAffinity,
     allocationLimit :: Maybe ByteCount,
     label :: String,
     maskingState :: MaskingState
@@ -110,7 +112,7 @@ data ThreadOptions = ThreadOptions
 defaultThreadOptions :: ThreadOptions
 defaultThreadOptions =
   ThreadOptions
-    { affinity = Nothing,
+    { affinity = Unbound,
       allocationLimit = Nothing,
       label = "",
       maskingState = Unmasked

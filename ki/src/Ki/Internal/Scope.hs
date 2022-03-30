@@ -219,7 +219,7 @@ spawn
             MaskedInterruptible -> id
             MaskedUninterruptible -> id
 
-    -- Interruptible mask is enough because none of the STM operations below block
+    -- Interruptible mask is enough so long as none of the STM operations below block
     atLeastInterruptiblyMasked do
       -- Record the thread as being about to start.
       atomically do
@@ -293,11 +293,11 @@ unrecordChild childrenVar childId = do
   writeTVar childrenVar $! IntMap.alter (maybe (Just undefined) (const Nothing)) childId children
 
 -- forkIO/forkOn/forkOS, switching on affinity
-forkWithAffinity :: Maybe ThreadAffinity -> IO () -> IO ThreadId
+forkWithAffinity :: ThreadAffinity -> IO () -> IO ThreadId
 forkWithAffinity = \case
-  Nothing -> forkIO
-  Just (Capability n) -> forkOn n
-  Just OsThread -> forkOS
+  Unbound -> forkIO
+  Capability n -> forkOn n
+  OsThread -> forkOS
 
 -- | Wait until all threads created within a scope terminate.
 wait ::
