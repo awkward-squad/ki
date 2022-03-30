@@ -223,9 +223,10 @@ spawn
     atLeastInterruptiblyMasked do
       -- Record the thread as being about to start.
       atomically do
-        readTVar startingVar >>= \case
-          -1 -> throwSTM (ErrorCall "ki: scope closed")
-          n -> writeTVar startingVar $! n + 1
+        n <- readTVar startingVar
+        if n < 0
+          then throwSTM (ErrorCall "ki: scope closed")
+          else writeTVar startingVar $! n + 1
 
       childId <- incrCounter nextChildIdCounter
 
@@ -265,7 +266,7 @@ spawn
       -- Record the child as having started
       atomically do
         n <- readTVar startingVar
-        writeTVar startingVar $! n -1
+        writeTVar startingVar $! n -1 -- it's actually ok to go from e.g. -1 to -2 here (very unlikely)
         recordChild childrenVar childId childThreadId
 
       pure childThreadId
