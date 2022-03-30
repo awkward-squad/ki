@@ -312,14 +312,13 @@ wait Scope {childrenVar, startingVar} = do
 blockUntilEmpty :: TVar (IntMap a) -> STM ()
 blockUntilEmpty var = do
   x <- readTVar var
-  when (not (IntMap.null x)) retry
+  if IntMap.null x then pure () else retry
 
 -- Block until a TVar becomes 0.
 blockUntil0 :: TVar Int -> STM ()
-blockUntil0 var =
-  readTVar var >>= \case
-    0 -> pure ()
-    _ -> retry
+blockUntil0 var = do
+  x <- readTVar var
+  if x == 0 then pure () else retry
 
 -- | Create a child thread to execute an action within a scope.
 --
@@ -379,7 +378,7 @@ forkWith scope@Scope {threadId = parentThreadId} opts action = do
           Nothing -> retry
           Just (Left exception) -> throwSTM exception
           Just (Right value) -> pure value
-  pure (Thread ident doAwait)
+  pure (makeThread ident doAwait)
 
 -- | Variant of 'Ki.forkWith' for threads that never return.
 forkWith_ ::
@@ -464,7 +463,7 @@ forktryWith' scope@Scope {threadId = parentThreadId} opts action = do
               Nothing -> throwSTM exception
               Just exception' -> pure (Left exception')
           Just (Right value) -> pure (Right value)
-  pure (Thread childThreadId doAwait)
+  pure (makeThread childThreadId doAwait)
   where
     isAsyncException :: SomeException -> Bool
     isAsyncException exception =

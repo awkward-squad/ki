@@ -1,5 +1,6 @@
 module Ki.Internal.Thread
-  ( Thread (..),
+  ( Thread,
+    makeThread,
     await,
     ThreadAffinity (..),
     ThreadOptions (..),
@@ -52,7 +53,16 @@ instance Ord (Thread a) where
   compare (Thread ix _) (Thread iy _) =
     compare ix iy
 
--- | What a thread is bound to.
+makeThread :: ThreadId -> STM a -> Thread a
+makeThread threadId action0 =
+  Thread
+    threadId
+    -- If *they* are deadlocked, we will *both* will be delivered a wakeup from the RTS. We want to shrug this exception
+    -- off, because afterwards they'll have put to the result var. But don't shield indefinitely, once will cover this
+    -- use case and prevent any accidental infinite loops.
+    (tryEitherSTM (\BlockedIndefinitelyOnSTM -> action0) pure action0)
+
+-- | What, if anything, a thread is bound to.
 data ThreadAffinity
   = -- | Unbound.
     Unbound
