@@ -84,6 +84,7 @@ library
     Ki.Internal.Counter
     Ki.Internal.Prelude
     Ki.Internal.Scope
+    Ki.Internal.Thread
 
 test-suite tests
   import: component

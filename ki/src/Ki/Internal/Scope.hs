@@ -49,7 +49,7 @@ import Ki.Internal.Thread
 -- * A scope represents the lexical scope introduced by 'scoped'.
 --
 --     @
---     'scoped' \scope ->
+--     'scoped' \\scope -\>
 --       -- This is the beginning of the lexical scope, represented by the explicit `scope` value
 --       ...
 --       -- This is the end of the lexical scope
@@ -59,11 +59,11 @@ import Ki.Internal.Thread
 --     were created within it are guaranteed to have terminated.
 --
 --     @
---     'scoped' \scope ->
+--     'scoped' \\scope -\>
 --       ...
 --
---     -- By the time the program reaches this point, any threads created within `...`
---     -- above are guaranteed to have -- terminated.
+--     -- By the time the program reaches this point, any threads created within \`...\`
+--     -- above are guaranteed to have terminated.
 --     @
 --
 -- * A scope is a resource that is only valid (or "open") for the duration of the callback provided to 'scoped',
