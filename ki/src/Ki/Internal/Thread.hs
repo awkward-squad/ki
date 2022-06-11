@@ -23,24 +23,18 @@ import GHC.Conc
 import Ki.Internal.ByteCount
 import Ki.Internal.Prelude
 
--- | A thread, parameterized by the type of value it computes.
+-- | A thread.
 --
 -- ==== __👉 Details__
 --
--- * Each thread is associated with a single /expected/ exception type (which, due to the extensible exception
--- hierarchy, is actually an arbitrary tree of exception types).
+-- * If an exception is raised in a thread, the thread propagates the exception to its parent (see 'Ki.fork').
 --
--- * If an /unexpected/ exception is raised in a thread, the exception is propagated to the thread's parent.
+-- * An exception may be caught and returned as a value instead (see 'Ki.forkTry').
 --
--- * By default (see 'fork'), the expected exception type is "no exception", which means any exception raised in a child
--- is propagated to its parent. Use 'forktry' to expect a different exception type.
+-- * Asynchronous exceptions are always propagated.
 --
--- * Asynchronous exceptions (i.e. exception types that are instances of 'Control.Exception.SomeAsyncException') are
--- always considered unexpected, and thus always propagated, except for the internal asynchronous exception this library
--- uses to terminate the children that were created within a scope that is closing.
---
--- * An individual thread cannot be terminated explicitly ala 'Control.Concurrent.killThread'. However, all threads
--- created within a scope are terminated when the scope closes.
+-- * A thread cannot be terminated explicitly ala 'Control.Concurrent.killThread'. However, all threads created within a
+-- scope are terminated when the scope closes.
 data Thread a
   = Thread {-# UNPACK #-} !ThreadId !(STM a)
   deriving stock (Functor)
@@ -72,7 +66,7 @@ data ThreadAffinity
     OsThread
   deriving stock (Eq, Show)
 
--- | Thread options that can be provided at the time a thread is created.
+-- |
 --
 -- [@affinity@]:
 --
@@ -92,7 +86,7 @@ data ThreadAffinity
 --
 -- [@label@]:
 --
---     The label of a thread, used in the event log.
+--     The label of a thread, visible in the [event log](https://downloads.haskell.org/ghc/latest/docs/html/users_guide/runtime_control.html#rts-eventlog) (@+RTS -l@).
 --
 --     Default: @""@ (no label)
 --
@@ -143,7 +137,7 @@ unwrapThreadFailed e0 =
     Just (ThreadFailed e1) -> e1
     Nothing -> e0
 
--- | Wait for a thread to terminate, and return its value.
+-- | Wait for a thread to terminate.
 await ::
   -- |
   Thread a ->

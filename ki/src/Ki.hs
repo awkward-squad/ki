@@ -5,43 +5,53 @@
 --
 -- ==== Structured concurrency
 --
--- * Every thread is created within a lexical scope.
--- * A thread cannot outlive the scope in which it was created.
+-- * A lexical scope delimits the lifetime of each thread.
+--
+--     * After a scope closes, all threads created within it are guaranteed to have terminated.
+--     * A child thread, therefore, cannout outlive its parent.
 --
 -- ==== Bidirectional exception propagation
 --
--- * If an unexpected exception is raised in a child thread, the exception is propagated to its parent.
--- * If an exception is raised in a parent thread, the parent raises an asynchronous exception in all of its children.
+-- * If an exception is raised in a child thread, the child thread propagates the exception to its parent.
+-- * If an exception is raised in a parent thread, the parent thread raises an exception in all of its children.
 --
--- ==== __👉 Quick start example__
+-- ==== __👉 Quick start examples__
 --
--- First, create a new lexical scope in which threads can be created.
+-- * Perform two actions concurrently, and wait for both of them to complete.
 --
--- @
--- 'scoped' \\scope ->
--- @
+--     @
+--     'Ki.scoped' \\scope -> do
+--       thread1 <- 'Ki.fork' scope action1
+--       thread2 <- 'Ki.fork' scope action2
+--       result1 <- atomically ('Ki.await' thread1)
+--       result2 <- atomically ('Ki.await' result2)
+--       pure (result1, result2)
+--     @
 --
--- Next, create a couple threads.
+-- * Perform two actions concurrently, and when @action1@ completes, stop executing @action2@.
 --
--- @
---   thread1 <- 'fork' scope action1
---   thread2 <- 'fork' scope action2
--- @
+--     @
+--     'Ki.scoped' \\scope -> do
+--       'Ki.fork_' scope action2
+--       action1
+--     @
 --
--- Finally, wait for the threads to terminate.
+-- * Perform two actions concurrently, and when the first one finishes, stop executing the other.
 --
--- @
---   result1 <- atomically ('await' thread1)
---   result2 <- atomically ('await' thread2)
---   pure (result1, result2)
--- @
+--     @
+--     'Ki.scoped' \\scope -> do
+--       resultVar \<- newEmptyMVar
+--       _ \<- 'Ki.fork' scope (action1 \>>= tryPutMVar resultVar)
+--       _ \<- 'Ki.fork' scope (action2 \>>= tryPutMVar resultVar)
+--       takeMVar resultVar
+--     @
 module Ki
   ( -- * Core API
     Scope,
     Thread,
     scoped,
     fork,
-    forktry,
+    forkTry,
     await,
     wait,
 
@@ -49,7 +59,7 @@ module Ki
     fork_,
     forkWith,
     forkWith_,
-    forktryWith,
+    forkTryWith,
 
     -- ** Thread options
     ThreadOptions (..),
@@ -70,8 +80,8 @@ import Ki.Internal.Scope
     forkWith,
     forkWith_,
     fork_,
-    forktry,
-    forktryWith,
+    forkTry,
+    forkTryWith,
     scoped,
     wait,
   )

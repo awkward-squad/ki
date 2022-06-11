@@ -9,7 +9,7 @@ module Ki.Unlifted
     Ki.Thread,
     scoped,
     fork,
-    forktry,
+    forkTry,
     Ki.await,
     Ki.wait,
 
@@ -17,7 +17,7 @@ module Ki.Unlifted
     fork_,
     forkWith,
     forkWith_,
-    forktryWith,
+    forkTryWith,
 
     -- ** Thread options
     Ki.ThreadOptions (..),
@@ -57,20 +57,20 @@ forkWith_ :: MonadUnliftIO m => Ki.Scope -> Ki.ThreadOptions -> m Void -> m ()
 forkWith_ scope opts action =
   withRunInIO \unlift -> Ki.forkWith_ scope opts (unlift action)
 
--- | See 'Ki.forktry'.
-forktry :: (Exception e, MonadUnliftIO m) => Ki.Scope -> m a -> m (Ki.Thread (Either e a))
-forktry scope action =
-  withRunInIO \unlift -> Ki.forktry scope (unlift action)
+-- | See 'Ki.forkTry'.
+forkTry :: (Exception e, MonadUnliftIO m) => Ki.Scope -> m a -> m (Ki.Thread (Either e a))
+forkTry scope action =
+  withRunInIO \unlift -> Ki.forkTry scope (unlift action)
 
--- | See 'Ki.forktryWith'.
-forktryWith ::
+-- | See 'Ki.forkTryWith'.
+forkTryWith ::
   (Exception e, MonadUnliftIO m) =>
   Ki.Scope ->
   Ki.ThreadOptions ->
   m a ->
   m (Ki.Thread (Either e a))
-forktryWith scope opts action =
-  withRunInIO \unlift -> Ki.forktryWith scope opts (unlift action)
+forkTryWith scope opts action =
+  withRunInIO \unlift -> Ki.forkTryWith scope opts (unlift action)
 
 -- | See 'Ki.scoped'.
 scoped :: forall a m. MonadUnliftIO m => (Ki.Scope -> m a) -> m a

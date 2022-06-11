@@ -6,8 +6,8 @@ module Ki.Internal.Scope
     forkWith,
     forkWith_,
     fork_,
-    forktry,
-    forktryWith,
+    forkTry,
+    forkTryWith,
   )
 where
 
@@ -46,44 +46,14 @@ import Ki.Internal.Thread
 --
 -- ==== __👉 Details__
 --
--- * A scope represents the lexical scope introduced by 'scoped'.
+-- * A child thread cannot outlive the scope in which it was created.
 --
---     @
---     'scoped' \\scope -\>
---       -- This is the beginning of the lexical scope, represented by the explicit `scope` value
---       ...
---       -- This is the end of the lexical scope
---     @
+--     * Just before a call to 'scoped' returns, the parent thread raises an exception in all living child threads
+--     created within the scope, then blocks until they terminate.
 --
--- * A scope delimits the lifetime of all threads created within it. After a call to 'scoped' returns, all threads that
---     were created within it are guaranteed to have terminated.
---
---     @
---     'scoped' \\scope -\>
---       ...
---
---     -- By the time the program reaches this point, any threads created within \`...\`
---     -- above are guaranteed to have terminated.
---     @
---
--- * A scope is a resource that is only valid (or "open") for the duration of the callback provided to 'scoped',
---     after which it is implicitly closed, and any subsequent attempt to use it results in a runtime error.
---
---     The following program is erroneous, because it attempts to use a closed scope.
---
---     @
---     scope <- 'scoped' \\scope -\> pure scope
---     'fork' scope action
---     @
---
--- * The thread that creates a scope (see 'scoped') is considered the parent of all threads that are created within it
--- (see 'fork').
+-- * The thread that creates a scope is considered the parent of all threads that are created within it.
 --
 -- * Child threads created within a scope can be awaited individually (see 'await'), or as a collection (see 'wait').
---
--- * When a scope closes (i.e. just after the callback provided to 'scoped' returns), an asynchronous exception is
---     first raised in all living child threads created within it. The parent thread blocks until they terminate, which
---     prevents a child thread from outliving its parent.
 data Scope = Scope
   { -- The MVar that a child puts to before propagating the exception to the parent because the delivery is not
     -- guaranteed. This is because the parent must kill its children with asynchronous exceptions uninterruptibly masked
@@ -128,26 +98,17 @@ pattern IsScopeClosingException <- (isScopeClosingException -> True)
 --
 -- ==== Structured concurrency
 --
--- Just before the action returns, whether with a value or because an exception was raised:
+-- Just before the action returns, whether with a value or an exception:
 --
--- * An asynchronous exception is raised in all living child threads that were created within the scope.
+-- * The parent thread raises an exception in all living child threads that were created within the scope.
 -- * The parent thread blocks until those threads terminate.
 --
--- ===== Exception propagation
+-- A child thread therefore cannot outlive its parent, nor the scope in which it was created.
 --
--- If an exception is propagated from a child thread created within the scope, it will be re-raised in the parent
--- thread.
+-- ==== Exception propagation
 --
--- ==== __👉 Examples__
---
--- @
--- 'Ki.scoped' \\scope -> do
---   thread1 <- 'Ki.fork' scope action1
---   thread2 <- 'Ki.fork' scope action2
---   result1 <- atomically ('Ki.await' thread1)
---   result2 <- atomically ('Ki.await' result2)
---   pure (result1, result2)
--- @
+-- * If an exception is raised in a child thread, the child thread propagates the exception to its parent.
+-- * If an exception is raised in a parent thread, the parent thread raises an exception in all of its children.
 scoped ::
   -- |
   (Scope -> IO a) ->
@@ -323,13 +284,9 @@ blockUntil0 var = do
 
 -- | Create a child thread to execute an action within a scope.
 --
--- ==== Exception propagation
---
--- If an exception is raised while executing the action, the exception is propagated to the parent.
---
 -- ==== Masking state
 --
--- The child thread is created with asynchronous exceptions unmasked, regardless of the calling thread's masking state.
+-- The child thread does not mask asynchronous exceptions, regardless of the parent thread's masking state.
 --
 -- To create a child thread with a different initial masking state, use 'Ki.forkWith'.
 fork ::
@@ -403,21 +360,11 @@ forkWith_ scope@Scope {threadId = parentThreadId} opts action = do
         (masking action)
   pure ()
 
--- | Create a child thread to execute an action within a scope.
+-- | Like 'Ki.fork', but the child thread does not propagate exceptions that both:
 --
--- ==== Exception propagation
---
--- If an exception is raised while executing the action:
---
--- * If the exception is synchronous and an instance of __@e@__, it is caught.
--- * Otherwise, it is propagated to the parent.
---
--- ==== Masking state
---
--- The child thread is created with asynchronous exceptions unmasked, regardless of the calling thread's masking state.
---
--- To create a child thread with a different initial masking state, use 'Ki.forktryWith'.
-forktry ::
+-- * Synchronous.
+-- * An an instance of __@e@__.
+forkTry ::
   Exception e =>
   -- |
   Scope ->
@@ -425,11 +372,11 @@ forktry ::
   IO a ->
   -- |
   IO (Thread (Either e a))
-forktry scope =
-  forktryWith scope defaultThreadOptions
+forkTry scope =
+  forkTryWith scope defaultThreadOptions
 
--- | Variant of 'Ki.forktry' that takes an additional options argument.
-forktryWith ::
+-- | Variant of 'Ki.forkTry' that takes an additional options argument.
+forkTryWith ::
   Exception e =>
   -- |
   Scope ->
@@ -438,10 +385,10 @@ forktryWith ::
   -- |
   IO a ->
   IO (Thread (Either e a))
-forktryWith = forktryWith' -- cleaner haddocks :/
+forkTryWith = forkTryWith' -- cleaner haddocks :/
 
-forktryWith' :: forall e a. Exception e => Scope -> ThreadOptions -> IO a -> IO (Thread (Either e a))
-forktryWith' scope@Scope {threadId = parentThreadId} opts action = do
+forkTryWith' :: forall e a. Exception e => Scope -> ThreadOptions -> IO a -> IO (Thread (Either e a))
+forkTryWith' scope@Scope {threadId = parentThreadId} opts action = do
   resultVar <- newTVarIO Nothing
   childThreadId <-
     spawn scope opts \masking -> do
@@ -451,7 +398,7 @@ forktryWith' scope@Scope {threadId = parentThreadId} opts action = do
           let shouldPropagate =
                 case fromException @e exception of
                   Nothing -> not (isScopeClosingException exception)
-                  -- if the user calls `forktry @MyAsyncException`, we still want to propagate the async exception
+                  -- if the user calls `forkTry @MyAsyncException`, we still want to propagate the async exception
                   Just _ -> not (isScopeClosingException exception) && isAsyncException exception
           when shouldPropagate (propagateException parentThreadId exception (childExceptionVar scope))
         Right _value -> pure ()

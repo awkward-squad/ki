@@ -20,8 +20,8 @@ main :: IO ()
 main = do
   let hostname = "www.google.com"
   Ki.scoped \scope -> do
-    thread4 <- (fmap . fmap) (fromRight []) (Ki.forktry @SomeException scope (resolve4 hostname))
-    thread6 <- (fmap . fmap) (fromRight []) (Ki.forktry @SomeException scope (resolve6 hostname))
+    thread4 <- (fmap . fmap) (fromRight []) (Ki.forkTry @SomeException scope (resolve4 hostname))
+    thread6 <- (fmap . fmap) (fromRight []) (Ki.forkTry @SomeException scope (resolve6 hostname))
     result <-
       selectIO
         [ do
@@ -74,7 +74,7 @@ connectAny result = do
             atomically (writeTVar doneVar True)
             readTVarIO socketVar
           addr : addrs -> do
-            thread <- Ki.forktryWith @SomeException scope workerOpts (worker addr put)
+            thread <- Ki.forkTryWith @SomeException scope workerOpts (worker addr put)
             timeout
               250_000
               ( selectSTM

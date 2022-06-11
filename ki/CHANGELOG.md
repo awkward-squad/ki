@@ -3,7 +3,7 @@
 - Breaking: Remove `Context` type, `Ki.Implicit` module, and the ability to soft-cancel a `Scope`.
 - Breaking: Remove `Duration` type and its associated API, including `waitFor` and `awaitFor`.
 - Breaking: Remove `Ki.Internal` module.
-- Breaking: Generalize `async` to `forktry`.
+- Breaking: Generalize `async` to `forkTry`.
 - Breaking: Generalize `forkWithUnmask` to `forkWith`.
 - Breaking: Make `fork_` take an `IO Void` rather than an `IO ()`.
 - Breaking: Make `fork` create an unmasked thread, rather than inherit the parent's masking state.
@@ -13,7 +13,7 @@
 
 - Bugfix: Fix small memory leak related to closing a scope.
 - Bugfix: Fix subtle bug related to GHC's treatment of deadlocked threads.
-- Bugfix: make `async` (now `forktry`) propagate async exceptions.
+- Bugfix: make `async` (now `forkTry`) propagate async exceptions.
 - Bugfix: make `scoped` safe to run with asynchronous exceptions masked.
 - Bugfix: propagate exceptions to creator of scope, not creator of thread
 

@@ -77,25 +77,25 @@ main =
                   Ki.defaultThreadOptions {Ki.maskingState = MaskedUninterruptible}
                   (getMaskingState `shouldReturn` MaskedUninterruptible)
             atomically (Ki.wait scope),
-        testCase "`forktry` can catch sync exceptions" do
+        testCase "`forkTry` can catch sync exceptions" do
           Ki.scoped \scope -> do
-            result :: Ki.Thread (Either A ()) <- Ki.forktry scope (throw A)
+            result :: Ki.Thread (Either A ()) <- Ki.forkTry scope (throw A)
             atomically (Ki.await result) `shouldReturn` Left A,
-        testCase "`forktry` can propagate sync exceptions" do
+        testCase "`forkTry` can propagate sync exceptions" do
           (`shouldThrow` A) do
             Ki.scoped \scope -> do
-              thread :: Ki.Thread (Either A2 ()) <- Ki.forktry scope (throw A)
+              thread :: Ki.Thread (Either A2 ()) <- Ki.forkTry scope (throw A)
               atomically (Ki.await thread),
-        testCase "`forktry` propagates async exceptions" do
+        testCase "`forkTry` propagates async exceptions" do
           (`shouldThrow` B) do
             Ki.scoped \scope -> do
-              thread :: Ki.Thread (Either B ()) <- Ki.forktry scope (throw B)
+              thread :: Ki.Thread (Either B ()) <- Ki.forkTry scope (throw B)
               atomically (Ki.await thread),
-        testCase "`forktry` puts exceptions after propagating" do
+        testCase "`forkTry` puts exceptions after propagating" do
           (`shouldThrow` A2) do
             Ki.scoped \scope -> do
               mask \restore -> do
-                thread :: Ki.Thread (Either A ()) <- Ki.forktry scope (throwIO A2)
+                thread :: Ki.Thread (Either A ()) <- Ki.forkTry scope (throwIO A2)
                 restore (atomically (Ki.wait scope)) `catch` \(_ :: SomeException) -> pure ()
                 atomically (Ki.await thread)
       ]
