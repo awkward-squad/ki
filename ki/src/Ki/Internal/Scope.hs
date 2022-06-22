@@ -323,10 +323,10 @@ forkWith_ scope opts action = do
         (masking action)
   pure ()
 
--- | Like 'Ki.fork', but the child thread does not propagate exceptions that both:
+-- | Like 'Ki.fork', but the child thread does not propagate exceptions that are both:
 --
--- * Synchronous.
--- * An an instance of __@e@__.
+-- * Synchronous (/i.e./ not an instance of 'SomeAsyncException').
+-- * An instance of __@e@__.
 forkTry :: forall e a. Exception e => Scope -> IO a -> IO (Thread (Either e a))
 forkTry scope =
   forkTryWith scope defaultThreadOptions

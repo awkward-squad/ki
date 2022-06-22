@@ -71,7 +71,7 @@ import Ki.Internal.Thread
 --
 -- All together, this library:
 --
---     * Guarantees the absence of "ghost threads" (i.e. threads that accidentally continue to run alongside the main
+--     * Guarantees the absence of "ghost threads" (/i.e./ threads that accidentally continue to run alongside the main
 --       thread long after the function that spawned them returns).
 --
 --     * Performs prompt, bi-directional exception propagation when an exception is raised anywhere in the call tree.
