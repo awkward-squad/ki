@@ -21,7 +21,7 @@ import Control.Exception
     pattern ErrorCall,
   )
 import qualified Data.IntMap.Lazy as IntMap
-import Data.Void (Void)
+import Data.Void (Void, absurd)
 import GHC.Conc
   ( STM,
     TVar,
@@ -58,21 +58,26 @@ import Ki.Internal.Thread
 --
 -- * The thread that creates a scope is considered the parent of all threads created within it.
 data Scope = Scope
-  { -- The MVar that a child puts to before propagating the exception to the parent because the delivery is not
-    -- guaranteed. This is because the parent must kill its children with asynchronous exceptions uninterruptibly masked
-    -- for correctness.
+  { -- The MVar that a child tries to put to, in the case that it tries to propagate an exception to its parent, but
+    -- gets delivered an exception from its parent concurrently (which interrupts the throw). The parent must raise
+    -- exceptions in its children with asynchronous exceptions uninterruptibly masked for correctness, yet we don't want
+    -- a parent in the process of tearing down to miss/ignore this exception that we're trying to propagate?
+    --
+    -- Why a single-celled MVar? What if two siblings are fighting to inform their parent of their death? Well, only
+    -- one exception can be propagated by the parent anyway, so we wouldn't need or want both.
     childExceptionVar :: {-# UNPACK #-} !(MVar SomeException),
     -- The set of child threads that are currently running, each keyed by a monotonically increasing int.
     childrenVar :: {-# UNPACK #-} !(TVar (IntMap ThreadId)),
     -- The counter that holds the (int) key to use for the next child thread.
     nextChildIdCounter :: {-# UNPACK #-} !Counter,
+    -- The id of the thread that created the scope, which is considered the parent of all threads created within it.
+    parentThreadId :: {-# UNPACK #-} !ThreadId,
     -- The number of child threads that are guaranteed to be about to start, in the sense that only the GHC scheduler
-    -- can continue to delay; no async exception can strike here and prevent one of these threads from starting.
+    -- can continue to delay; there's no opportunity for an async exception to strike and prevent one of these threads
+    -- from starting.
     --
     -- Sentinel value: -1 means the scope is closed.
-    startingVar :: {-# UNPACK #-} !(TVar Int),
-    -- The id of the thread that created the scope.
-    threadId :: {-# UNPACK #-} !ThreadId
+    startingVar :: {-# UNPACK #-} !(TVar Int)
   }
 
 -- Internal async exception thrown by a parent thread to its children when the scope is closing.
@@ -163,9 +168,9 @@ allocateScope = do
   childExceptionVar <- newEmptyMVar
   childrenVar <- newTVarIO IntMap.empty
   nextChildIdCounter <- newCounter
+  parentThreadId <- myThreadId
   startingVar <- newTVarIO 0
-  threadId <- myThreadId
-  pure Scope {childExceptionVar, childrenVar, nextChildIdCounter, startingVar, threadId}
+  pure Scope {childExceptionVar, childrenVar, nextChildIdCounter, parentThreadId, startingVar}
 
 -- Spawn a thread in a scope, providing it a function that sets the masking state to the requested masking state. The
 -- given action is called with async exceptions at least interruptibly masked, but maybe uninterruptibly, if spawn
@@ -235,7 +240,7 @@ recordChild childrenVar childId childThreadId = do
 -- Unrecord a child (ourselves) by either:
 --
 --   * Flipping `Just childThreadId` to `Nothing` (common case: parent recorded us first)
---   * Flipping `Nothing` to `Just undefined` (uncommon case: we die and unrecord before parent can record us).
+--   * Flipping `Nothing` to `Just undefined` (uncommon case: we terminate and unrecord before parent can record us).
 --
 -- Never retries.
 unrecordChild :: TVar (IntMap ThreadId) -> Int -> STM ()
@@ -286,7 +291,7 @@ fork_ scope =
 
 -- | Variant of 'Ki.fork' that takes an additional options argument.
 forkWith :: Scope -> ThreadOptions -> IO a -> IO (Thread a)
-forkWith scope@Scope {threadId = parentThreadId} opts action = do
+forkWith scope opts action = do
   resultVar <- newTVarIO Nothing
   ident <-
     spawn scope opts \masking -> do
@@ -295,7 +300,7 @@ forkWith scope@Scope {threadId = parentThreadId} opts action = do
         Left exception ->
           when
             (not (isScopeClosingException exception))
-            (propagateException parentThreadId exception (childExceptionVar scope))
+            (propagateException scope exception)
         Right _ -> pure ()
       -- even put async exceptions that we propagated. this isn't totally ideal because a caller awaiting this thread
       -- would not be able to distinguish between async exceptions delivered to this thread, or itself
@@ -309,16 +314,12 @@ forkWith scope@Scope {threadId = parentThreadId} opts action = do
 
 -- | Variant of 'Ki.forkWith' for threads that never return.
 forkWith_ :: Scope -> ThreadOptions -> IO Void -> IO ()
-forkWith_ scope@Scope {threadId = parentThreadId} opts action = do
+forkWith_ scope opts action = do
   _childThreadId <-
     spawn scope opts \masking ->
       unexceptionalTryEither
-        ( \exception ->
-            when
-              (not (isScopeClosingException exception))
-              (propagateException parentThreadId exception (childExceptionVar scope))
-        )
-        (\_unit -> pure ())
+        (\exception -> when (not (isScopeClosingException exception)) (propagateException scope exception))
+        absurd
         (masking action)
   pure ()
 
@@ -332,7 +333,7 @@ forkTry scope =
 
 -- | Variant of 'Ki.forkTry' that takes an additional options argument.
 forkTryWith :: forall e a. Exception e => Scope -> ThreadOptions -> IO a -> IO (Thread (Either e a))
-forkTryWith scope@Scope {threadId = parentThreadId} opts action = do
+forkTryWith scope opts action = do
   resultVar <- newTVarIO Nothing
   childThreadId <-
     spawn scope opts \masking -> do
@@ -340,11 +341,13 @@ forkTryWith scope@Scope {threadId = parentThreadId} opts action = do
       case result of
         Left exception -> do
           let shouldPropagate =
-                case fromException @e exception of
-                  Nothing -> not (isScopeClosingException exception)
-                  -- if the user calls `forkTry @MyAsyncException`, we still want to propagate the async exception
-                  Just _ -> not (isScopeClosingException exception) && isAsyncException exception
-          when shouldPropagate (propagateException parentThreadId exception (childExceptionVar scope))
+                if isScopeClosingException exception
+                  then False
+                  else case fromException @e exception of
+                    Nothing -> True
+                    -- if the user calls `forkTry @MyAsyncException`, we still want to propagate the async exception
+                    Just _ -> isAsyncException exception
+          when shouldPropagate (propagateException scope exception)
         Right _value -> pure ()
       UnexceptionalIO (atomically (writeTVar resultVar (Just result)))
   let doAwait =
@@ -353,7 +356,7 @@ forkTryWith scope@Scope {threadId = parentThreadId} opts action = do
           Just (Left exception) ->
             case fromException @e exception of
               Nothing -> throwSTM exception
-              Just exception' -> pure (Left exception')
+              Just expectedException -> pure (Left expectedException)
           Just (Right value) -> pure (Right value)
   pure (makeThread childThreadId doAwait)
   where
@@ -365,8 +368,8 @@ forkTryWith scope@Scope {threadId = parentThreadId} opts action = do
 
 -- TODO more docs
 -- No precondition on masking state
-propagateException :: ThreadId -> SomeException -> MVar SomeException -> UnexceptionalIO ()
-propagateException parentThreadId exception childExceptionVar = UnexceptionalIO do
+propagateException :: Scope -> SomeException -> UnexceptionalIO ()
+propagateException Scope {childExceptionVar, parentThreadId} exception = UnexceptionalIO do
   -- `throwTo` cannot be called with async exceptions uninterruptibly masked, because that may deadlock with our parent
   -- throwing to us
   interruptiblyMasked do
