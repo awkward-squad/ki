@@ -18,7 +18,6 @@ import Control.Exception
     asyncExceptionFromException,
     asyncExceptionToException,
     catch,
-    getMaskingState,
     pattern ErrorCall,
   )
 import qualified Data.IntMap.Lazy as IntMap
@@ -76,7 +75,7 @@ data Scope = Scope
     threadId :: {-# UNPACK #-} !ThreadId
   }
 
--- Exception thrown by a parent thread to its children when its scope is closing.
+-- Internal async exception thrown by a parent thread to its children when the scope is closing.
 data ScopeClosing
   = ScopeClosing
 
@@ -88,7 +87,8 @@ instance Exception ScopeClosing where
   fromException = asyncExceptionFromException
 
 -- Trust without verifying that any 'ScopeClosed' exception, which is not exported by this module, was indeed thrown to
--- a thread by this library, and not randomly caught by a user and propagated to some thread.
+-- a thread by its parent. It is possible to write a program that violates this (just catch the async exception and
+-- throw it to some other thread)... but who would do that?
 isScopeClosingException :: SomeException -> Bool
 isScopeClosingException exception =
   case fromException exception of
@@ -110,17 +110,12 @@ pattern IsScopeClosingException <- (isScopeClosingException -> True)
 -- * Child threads created within a scope can be awaited individually (see 'await'), or as a collection (see 'wait').
 scoped :: (Scope -> IO a) -> IO a
 scoped action = do
-  childExceptionVar <- newEmptyMVar
-  childrenVar <- newTVarIO IntMap.empty
-  nextChildIdCounter <- newCounter
-  startingVar <- newTVarIO 0
-  threadId <- myThreadId
-  let scope = Scope {childExceptionVar, childrenVar, nextChildIdCounter, startingVar, threadId}
+  scope@Scope {childExceptionVar, childrenVar, startingVar} <- allocateScope
 
   uninterruptibleMask \restore -> do
     result <- try (restore (action scope))
 
-    children <-
+    livingChildren <-
       atomically do
         -- Block until we haven't committed to starting any threads. Without this, we may create a thread concurrently
         -- with closing its scope, and not grab its thread id to throw an exception to.
@@ -132,10 +127,11 @@ scoped action = do
         -- initially retried in `blockUntil0` above). That's fine - kill them all!
         readTVar childrenVar
 
-    -- Deliver an async exception to every child in the order they were created.
-    -- FIXME I think we decided this feature isn't very useful in practice, so maybe we should simplify the internals
-    -- and just keep a set of children.
-    traverse_ (flip throwTo ScopeClosing) (IntMap.elems children)
+    -- Deliver a ScopeClosing exception to every living child, in the order they were created.
+    --
+    -- I think we decided this feature isn't very useful in practice, at least not useful enough to bother documenting,
+    -- so maybe we should simplify the internals and just keep a set of children?
+    for_ (IntMap.elems livingChildren) \livingChild -> throwTo livingChild ScopeClosing
 
     -- Block until all children have terminated; this relies on children respecting the async exception, which they
     -- must, for correctness. Otherwise, a thread could indeed outlive the scope in which it's created, which is
@@ -146,8 +142,10 @@ scoped action = do
     --
     --   1) A sync or async exception thrown during the callback, captured in `result`. If applicable, we want to unwrap
     --      the `ThreadFailed` off of this, which was only used to indicate it came from one of our children.
+    --
     --   2) A sync or async exception left for us in `childExceptionVar` by a child that tried to propagate it to us
     --      directly, but failed (because we killed it concurrently).
+    --
     --   3) An async exception waiting in our exception queue, because we still have async exceptions uninterruptibly
     --      masked.
     --
@@ -159,26 +157,30 @@ scoped action = do
           Nothing -> pure value
           Just exception -> throwIO exception
 
+-- Allocate a new scope.
+allocateScope :: IO Scope
+allocateScope = do
+  childExceptionVar <- newEmptyMVar
+  childrenVar <- newTVarIO IntMap.empty
+  nextChildIdCounter <- newCounter
+  startingVar <- newTVarIO 0
+  threadId <- myThreadId
+  pure Scope {childExceptionVar, childrenVar, nextChildIdCounter, startingVar, threadId}
+
 -- Spawn a thread in a scope, providing it a function that sets the masking state to the requested masking state. The
 -- given action is called with async exceptions at least interruptibly masked, but maybe uninterruptibly, if spawn
 -- itself was called with async exceptions uninterruptible masked. The given action must not throw an exception.
-spawn :: Scope -> ThreadOptions -> ((forall x. IO x -> IO x) -> IO ()) -> IO ThreadId
+spawn :: Scope -> ThreadOptions -> ((forall x. IO x -> IO x) -> UnexceptionalIO ()) -> IO ThreadId
 spawn
   Scope {childrenVar, nextChildIdCounter, startingVar}
   ThreadOptions {affinity, allocationLimit, label, maskingState = requestedChildMaskingState}
   action = do
-    parentMaskingState <- getMaskingState
-
-    let atLeastInterruptiblyMasked :: IO a -> IO a
-        atLeastInterruptiblyMasked =
-          case parentMaskingState of
-            Unmasked -> interruptiblyMasked
-            MaskedInterruptible -> id
-            MaskedUninterruptible -> id
-
-    -- Interruptible mask is enough so long as none of the STM operations below block
-    atLeastInterruptiblyMasked do
-      -- Record the thread as being about to start.
+    -- Interruptible mask is enough so long as none of the STM operations below block.
+    --
+    -- Unconditionally set masking state to MaskedInterruptible, even though we might already be at MaskedInterruptible
+    -- or MaskedUninterruptible, to avoid a branch on parentMaskingState.
+    interruptiblyMasked do
+      -- Record the thread as being about to start. Not allowed to retry.
       atomically do
         n <- readTVar startingVar
         if n < 0
@@ -199,28 +201,19 @@ spawn
               setAllocationCounter (byteCountToInt64 bytes)
               enableAllocationLimit
 
-          let -- Action that sets the masking state from the current (either MaskedInterruptible or
-              -- MaskedUninterruptible) to the requested masking state
+          let -- Action that sets the masking state from the current (MaskedInterruptible) to the requested one.
               masking :: IO a -> IO a
               masking =
                 case requestedChildMaskingState of
                   Unmasked -> unsafeUnmask
-                  MaskedInterruptible ->
-                    case parentMaskingState of
-                      Unmasked -> id
-                      MaskedInterruptible -> id
-                      MaskedUninterruptible -> interruptiblyMasked -- downgrade
-                  MaskedUninterruptible ->
-                    case parentMaskingState of
-                      Unmasked -> uninterruptiblyMasked
-                      MaskedInterruptible -> uninterruptiblyMasked
-                      MaskedUninterruptible -> id
+                  MaskedInterruptible -> id
+                  MaskedUninterruptible -> uninterruptiblyMasked
 
-          action masking
+          runUnexceptionalIO (action masking)
 
           atomically (unrecordChild childrenVar childId)
 
-      -- Record the child as having started
+      -- Record the child as having started. Not allowed to retry.
       atomically do
         n <- readTVar startingVar
         writeTVar startingVar $! n - 1 -- it's actually ok to go from e.g. -1 to -2 here (very unlikely)
@@ -297,7 +290,7 @@ forkWith scope@Scope {threadId = parentThreadId} opts action = do
   resultVar <- newTVarIO Nothing
   ident <-
     spawn scope opts \masking -> do
-      result <- try (masking action)
+      result <- unexceptionalTry (masking action)
       case result of
         Left exception ->
           when
@@ -306,7 +299,7 @@ forkWith scope@Scope {threadId = parentThreadId} opts action = do
         Right _ -> pure ()
       -- even put async exceptions that we propagated. this isn't totally ideal because a caller awaiting this thread
       -- would not be able to distinguish between async exceptions delivered to this thread, or itself
-      atomically (writeTVar resultVar (Just result))
+      UnexceptionalIO (atomically (writeTVar resultVar (Just result)))
   let doAwait =
         readTVar resultVar >>= \case
           Nothing -> retry
@@ -319,7 +312,7 @@ forkWith_ :: Scope -> ThreadOptions -> IO Void -> IO ()
 forkWith_ scope@Scope {threadId = parentThreadId} opts action = do
   _childThreadId <-
     spawn scope opts \masking ->
-      tryEither
+      unexceptionalTryEither
         ( \exception ->
             when
               (not (isScopeClosingException exception))
@@ -339,14 +332,11 @@ forkTry scope =
 
 -- | Variant of 'Ki.forkTry' that takes an additional options argument.
 forkTryWith :: forall e a. Exception e => Scope -> ThreadOptions -> IO a -> IO (Thread (Either e a))
-forkTryWith = forkTryWith' -- cleaner haddocks :/
-
-forkTryWith' :: forall e a. Exception e => Scope -> ThreadOptions -> IO a -> IO (Thread (Either e a))
-forkTryWith' scope@Scope {threadId = parentThreadId} opts action = do
+forkTryWith scope@Scope {threadId = parentThreadId} opts action = do
   resultVar <- newTVarIO Nothing
   childThreadId <-
     spawn scope opts \masking -> do
-      result <- try (masking action)
+      result <- UnexceptionalIO (try (masking action))
       case result of
         Left exception -> do
           let shouldPropagate =
@@ -356,7 +346,7 @@ forkTryWith' scope@Scope {threadId = parentThreadId} opts action = do
                   Just _ -> not (isScopeClosingException exception) && isAsyncException exception
           when shouldPropagate (propagateException parentThreadId exception (childExceptionVar scope))
         Right _value -> pure ()
-      atomically (writeTVar resultVar (Just result))
+      UnexceptionalIO (atomically (writeTVar resultVar (Just result)))
   let doAwait =
         readTVar resultVar >>= \case
           Nothing -> retry
@@ -375,8 +365,8 @@ forkTryWith' scope@Scope {threadId = parentThreadId} opts action = do
 
 -- TODO more docs
 -- No precondition on masking state
-propagateException :: ThreadId -> SomeException -> MVar SomeException -> IO ()
-propagateException parentThreadId exception childExceptionVar =
+propagateException :: ThreadId -> SomeException -> MVar SomeException -> UnexceptionalIO ()
+propagateException parentThreadId exception childExceptionVar = UnexceptionalIO do
   -- `throwTo` cannot be called with async exceptions uninterruptibly masked, because that may deadlock with our parent
   -- throwing to us
   interruptiblyMasked do
@@ -389,7 +379,28 @@ propagateException parentThreadId exception childExceptionVar =
         Left _ -> again
         Right _ -> pure ()
 
--- Like try, but with continuations
-tryEither :: Exception e => (e -> IO b) -> (a -> IO b) -> IO a -> IO b
-tryEither onFailure onSuccess action =
-  join (catch (onSuccess <$> action) (pure . onFailure))
+-- A little promise that this IO action cannot throw an exception.
+--
+-- Yeah it's verbose, and maybe not that necessary, but the code that bothers to use it really does require
+-- un-exceptiony IO actions for correctness, so here we are.
+newtype UnexceptionalIO a = UnexceptionalIO
+  {runUnexceptionalIO :: IO a}
+  deriving newtype (Applicative, Functor, Monad)
+
+unexceptionalTry :: forall a. IO a -> UnexceptionalIO (Either SomeException a)
+unexceptionalTry =
+  coerce @(IO a -> IO (Either SomeException a)) try
+
+-- Like try, but with continuations. Also, catches all exceptions, because that's the only flavor we need.
+unexceptionalTryEither ::
+  forall a b.
+  (SomeException -> UnexceptionalIO b) ->
+  (a -> UnexceptionalIO b) ->
+  IO a ->
+  UnexceptionalIO b
+unexceptionalTryEither onFailure onSuccess action =
+  UnexceptionalIO do
+    join do
+      catch
+        (coerce @_ @(a -> IO b) onSuccess <$> action)
+        (pure . coerce @_ @(SomeException -> IO b) onFailure)

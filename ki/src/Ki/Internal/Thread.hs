@@ -17,9 +17,7 @@ import Control.Exception
     asyncExceptionFromException,
     asyncExceptionToException,
   )
-import GHC.Conc
-  ( STM,
-  )
+import GHC.Conc (STM, catchSTM)
 import Ki.Internal.ByteCount
 import Ki.Internal.Prelude
 
@@ -140,7 +138,9 @@ unwrapThreadFailed e0 =
 -- | Wait for a thread to terminate.
 await :: Thread a -> STM a
 await (Thread _threadId doAwait) =
-  -- If *they* are deadlocked, we will *both* will be delivered a wakeup from the RTS. We want to shrug this exception
-  -- off, because afterwards they'll have put to the result var. But don't shield indefinitely, once will cover this use
-  -- case and prevent any accidental infinite loops.
-  tryEitherSTM (\BlockedIndefinitelyOnSTM -> doAwait) pure doAwait
+  doAwait
+
+-- Like try, but with continuations
+tryEitherSTM :: Exception e => (e -> STM b) -> (a -> STM b) -> STM a -> STM b
+tryEitherSTM onFailure onSuccess action =
+  join (catchSTM (onSuccess <$> action) (pure . onFailure))

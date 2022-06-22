@@ -2,8 +2,7 @@
 {-# LANGUAGE UnboxedTuples #-}
 
 module Ki.Internal.Prelude
-  ( tryEitherSTM,
-    forkIO,
+  ( forkIO,
     forkOS,
     forkOn,
     interruptiblyMasked,
@@ -34,17 +33,12 @@ import Data.Word as X (Word32)
 import Foreign.C.Types (CInt (CInt))
 import Foreign.StablePtr (StablePtr, freeStablePtr, newStablePtr)
 import GHC.Base (maskAsyncExceptions#, maskUninterruptible#)
-import GHC.Conc (STM, ThreadId (ThreadId), catchSTM)
+import GHC.Conc (ThreadId (ThreadId))
 import GHC.Exts (Int (I#), fork#, forkOn#)
 import GHC.Generics as X (Generic)
 import GHC.IO (IO (IO), unsafeUnmask)
 import Numeric.Natural as X (Natural)
 import Prelude as X
-
--- Like try, but with continuations
-tryEitherSTM :: Exception e => (e -> STM b) -> (a -> STM b) -> STM a -> STM b
-tryEitherSTM onFailure onSuccess action =
-  join (catchSTM (onSuccess <$> action) (pure . onFailure))
 
 -- | Call an action with asynchronous exceptions interruptibly masked.
 interruptiblyMasked :: IO a -> IO a
