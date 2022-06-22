@@ -33,8 +33,10 @@ import Ki.Internal.Prelude
 --
 -- * A thread cannot be terminated explicitly ala 'Control.Concurrent.killThread'. However, all threads created within a
 -- scope are terminated when the scope closes.
-data Thread a
-  = Thread {-# UNPACK #-} !ThreadId !(STM a)
+data Thread a = Thread
+  { threadId :: {-# UNPACK #-} !ThreadId,
+    await_ :: !(STM a)
+  }
   deriving stock (Functor)
 
 instance Eq (Thread a) where
@@ -48,11 +50,12 @@ instance Ord (Thread a) where
 makeThread :: ThreadId -> STM a -> Thread a
 makeThread threadId action =
   Thread
-    threadId
-    -- If *they* are deadlocked, we will *both* will be delivered a wakeup from the RTS. We want to shrug this exception
-    -- off, because afterwards they'll have put to the result var. But don't shield indefinitely, once will cover this
-    -- use case and prevent any accidental infinite loops.
-    (tryEitherSTM (\BlockedIndefinitelyOnSTM -> action) pure action)
+    { threadId,
+      -- If *they* are deadlocked, we will *both* will be delivered a wakeup from the RTS. We want to shrug this
+      -- exception off, because afterwards they'll have put to the result var. But don't shield indefinitely, once will
+      -- cover this use case and prevent any accidental infinite loops.
+      await_ = tryEitherSTM (\BlockedIndefinitelyOnSTM -> action) pure action
+    }
 
 -- | What, if anything, a thread is bound to.
 data ThreadAffinity
@@ -137,8 +140,8 @@ unwrapThreadFailed e0 =
 
 -- | Wait for a thread to terminate.
 await :: Thread a -> STM a
-await (Thread _threadId doAwait) =
-  doAwait
+await =
+  await_
 
 -- Like try, but with continuations
 tryEitherSTM :: Exception e => (e -> STM b) -> (a -> STM b) -> STM a -> STM b
