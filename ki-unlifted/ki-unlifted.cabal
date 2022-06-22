@@ -11,7 +11,7 @@ maintainer: Mitchell Rosen <mitchellwrosen@gmail.com>, Travis Staton <hello@trav
 name: ki-unlifted
 stability: experimental
 synopsis: A lightweight structured-concurrency library
-version: 0.3.0
+version: 1.0.0
 
 description:
   A lightweight structured-concurrency library.
@@ -30,7 +30,7 @@ source-repository head
 
 common component
   build-depends:
-    base >= 4.12.0.0 && < 4.17,
+    base ^>= 4.12 || ^>= 4.13 || ^>= 4.14 || ^>= 4.15 || ^>= 4.16,
   default-extensions:
     AllowAmbiguousTypes
     BangPatterns
@@ -76,8 +76,8 @@ common component
 library
   import: component
   build-depends:
-    ki,
-    unliftio-core,
+    ki ^>= 1.0,
+    unliftio-core ^>= 0.2,
   exposed-modules:
     Ki.Unlifted
   hs-source-dirs: src
