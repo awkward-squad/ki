@@ -16,7 +16,7 @@ module Ki
     fork,
     forkTry,
     await,
-    wait,
+    awaitAll,
 
     -- * Extended API
     fork_,
@@ -39,6 +39,7 @@ where
 import Ki.Internal.ByteCount (ByteCount, kilobytes, megabytes)
 import Ki.Internal.Scope
   ( Scope,
+    awaitAll,
     fork,
     forkTry,
     forkTryWith,
@@ -46,7 +47,6 @@ import Ki.Internal.Scope
     forkWith_,
     fork_,
     scoped,
-    wait,
   )
 import Ki.Internal.Thread
   ( Thread,
@@ -59,7 +59,7 @@ import Ki.Internal.Thread
 -- $introduction
 --
 -- Structured concurrency is a paradigm of concurrent programming in which a lexical scope delimits the lifetime of each
--- thread. Threads form a "call tree" hierarchy in which no child can outlive its parent.
+-- thread. Threads therefore form a "call tree" hierarchy in which no child can outlive its parent.
 --
 -- Exceptions are propagated promptly from child to parent and vice-versa:
 --
@@ -72,7 +72,7 @@ import Ki.Internal.Thread
 -- All together, this library:
 --
 --     * Guarantees the absence of "ghost threads" (/i.e./ threads that accidentally continue to run alongside the main
---       thread long after the function that spawned them returns).
+--       thread after the function that spawned them returns).
 --
 --     * Performs prompt, bi-directional exception propagation when an exception is raised anywhere in the call tree.
 --
@@ -86,9 +86,6 @@ import Ki.Internal.Thread
 -- ==== __👉 Quick start examples__
 --
 -- * Perform two actions concurrently, and wait for both of them to complete.
---
---     Note that this program only creates one additional thread, unlike the @concurrently@ combinator from the @async@
---     package, which creates two.
 --
 --     @
 --     concurrently :: IO a -> IO b -> IO (a, b)

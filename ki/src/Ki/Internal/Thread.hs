@@ -21,18 +21,22 @@ import GHC.Conc (STM, catchSTM)
 import Ki.Internal.ByteCount
 import Ki.Internal.Prelude
 
--- | A child thread.
+-- | A thread.
 --
 -- ==== __👉 Details__
 --
--- * If an exception is raised in a child thread, the child propagates the exception to its parent (see 'Ki.fork').
+-- * A thread's lifetime is delimited by the scope in which it was created (see 'Ki.scoped').
 --
--- * An exception may be caught and returned as a value instead (see 'Ki.forkTry').
+-- * The thread that creates a scope is considered the parent of all threads created within it.
 --
--- * Asynchronous exceptions are always propagated.
+-- * A thread can be awaited (see 'Ki.await').
 --
--- * A thread cannot be terminated explicitly ala 'Control.Concurrent.killThread'. However, all threads created within a
--- scope are terminated when the scope closes.
+-- * If an exception is raised in a child thread, the child either propagates the exception to its parent (see
+--   'Ki.fork'), or returns the exception as a value (see 'Ki.forkTry').
+--
+-- * An individual thread cannot be terminated explicitly.
+--
+-- * All threads created within a scope are terminated when the scope closes.
 data Thread a = Thread
   { threadId :: {-# UNPACK #-} !ThreadId,
     await_ :: !(STM a)

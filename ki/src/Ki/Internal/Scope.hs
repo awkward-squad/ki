@@ -1,7 +1,7 @@
 module Ki.Internal.Scope
   ( Scope,
     scoped,
-    wait,
+    awaitAll,
     fork,
     forkWith,
     forkWith_,
@@ -45,18 +45,18 @@ import Ki.Internal.Thread
 --
 -- ==== __👉 Details__
 --
--- * A thread scope delimits the lifetime of all threads created within it (see 'Ki.fork', 'Ki.forkTry').
---
--- * A thread scope can only be created with 'Ki.scoped', is only valid during the provided callback.
---
--- * The thread scope object explicitly represents the lexical scope induced by 'Ki.scoped':
---
---     @
---     scoped \\scope ->
---       -- This indented region of the code is represented by the variable \`scope\`
---     @
+-- * A thread scope delimits the lifetime of all threads created within it.
 --
 -- * The thread that creates a scope is considered the parent of all threads created within it.
+--
+-- * A thread scope is only valid during the callback provided to 'Ki.scoped'.
+--
+-- * A thread scope explicitly represents the lexical scope induced by 'Ki.scoped'.
+--
+-- @
+-- scoped \\scope ->
+--   -- This indented region of the code is represented by the variable \`scope\`
+-- @
 data Scope = Scope
   { -- The MVar that a child tries to put to, in the case that it tries to propagate an exception to its parent, but
     -- gets delivered an exception from its parent concurrently (which interrupts the throw). The parent must raise
@@ -103,11 +103,11 @@ isScopeClosingException exception =
 pattern IsScopeClosingException :: SomeException
 pattern IsScopeClosingException <- (isScopeClosingException -> True)
 
--- | Execute an action in a new scope.
+-- | Open a scope, perform an IO action with it, then close the scope.
 --
 -- ==== __👉 Details__
 --
--- * Just before a call to 'scoped' returns, whether with a value or an exception:
+-- * When a scope closes (/i.e./ just before 'scoped' returns):
 --
 --     * The parent thread raises an exception in all of its living children.
 --     * The parent thread blocks until those threads terminate.
@@ -172,9 +172,8 @@ allocateScope = do
   startingVar <- newTVarIO 0
   pure Scope {childExceptionVar, childrenVar, nextChildIdCounter, parentThreadId, startingVar}
 
--- Spawn a thread in a scope, providing it a function that sets the masking state to the requested masking state. The
--- given action is called with async exceptions at least interruptibly masked, but maybe uninterruptibly, if spawn
--- itself was called with async exceptions uninterruptible masked. The given action must not throw an exception.
+-- Spawn a thread in a scope, providing it a function that sets the masking state to the requested masking state.
+-- The given action is called with async exceptions interruptibly masked.
 spawn :: Scope -> ThreadOptions -> ((forall x. IO x -> IO x) -> UnexceptionalIO ()) -> IO ThreadId
 spawn
   Scope {childrenVar, nextChildIdCounter, startingVar}
@@ -256,8 +255,8 @@ forkWithAffinity = \case
   OsThread -> forkOS
 
 -- | Wait until all threads created within a scope terminate.
-wait :: Scope -> STM ()
-wait Scope {childrenVar, startingVar} = do
+awaitAll :: Scope -> STM ()
+awaitAll Scope {childrenVar, startingVar} = do
   blockUntilEmpty childrenVar
   blockUntil0 startingVar
 
@@ -326,7 +325,7 @@ forkWith_ scope opts action = do
 -- | Like 'Ki.fork', but the child thread does not propagate exceptions that are both:
 --
 -- * Synchronous (/i.e./ not an instance of 'SomeAsyncException').
--- * An instance of __@e@__.
+-- * An instance of @e@.
 forkTry :: forall e a. Exception e => Scope -> IO a -> IO (Thread (Either e a))
 forkTry scope =
   forkTryWith scope defaultThreadOptions
@@ -337,7 +336,7 @@ forkTryWith scope opts action = do
   resultVar <- newTVarIO Nothing
   childThreadId <-
     spawn scope opts \masking -> do
-      result <- UnexceptionalIO (try (masking action))
+      result <- unexceptionalTry (masking action)
       case result of
         Left exception -> do
           let shouldPropagate =
@@ -366,20 +365,20 @@ forkTryWith scope opts action = do
         Nothing -> False
         Just _ -> True
 
--- TODO more docs
--- No precondition on masking state
+-- TODO document this
+-- Precondition: interruptibly masked
 propagateException :: Scope -> SomeException -> UnexceptionalIO ()
-propagateException Scope {childExceptionVar, parentThreadId} exception = UnexceptionalIO do
-  -- `throwTo` cannot be called with async exceptions uninterruptibly masked, because that may deadlock with our parent
-  -- throwing to us
-  interruptiblyMasked do
-    fix \again ->
-      try (throwTo parentThreadId (ThreadFailed exception)) >>= \case
-        Left IsScopeClosingException -> void (tryPutMVar childExceptionVar exception)
+propagateException Scope {childExceptionVar, parentThreadId} exception =
+  loop
+  where
+    loop :: UnexceptionalIO ()
+    loop =
+      unexceptionalTry (throwTo parentThreadId (ThreadFailed exception)) >>= \case
+        Left IsScopeClosingException -> unexceptionalTryPutMVar_ childExceptionVar exception
         -- while blocking on notifying the parent of this exception, we got hit by a random async exception from
         -- elsewhere. that's weird and unexpected, but we already have an exception to deliver, so it just gets tossed
         -- to the void...
-        Left _ -> again
+        Left _ -> loop
         Right _ -> pure ()
 
 -- A little promise that this IO action cannot throw an exception.
@@ -407,3 +406,7 @@ unexceptionalTryEither onFailure onSuccess action =
       catch
         (coerce @_ @(a -> IO b) onSuccess <$> action)
         (pure . coerce @_ @(SomeException -> IO b) onFailure)
+
+unexceptionalTryPutMVar_ :: MVar a -> a -> UnexceptionalIO ()
+unexceptionalTryPutMVar_ var x =
+  coerce (void (tryPutMVar var x))

@@ -11,7 +11,7 @@ module Ki.Unlifted
     fork,
     forkTry,
     Ki.await,
-    Ki.wait,
+    Ki.awaitAll,
 
     -- * Extended API
     fork_,
