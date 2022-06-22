@@ -19,18 +19,12 @@ instance Show ByteCount where
     | otherwise = undefined
 
 -- | A number of kilobytes.
-kilobytes ::
-  -- |
-  Natural ->
-  ByteCount
+kilobytes :: Natural -> ByteCount
 kilobytes n =
   ByteCount (snip (n * 1024))
 
 -- | A number of megabytes.
-megabytes ::
-  -- |
-  Natural ->
-  ByteCount
+megabytes :: Natural -> ByteCount
 megabytes n =
   ByteCount (snip (n * 1048576))
 

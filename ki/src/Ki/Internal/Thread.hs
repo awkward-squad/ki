@@ -23,11 +23,11 @@ import GHC.Conc
 import Ki.Internal.ByteCount
 import Ki.Internal.Prelude
 
--- | A thread.
+-- | A child thread.
 --
 -- ==== __👉 Details__
 --
--- * If an exception is raised in a thread, the thread propagates the exception to its parent (see 'Ki.fork').
+-- * If an exception is raised in a child thread, the child propagates the exception to its parent (see 'Ki.fork').
 --
 -- * An exception may be caught and returned as a value instead (see 'Ki.forkTry').
 --
@@ -48,13 +48,13 @@ instance Ord (Thread a) where
     compare ix iy
 
 makeThread :: ThreadId -> STM a -> Thread a
-makeThread threadId action0 =
+makeThread threadId action =
   Thread
     threadId
     -- If *they* are deadlocked, we will *both* will be delivered a wakeup from the RTS. We want to shrug this exception
     -- off, because afterwards they'll have put to the result var. But don't shield indefinitely, once will cover this
     -- use case and prevent any accidental infinite loops.
-    (tryEitherSTM (\BlockedIndefinitelyOnSTM -> action0) pure action0)
+    (tryEitherSTM (\BlockedIndefinitelyOnSTM -> action) pure action)
 
 -- | What, if anything, a thread is bound to.
 data ThreadAffinity
@@ -138,10 +138,7 @@ unwrapThreadFailed e0 =
     Nothing -> e0
 
 -- | Wait for a thread to terminate.
-await ::
-  -- |
-  Thread a ->
-  STM a
+await :: Thread a -> STM a
 await (Thread _threadId doAwait) =
   -- If *they* are deadlocked, we will *both* will be delivered a wakeup from the RTS. We want to shrug this exception
   -- off, because afterwards they'll have put to the result var. But don't shield indefinitely, once will cover this use
