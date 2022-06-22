@@ -128,8 +128,10 @@ defaultThreadOptions =
     }
 
 -- Internal exception type thrown by a child thread to its parent, if it fails unexpectedly.
-newtype ThreadFailed
-  = ThreadFailed SomeException
+data ThreadFailed = ThreadFailed
+  { childId :: {-# UNPACK #-} !Int,
+    exception :: !SomeException
+  }
   deriving stock (Show)
 
 instance Exception ThreadFailed where
@@ -139,7 +141,7 @@ instance Exception ThreadFailed where
 unwrapThreadFailed :: SomeException -> SomeException
 unwrapThreadFailed e0 =
   case fromException e0 of
-    Just (ThreadFailed e1) -> e1
+    Just (ThreadFailed _ e1) -> e1
     Nothing -> e0
 
 -- | Wait for a thread to terminate.

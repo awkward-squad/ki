@@ -120,22 +120,29 @@ scoped action = do
   uninterruptibleMask \restore -> do
     result <- try (restore (action scope))
 
-    livingChildren <-
-      atomically do
-        -- Block until we haven't committed to starting any threads. Without this, we may create a thread concurrently
-        -- with closing its scope, and not grab its thread id to throw an exception to.
-        blockUntil0 startingVar
-        -- Write the sentinel value indicating that this scope is closed, and it is an error to try to create a thread
-        -- within it.
-        writeTVar startingVar (-1)
-        -- Return the list of currently-running children to kill. Some of them may have *just* started (e.g. if we
-        -- initially retried in `blockUntil0` above). That's fine - kill them all!
-        readTVar childrenVar
+    !livingChildren <- do
+      livingChildren0 <-
+        atomically do
+          -- Block until we haven't committed to starting any threads. Without this, we may create a thread concurrently
+          -- with closing its scope, and not grab its thread id to throw an exception to.
+          blockUntil0 startingVar
+          -- Write the sentinel value indicating that this scope is closed, and it is an error to try to create a thread
+          -- within it.
+          writeTVar startingVar (-1)
+          -- Return the list of currently-running children to kill. Some of them may have *just* started (e.g. if we
+          -- initially retried in `blockUntil0` above). That's fine - kill them all!
+          readTVar childrenVar
 
-    -- Deliver a ScopeClosing exception to every living child, in the order they were created.
+      -- If one of our children propagated an exception to us, then we know it's about to terminate, so we don't bother
+      -- throwing an exception to it.
+      pure case result of
+        Left (fromException -> Just ThreadFailed {childId}) -> IntMap.delete childId livingChildren0
+        _ -> livingChildren0
+
+    -- Deliver a ScopeClosing exception to every living child.
     --
-    -- I think we decided this feature isn't very useful in practice, at least not useful enough to bother documenting,
-    -- so maybe we should simplify the internals and just keep a set of children?
+    -- This happens to throw in the order the children were created... but I think we decided this feature isn't very
+    -- useful in practice, so maybe we should simplify the internals and just keep a set of children?
     for_ (IntMap.elems livingChildren) \livingChild -> throwTo livingChild ScopeClosing
 
     -- Block until all children have terminated; this relies on children respecting the async exception, which they
@@ -172,9 +179,9 @@ allocateScope = do
   startingVar <- newTVarIO 0
   pure Scope {childExceptionVar, childrenVar, nextChildIdCounter, parentThreadId, startingVar}
 
--- Spawn a thread in a scope, providing it a function that sets the masking state to the requested masking state.
--- The given action is called with async exceptions interruptibly masked.
-spawn :: Scope -> ThreadOptions -> ((forall x. IO x -> IO x) -> UnexceptionalIO ()) -> IO ThreadId
+-- Spawn a thread in a scope, providing it its child id and a function that sets the masking state to the requested
+-- masking state. The given action is called with async exceptions interruptibly masked.
+spawn :: Scope -> ThreadOptions -> (Int -> (forall x. IO x -> IO x) -> UnexceptionalIO ()) -> IO ThreadId
 spawn
   Scope {childrenVar, nextChildIdCounter, startingVar}
   ThreadOptions {affinity, allocationLimit, label, maskingState = requestedChildMaskingState}
@@ -213,7 +220,7 @@ spawn
                   MaskedInterruptible -> id
                   MaskedUninterruptible -> uninterruptiblyMasked
 
-          runUnexceptionalIO (action masking)
+          runUnexceptionalIO (action childId masking)
 
           atomically (unrecordChild childrenVar childId)
 
@@ -293,13 +300,13 @@ forkWith :: Scope -> ThreadOptions -> IO a -> IO (Thread a)
 forkWith scope opts action = do
   resultVar <- newTVarIO Nothing
   ident <-
-    spawn scope opts \masking -> do
+    spawn scope opts \childId masking -> do
       result <- unexceptionalTry (masking action)
       case result of
         Left exception ->
           when
             (not (isScopeClosingException exception))
-            (propagateException scope exception)
+            (propagateException scope childId exception)
         Right _ -> pure ()
       -- even put async exceptions that we propagated. this isn't totally ideal because a caller awaiting this thread
       -- would not be able to distinguish between async exceptions delivered to this thread, or itself
@@ -315,9 +322,9 @@ forkWith scope opts action = do
 forkWith_ :: Scope -> ThreadOptions -> IO Void -> IO ()
 forkWith_ scope opts action = do
   _childThreadId <-
-    spawn scope opts \masking ->
+    spawn scope opts \childId masking ->
       unexceptionalTryEither
-        (\exception -> when (not (isScopeClosingException exception)) (propagateException scope exception))
+        (\exception -> when (not (isScopeClosingException exception)) (propagateException scope childId exception))
         absurd
         (masking action)
   pure ()
@@ -335,7 +342,7 @@ forkTryWith :: forall e a. Exception e => Scope -> ThreadOptions -> IO a -> IO (
 forkTryWith scope opts action = do
   resultVar <- newTVarIO Nothing
   childThreadId <-
-    spawn scope opts \masking -> do
+    spawn scope opts \childId masking -> do
       result <- unexceptionalTry (masking action)
       case result of
         Left exception -> do
@@ -346,7 +353,7 @@ forkTryWith scope opts action = do
                     Nothing -> True
                     -- if the user calls `forkTry @MyAsyncException`, we still want to propagate the async exception
                     Just _ -> isAsyncException exception
-          when shouldPropagate (propagateException scope exception)
+          when shouldPropagate (propagateException scope childId exception)
         Right _value -> pure ()
       UnexceptionalIO (atomically (writeTVar resultVar (Just result)))
   let doAwait =
@@ -367,13 +374,13 @@ forkTryWith scope opts action = do
 
 -- TODO document this
 -- Precondition: interruptibly masked
-propagateException :: Scope -> SomeException -> UnexceptionalIO ()
-propagateException Scope {childExceptionVar, parentThreadId} exception =
+propagateException :: Scope -> Int -> SomeException -> UnexceptionalIO ()
+propagateException Scope {childExceptionVar, parentThreadId} childId exception =
   loop
   where
     loop :: UnexceptionalIO ()
     loop =
-      unexceptionalTry (throwTo parentThreadId (ThreadFailed exception)) >>= \case
+      unexceptionalTry (throwTo parentThreadId ThreadFailed {childId, exception}) >>= \case
         Left IsScopeClosingException -> unexceptionalTryPutMVar_ childExceptionVar exception
         -- while blocking on notifying the parent of this exception, we got hit by a random async exception from
         -- elsewhere. that's weird and unexpected, but we already have an exception to deliver, so it just gets tossed
