@@ -1,8 +1,8 @@
 -- | The `ki` API, generalized to use 'MonadUnliftIO'.
 --
--- For a specialized variant of this API that does not use
--- @<https://hackage.haskell.org/package/unliftio-core unliftio-core>@, see
--- @<https://hackage.haskell.org/package/ki ki>@.
+-- For a variant of this API specialized to IO, see @<https://hackage.haskell.org/package/ki ki>@.
+--
+-- Remember to link your program with @-threaded@ to use the threaded runtime!
 module Ki.Unlifted
   ( -- * Core API
     Ki.Scope,

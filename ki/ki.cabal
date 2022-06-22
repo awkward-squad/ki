@@ -19,6 +19,8 @@ description:
   For a variant of this API generalized to
   @<https://hackage.haskell.org/package/unliftio-core/docs/Control-Monad-IO-Unlift.html#t:MonadUnliftIO MonadUnliftIO>@,
   see @<https://hackage.haskell.org/package/ki-unlifted ki-unlifted>@.
+  .
+  Remember to link your program with @-threaded@ to use the threaded runtime!
 
 extra-source-files:
   CHANGELOG.md

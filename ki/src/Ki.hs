@@ -4,6 +4,8 @@
 -- @<https://hackage.haskell.org/package/unliftio-core/docs/Control-Monad-IO-Unlift.html#t:MonadUnliftIO MonadUnliftIO>@,
 -- see @<https://hackage.haskell.org/package/ki-unlifted ki-unlifted>@.
 --
+-- Remember to link your program with @-threaded@ to use the threaded runtime!
+--
 -- ==== Structured concurrency
 --
 -- Structured concurrency is a paradigm of concurrent programming in which a lexical scope delimits the lifetime of each
@@ -28,7 +30,8 @@
 --       be built on top, such as worker queues, publish-subscribe, supervision trees, and so on.
 --
 -- For a longer introduction to structured concurrency, including an educative analogy to structured programming, please
--- read Nathaniel J. Smith's blog post, <https://vorpus.org/blog/notes-on-structured-concurrency-or-go-statement-considered-harmful/#what-is-a-goto-statement-anyway "Notes on structured concurrency, or: Go statement considered harmful">.
+-- read Nathaniel J. Smith's blog post,
+-- <https://vorpus.org/blog/notes-on-structured-concurrency-or-go-statement-considered-harmful/#what-is-a-goto-statement-anyway "Notes on structured concurrency, or: Go statement considered harmful">.
 --
 -- ==== __👉 Quick start examples__
 --
