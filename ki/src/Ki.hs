@@ -77,7 +77,7 @@ import Ki.Internal.Thread
 --     * Performs prompt, bi-directional exception propagation when an exception is raised anywhere in the call tree.
 --
 --     * Provides a safe and flexible API that can be used directly, or with which higher-level concurrency patterns can
---       be built on top, such as worker queues, publish-subscribe, supervision trees, and so on.
+--       be built on top, such as worker queues, pub-sub pipelines, and supervision trees.
 --
 -- For a longer introduction to structured concurrency, including an educative analogy to structured programming, please
 -- read Nathaniel J. Smith's blog post,

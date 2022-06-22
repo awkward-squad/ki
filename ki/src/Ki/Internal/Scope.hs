@@ -41,17 +41,19 @@ import Ki.Internal.Counter
 import Ki.Internal.Prelude
 import Ki.Internal.Thread
 
--- | A thread scope.
+-- | A scope.
 --
 -- ==== __👉 Details__
 --
--- * A thread scope delimits the lifetime of all threads created within it.
+-- * A scope delimits the lifetime of all threads created within it.
 --
 -- * The thread that creates a scope is considered the parent of all threads created within it.
 --
--- * A thread scope is only valid during the callback provided to 'Ki.scoped'.
+-- * A scope is only valid during the callback provided to 'Ki.scoped'.
 --
--- * A thread scope explicitly represents the lexical scope induced by 'Ki.scoped'.
+-- * A scope explicitly represents the lexical scope induced by 'Ki.scoped'.
+--
+-- * All threads created within a scope can be awaited at once (see 'Ki.awaitAll').
 --
 -- @
 -- scoped \\scope ->
@@ -107,12 +109,16 @@ pattern IsScopeClosingException <- (isScopeClosingException -> True)
 --
 -- ==== __👉 Details__
 --
--- * When a scope closes (/i.e./ just before 'scoped' returns):
+-- * A scope delimits the lifetime of all threads created within it.
+--
+-- * The thread that creates a scope is considered the parent of all threads created within it.
+--
+-- * A scope is only valid during the callback provided to 'Ki.scoped'.
+--
+-- * When a scope closes (/i.e./ just before 'Ki.scoped' returns):
 --
 --     * The parent thread raises an exception in all of its living children.
 --     * The parent thread blocks until those threads terminate.
---
--- * Child threads created within a scope can be awaited individually (see 'await'), or as a collection (see 'wait').
 scoped :: (Scope -> IO a) -> IO a
 scoped action = do
   scope@Scope {childExceptionVar, childrenVar, startingVar} <- allocateScope
@@ -213,14 +219,14 @@ spawn
               enableAllocationLimit
 
           let -- Action that sets the masking state from the current (MaskedInterruptible) to the requested one.
-              masking :: IO a -> IO a
-              masking =
+              atRequestedMaskingState :: IO a -> IO a
+              atRequestedMaskingState =
                 case requestedChildMaskingState of
                   Unmasked -> unsafeUnmask
                   MaskedInterruptible -> id
                   MaskedUninterruptible -> uninterruptiblyMasked
 
-          runUnexceptionalIO (action childId masking)
+          runUnexceptionalIO (action childId atRequestedMaskingState)
 
           atomically (unrecordChild childrenVar childId)
 
@@ -281,11 +287,8 @@ blockUntil0 var = do
 
 -- | Create a child thread to execute an action within a scope.
 --
--- ==== Masking state
---
--- The child thread does not mask asynchronous exceptions, regardless of the parent thread's masking state.
---
--- To create a child thread with a different initial masking state, use 'Ki.forkWith'.
+-- /Note/: The child thread does not mask asynchronous exceptions, regardless of the parent thread's masking state. To
+-- create a child thread with a different initial masking state, use 'Ki.forkWith'.
 fork :: Scope -> IO a -> IO (Thread a)
 fork scope =
   forkWith scope defaultThreadOptions

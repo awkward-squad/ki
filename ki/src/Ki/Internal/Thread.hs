@@ -31,6 +31,8 @@ import Ki.Internal.Prelude
 --
 -- * A thread can be awaited (see 'Ki.await').
 --
+-- * All threads created within a scope can be awaited at once (see 'Ki.awaitAll').
+--
 -- * If an exception is raised in a child thread, the child either propagates the exception to its parent (see
 --   'Ki.fork'), or returns the exception as a value (see 'Ki.forkTry').
 --
