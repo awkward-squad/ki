@@ -11,6 +11,7 @@ module Ki.Internal.Scope
   )
 where
 
+import qualified Control.Concurrent
 import Control.Exception
   ( Exception (fromException, toException),
     MaskingState (..),
@@ -265,7 +266,7 @@ forkWithAffinity :: ThreadAffinity -> IO () -> IO ThreadId
 forkWithAffinity = \case
   Unbound -> forkIO
   Capability n -> forkOn n
-  OsThread -> forkOS
+  OsThread -> Control.Concurrent.forkOS
 
 -- | Wait until all threads created within a scope terminate.
 awaitAll :: Scope -> STM ()
