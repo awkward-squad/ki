@@ -54,12 +54,7 @@ import Ki.Internal.Thread
 --
 -- * A scope explicitly represents the lexical scope induced by 'Ki.scoped'.
 --
--- * All threads created within a scope can be awaited at once (see 'Ki.awaitAll').
---
--- @
--- scoped \\scope ->
---   -- This indented region of the code is represented by the variable \`scope\`
--- @
+-- * All threads created within a scope can be awaited together (see 'Ki.awaitAll').
 data Scope = Scope
   { -- The MVar that a child tries to put to, in the case that it tries to propagate an exception to its parent, but
     -- gets delivered an exception from its parent concurrently (which interrupts the throw). The parent must raise
@@ -109,8 +104,6 @@ pattern IsScopeClosingException <- (isScopeClosingException -> True)
 -- | Open a scope, perform an IO action with it, then close the scope.
 --
 -- ==== __👉 Details__
---
--- * A scope delimits the lifetime of all threads created within it.
 --
 -- * The thread that creates a scope is considered the parent of all threads created within it.
 --
