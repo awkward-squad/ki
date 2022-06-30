@@ -93,9 +93,9 @@ test-suite tests
   import: component
   build-depends:
     ki,
-    stm == 2.5.0.*,
-    tasty == 1.4.2.*,
-    tasty-hunit == 0.10.0.*,
+    stm ^>= 2.5,
+    tasty ^>= 1.4.2,
+    tasty-hunit ^>= 0.10,
   ghc-options: -rtsopts -threaded
   hs-source-dirs: test
   main-is: Tests.hs
