@@ -48,13 +48,13 @@ import Ki.Internal.Thread
 --
 -- * A scope delimits the lifetime of all threads created within it.
 --
--- * The thread that creates a scope is considered the parent of all threads created within it.
---
 -- * A scope is only valid during the callback provided to 'Ki.scoped'.
 --
--- * A scope explicitly represents the lexical scope induced by 'Ki.scoped'.
+-- * The thread that creates a scope is considered the parent of all threads created within it.
 --
 -- * All threads created within a scope can be awaited together (see 'Ki.awaitAll').
+--
+-- * All threads created within a scope are terminated when the scope closes.
 data Scope = Scope
   { -- The MVar that a child tries to put to, in the case that it tries to propagate an exception to its parent, but
     -- gets delivered an exception from its parent concurrently (which interrupts the throw). The parent must raise

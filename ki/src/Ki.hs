@@ -74,7 +74,7 @@ import Ki.Internal.Thread
 --     * Guarantees the absence of "ghost threads" (/i.e./ threads that accidentally continue to run alongside the main
 --       thread after the function that spawned them returns).
 --
---     * Performs prompt, bi-directional exception propagation when an exception is raised anywhere in the call tree.
+--     * Performs prompt, bidirectional exception propagation when an exception is raised anywhere in the call tree.
 --
 --     * Provides a safe and flexible API that can be used directly, or with which higher-level concurrency patterns can
 --       be built on top, such as worker queues, pub-sub pipelines, and supervision trees.

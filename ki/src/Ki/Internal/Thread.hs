@@ -25,13 +25,9 @@ import Ki.Internal.Prelude
 --
 -- ==== __👉 Details__
 --
--- * A thread's lifetime is delimited by the scope in which it was created (see 'Ki.scoped').
+-- * A thread's lifetime is delimited by the scope in which it was created.
 --
 -- * The thread that creates a scope is considered the parent of all threads created within it.
---
--- * A thread can be awaited (see 'Ki.await').
---
--- * All threads created within a scope can be awaited together (see 'Ki.awaitAll').
 --
 -- * If an exception is raised in a child thread, the child either propagates the exception to its parent (see
 --   'Ki.fork'), or returns the exception as a value (see 'Ki.forkTry').
