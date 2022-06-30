@@ -1,7 +1,8 @@
 -- | The `ki` API, generalized to use 'MonadUnliftIO'.
 --
--- __Note__: See "Ki" for the main module documentation. Any documentation you see here is incidental, and only a result
--- of re-exporting symbols directly from "Ki".
+-- __Note__: See @[Ki](https://hackage.haskell.org/package/ki/docs/Ki.html)@ for the main module documentation. Any
+-- documentation you see here is incidental, and only a result of re-exporting symbols directly from
+-- @[Ki](https://hackage.haskell.org/package/ki/docs/Ki.html)@.
 module Ki.Unlifted
   ( Ki.Scope,
     Ki.Thread,
