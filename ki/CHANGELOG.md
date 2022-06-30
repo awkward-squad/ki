@@ -1,4 +1,4 @@
-## [1.0.0] - Unreleased
+## [1.0.0] - 2022-06-30
 
 - Breaking: Remove `Context` type, `Ki.Implicit` module, and the ability to soft-cancel a `Scope`.
 - Breaking: Remove `Duration` type and its associated API, including `waitFor` and `awaitFor`.

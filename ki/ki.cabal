@@ -3,7 +3,7 @@ cabal-version: 2.2
 author: Mitchell Rosen
 bug-reports: https://github.com/awkward-squad/ki/issues
 category: Concurrency
-copyright: Copyright (C) 2020-2021 Mitchell Rosen, Travis Staton
+copyright: Copyright (C) 2020-2022 Mitchell Rosen, Travis Staton
 homepage: https://github.com/awkward-squad/ki
 license: BSD-3-Clause
 license-file: LICENSE
