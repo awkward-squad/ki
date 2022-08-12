@@ -108,10 +108,10 @@ data ThreadOptions = ThreadOptions
 --
 -- @
 -- 'Ki.ThreadOptions'
---   { 'Ki.affinity' = Nothing
+--   { 'Ki.affinity' = 'Ki.Unbound'
 --   , 'Ki.allocationLimit' = Nothing
 --   , 'Ki.label' = ""
---   , 'Ki.maskingState' = Unmasked
+--   , 'Ki.maskingState' = 'Unmasked'
 --   }
 -- @
 defaultThreadOptions :: ThreadOptions
