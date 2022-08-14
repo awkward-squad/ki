@@ -49,14 +49,14 @@ uninterruptiblyMasked (IO io) =
 
 -- Control.Concurrent.forkIO without the dumb exception handler
 forkIO :: IO () -> IO ThreadId
-forkIO action =
+forkIO (IO action) =
   IO \s0 ->
     case fork# action s0 of
       (# s1, tid #) -> (# s1, ThreadId tid #)
 
 -- Control.Concurrent.forkOn without the dumb exception handler
 forkOn :: Int -> IO () -> IO ThreadId
-forkOn (I# cap) action =
+forkOn (I# cap) (IO action) =
   IO \s0 ->
     case forkOn# cap action s0 of
       (# s1, tid #) -> (# s1, ThreadId tid #)
