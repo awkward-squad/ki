@@ -11,6 +11,7 @@ maintainer: Mitchell Rosen <mitchellwrosen@gmail.com>, Travis Staton <hello@trav
 name: ki
 stability: experimental
 synopsis: A lightweight structured concurrency library
+-- tested-with: GHC == 9.0.2, GHC == 9.2.4, GHC == 9.4.1
 version: 1.0.0
 
 description:
