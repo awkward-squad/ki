@@ -1,3 +1,8 @@
+## [1.0.0.2] - 2023-01-25
+
+- Bugfix [#20](https://github.com/awkward-squad/ki/pull/20): previously, a child thread could deadlock when attempting
+  to propagate an exception to its parent
+
 ## [1.0.0.1] - 2022-08-14
 
 - Compat: support GHC 9.4.1
