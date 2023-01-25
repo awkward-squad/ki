@@ -41,6 +41,7 @@ import Ki.Internal.ByteCount
 import Ki.Internal.Counter
 import Ki.Internal.Prelude
 import Ki.Internal.Thread
+import GHC.Conc.Sync (readTVarIO)
 
 -- | A scope.
 --
@@ -369,21 +370,53 @@ forkTryWith scope opts action = do
         Nothing -> False
         Just _ -> True
 
--- TODO document this
+-- We have a non-`ScopeClosing` exception to propagate to our parent.
+--
+-- If our scope has already begun closing (`startingVar` is -1), then either...
+--
+--   (A) We already received a `ScopeClosing`, but then ended up trying to propagate an exception anyway, because we
+--   threw a synchronous exception (or were hit by a different asynchronous exception) during our teardown procedure.
+--
+--   or
+--
+--   (B) We will receive a `ScopeClosing` imminently, because our parent has *just* finished setting `startingVar` to
+--   -1, and will proceed to throw ScopeClosing to all of its children.
+--
+-- If (A), our parent has asynchronous exceptions masked, so we must inform it of our exception via `childExceptionVar`
+-- rather than throwTo. If (B), either mechanism would work. And because we don't if we're in case (A) or (B), we just
+-- `childExceptionVar`.
+--
+-- And if our scope has not already begun closing (`startingVar` is not -1), then we ought to throw our exception to it.
+-- But that might fail due to either...
+--
+--   (C) Our parent concurrently closing the scope and sending us a `ScopeClosing`; because it has asynchronous
+--   exceptions uninterruptibly masked and we only have asynchronous exception *synchronously* masked, its `throwTo`
+--   will return `()`, and ours will throw that `ScopeClosing` asynchronous exception. In this case, since we now know
+--   our parent is tearing down and has asynchronous exceptions masked, we again inform it via `childExceptionVar`.
+--
+--   (D) Some *other* non-`ScopeClosing` asynchronous exception is raised here. This is truly odd: maybe it's a heap
+--   overflow exception from the GHC runtime? Maybe some other thread has smuggled our `ThreadId` out and has manually
+--   thrown us an exception for some reason? Either way, because we already have an exception that we are trying to
+--   propagate, we just scoot these freaky exceptions under the rug.
+--
 -- Precondition: interruptibly masked
 propagateException :: Scope -> Int -> SomeException -> UnexceptionalIO ()
-propagateException Scope {childExceptionVar, parentThreadId} childId exception =
-  loop
+propagateException Scope {childExceptionVar, parentThreadId, startingVar} childId exception =
+  UnexceptionalIO (readTVarIO startingVar) >>= \case
+    -1 -> tryPutChildExceptionVar -- (A) / (B)
+    _ -> loop
   where
     loop :: UnexceptionalIO ()
     loop =
       unexceptionalTry (throwTo parentThreadId ThreadFailed {childId, exception}) >>= \case
-        Left IsScopeClosingException -> unexceptionalTryPutMVar_ childExceptionVar exception
-        -- while blocking on notifying the parent of this exception, we got hit by a random async exception from
-        -- elsewhere. that's weird and unexpected, but we already have an exception to deliver, so it just gets tossed
-        -- to the void...
-        Left _ -> loop
+        Left IsScopeClosingException -> tryPutChildExceptionVar -- (C)
+        Left _ -> loop -- (D)
         Right _ -> pure ()
+
+    tryPutChildExceptionVar :: UnexceptionalIO ()
+    tryPutChildExceptionVar =
+      UnexceptionalIO (void (tryPutMVar childExceptionVar exception))
+
 
 -- A little promise that this IO action cannot throw an exception.
 --
@@ -410,7 +443,3 @@ unexceptionalTryEither onFailure onSuccess action =
       catch
         (coerce @_ @(a -> IO b) onSuccess <$> action)
         (pure . coerce @_ @(SomeException -> IO b) onFailure)
-
-unexceptionalTryPutMVar_ :: MVar a -> a -> UnexceptionalIO ()
-unexceptionalTryPutMVar_ var x =
-  coerce (void (tryPutMVar var x))

@@ -1,8 +1,10 @@
 module Main (main) where
 
+import Control.Concurrent (newEmptyMVar, putMVar, takeMVar, threadDelay)
 import Control.Concurrent.STM (atomically)
 import Control.Exception
 import Control.Monad
+import GHC.IO (unsafeUnmask)
 import qualified Ki
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -97,7 +99,15 @@ main =
               mask \restore -> do
                 thread :: Ki.Thread (Either A ()) <- Ki.forkTry scope (throwIO A2)
                 restore (atomically (Ki.awaitAll scope)) `catch` \(_ :: SomeException) -> pure ()
-                atomically (Ki.await thread)
+                atomically (Ki.await thread),
+        testCase "child propagates exceptions thrown during cleanup" do
+          (`shouldThrow` A) do
+            Ki.scoped \scope -> do
+              ready <- newEmptyMVar
+              Ki.forkWith_ scope Ki.defaultThreadOptions {Ki.maskingState = MaskedInterruptible} do
+                putMVar ready ()
+                unsafeUnmask (forever (threadDelay maxBound)) `finally` throwIO A
+              takeMVar ready
       ]
 
 data A = A
