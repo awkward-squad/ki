@@ -80,8 +80,10 @@ library
   import: component
   build-depends:
     containers ^>= 0.6,
+    transformers,
   exposed-modules:
     Ki
+    Ki.Typed
   hs-source-dirs: src
   other-modules:
     Ki.Internal.ByteCount
