@@ -327,10 +327,14 @@ forkTry :: forall e a. Exception e => Scope -> IO a -> IO (Thread (Either e a))
 forkTry scope =
   forkTryWith scope defaultThreadOptions
 
+data Result a
+  = NoResultYet
+  | Result !a
+
 -- | Variant of 'Ki.forkTry' that takes an additional options argument.
 forkTryWith :: forall e a. Exception e => Scope -> ThreadOptions -> IO a -> IO (Thread (Either e a))
 forkTryWith scope opts action = do
-  resultVar <- newTVarIO Nothing
+  resultVar <- newTVarIO NoResultYet
   childThreadId <-
     spawn scope opts \childId masking -> do
       result <- unexceptionalTry (masking action)
@@ -345,15 +349,15 @@ forkTryWith scope opts action = do
                     Just _ -> isAsyncException exception
           when shouldPropagate (propagateException scope childId exception)
         Right _value -> pure ()
-      UnexceptionalIO (atomically (writeTVar resultVar (Just result)))
+      UnexceptionalIO (atomically (writeTVar resultVar (Result result)))
   let doAwait =
         readTVar resultVar >>= \case
-          Nothing -> retry
-          Just (Left exception) ->
+          NoResultYet -> retry
+          Result (Left exception) ->
             case fromException @e exception of
               Nothing -> throwSTM exception
               Just expectedException -> pure (Left expectedException)
-          Just (Right value) -> pure (Right value)
+          Result (Right value) -> pure (Right value)
   pure (makeThread childThreadId doAwait)
   where
     isAsyncException :: SomeException -> Bool
