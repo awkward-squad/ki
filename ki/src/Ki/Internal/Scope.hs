@@ -48,7 +48,8 @@ import GHC.IO (unsafeUnmask)
 import Ki.Internal.ByteCount
 import Ki.Internal.Counter
 import Ki.Internal.IO
-  ( UnexceptionalIO (..),
+  ( IOResult (..),
+    UnexceptionalIO (..),
     interruptiblyMasked,
     isAsyncException,
     unexceptionalTry,
@@ -303,24 +304,25 @@ fork_ scope =
 -- | Variant of 'Ki.fork' that takes an additional options argument.
 forkWith :: Scope -> ThreadOptions -> IO a -> IO (Thread a)
 forkWith scope opts action = do
-  resultVar <- newTVarIO Nothing
+  resultVar <- newTVarIO NoResultYet
+  let done result = UnexceptionalIO (atomically (writeTVar resultVar result))
   ident <-
     spawn scope opts \childId masking -> do
       result <- unexceptionalTry (masking action)
       case result of
-        Left exception ->
+        Failure exception -> do
           when
             (not (isScopeClosingException exception))
             (propagateException scope childId exception)
-        Right _ -> pure ()
-      -- even put async exceptions that we propagated. this isn't totally ideal because a caller awaiting this thread
-      -- would not be able to distinguish between async exceptions delivered to this thread, or itself
-      UnexceptionalIO (atomically (writeTVar resultVar (Just result)))
+          -- even put async exceptions that we propagated. this isn't totally ideal because a caller awaiting this
+          -- thread would not be able to distinguish between async exceptions delivered to this thread, or itself
+          done (BadResult exception)
+        Success value -> done (GoodResult value)
   let doAwait =
         readTVar resultVar >>= \case
-          Nothing -> retry
-          Just (Left exception) -> throwSTM exception
-          Just (Right value) -> pure value
+          NoResultYet -> retry
+          BadResult exception -> throwSTM exception
+          GoodResult value -> pure value
   pure (makeThread ident doAwait)
 
 -- | Variant of 'Ki.forkWith' for threads that never return.
@@ -344,17 +346,19 @@ forkTry scope =
 
 data Result a
   = NoResultYet
-  | Result !a
+  | BadResult !SomeException -- sync or async
+  | GoodResult a
 
 -- | Variant of 'Ki.forkTry' that takes an additional options argument.
 forkTryWith :: forall e a. Exception e => Scope -> ThreadOptions -> IO a -> IO (Thread (Either e a))
 forkTryWith scope opts action = do
   resultVar <- newTVarIO NoResultYet
+  let done result = UnexceptionalIO (atomically (writeTVar resultVar result))
   childThreadId <-
     spawn scope opts \childId masking -> do
       result <- unexceptionalTry (masking action)
       case result of
-        Left exception -> do
+        Failure exception -> do
           let shouldPropagate =
                 if isScopeClosingException exception
                   then False
@@ -363,16 +367,16 @@ forkTryWith scope opts action = do
                     -- if the user calls `forkTry @MyAsyncException`, we still want to propagate the async exception
                     Just _ -> isAsyncException exception
           when shouldPropagate (propagateException scope childId exception)
-        Right _value -> pure ()
-      UnexceptionalIO (atomically (writeTVar resultVar (Result result)))
+          done (BadResult exception)
+        Success value -> done (GoodResult value)
   let doAwait =
         readTVar resultVar >>= \case
           NoResultYet -> retry
-          Result (Left exception) ->
+          BadResult exception ->
             case fromException @e exception of
               Nothing -> throwSTM exception
               Just expectedException -> pure (Left expectedException)
-          Result (Right value) -> pure (Right value)
+          GoodResult value -> pure (Right value)
   pure (makeThread childThreadId doAwait)
 
 -- We have a non-`ScopeClosing` exception to propagate to our parent.
@@ -414,9 +418,9 @@ propagateException Scope {childExceptionVar, parentThreadId, startingVar} childI
     loop :: UnexceptionalIO ()
     loop =
       unexceptionalTry (throwTo parentThreadId ThreadFailed {childId, exception}) >>= \case
-        Left IsScopeClosingException -> tryPutChildExceptionVar -- (C)
-        Left _ -> loop -- (D)
-        Right _ -> pure ()
+        Failure IsScopeClosingException -> tryPutChildExceptionVar -- (C)
+        Failure _ -> loop -- (D)
+        Success _ -> pure ()
 
     tryPutChildExceptionVar :: UnexceptionalIO ()
     tryPutChildExceptionVar =

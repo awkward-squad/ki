@@ -5,6 +5,7 @@
 module Ki.Internal.IO
   ( -- * Unexceptional IO
     UnexceptionalIO (..),
+    IOResult (..),
     unexceptionalTry,
     unexceptionalTryEither,
 
@@ -37,9 +38,15 @@ newtype UnexceptionalIO a = UnexceptionalIO
   {runUnexceptionalIO :: IO a}
   deriving newtype (Applicative, Functor, Monad)
 
-unexceptionalTry :: forall a. IO a -> UnexceptionalIO (Either SomeException a)
-unexceptionalTry =
-  coerce @(IO a -> IO (Either SomeException a)) try
+data IOResult a
+  = Failure !SomeException -- sync or async exception
+  | Success a
+
+unexceptionalTry :: forall a. IO a -> UnexceptionalIO (IOResult a)
+unexceptionalTry action =
+  UnexceptionalIO do
+    (Success <$> action) `catch` \exception ->
+      pure (Failure exception)
 
 -- Like try, but with continuations. Also, catches all exceptions, because that's the only flavor we need.
 unexceptionalTryEither ::
