@@ -3,6 +3,7 @@ module Ki.Internal.Thread
     makeThread,
     await,
     ThreadAffinity (..),
+    forkWithAffinity,
     ThreadOptions (..),
     defaultThreadOptions,
     ThreadFailed (..),
@@ -10,6 +11,7 @@ module Ki.Internal.Thread
   )
 where
 
+import qualified Control.Concurrent
 import Control.Exception
   ( BlockedIndefinitelyOnSTM (..),
     Exception (fromException, toException),
@@ -66,6 +68,13 @@ data ThreadAffinity
   | -- | Bound to an OS thread.
     OsThread
   deriving stock (Eq, Show)
+
+-- forkIO/forkOn/forkOS, switching on affinity
+forkWithAffinity :: ThreadAffinity -> IO () -> IO ThreadId
+forkWithAffinity = \case
+  Unbound -> forkIO
+  Capability n -> forkOn n
+  OsThread -> Control.Concurrent.forkOS
 
 -- |
 --

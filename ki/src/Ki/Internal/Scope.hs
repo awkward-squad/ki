@@ -11,7 +11,6 @@ module Ki.Internal.Scope
   )
 where
 
-import qualified Control.Concurrent
 import Control.Exception
   ( Exception (fromException, toException),
     MaskingState (..),
@@ -255,13 +254,6 @@ unrecordChild childrenVar childId = do
   children <- readTVar childrenVar
   writeTVar childrenVar $! IntMap.alter (maybe (Just undefined) (const Nothing)) childId children
 
--- forkIO/forkOn/forkOS, switching on affinity
-forkWithAffinity :: ThreadAffinity -> IO () -> IO ThreadId
-forkWithAffinity = \case
-  Unbound -> forkIO
-  Capability n -> forkOn n
-  OsThread -> Control.Concurrent.forkOS
-
 -- | Wait until all threads created within a scope terminate.
 awaitAll :: Scope -> STM ()
 awaitAll Scope {childrenVar, startingVar} = do
@@ -416,7 +408,6 @@ propagateException Scope {childExceptionVar, parentThreadId, startingVar} childI
     tryPutChildExceptionVar :: UnexceptionalIO ()
     tryPutChildExceptionVar =
       UnexceptionalIO (void (tryPutMVar childExceptionVar exception))
-
 
 -- A little promise that this IO action cannot throw an exception.
 --
