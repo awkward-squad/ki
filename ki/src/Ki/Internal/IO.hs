@@ -20,7 +20,6 @@ module Ki.Internal.IO
   )
 where
 
-import Control.Concurrent hiding (forkIO, forkOn)
 import Control.Exception
 import Control.Monad (join)
 import Data.Coerce (coerce)

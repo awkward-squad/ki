@@ -11,14 +11,24 @@ module Ki.Internal.Scope
   )
 where
 
+import Control.Concurrent (ThreadId, myThreadId, throwTo)
+import Control.Concurrent.MVar (MVar, newEmptyMVar, tryPutMVar, tryTakeMVar)
 import Control.Exception
   ( Exception (fromException, toException),
     MaskingState (..),
+    SomeException,
     asyncExceptionFromException,
     asyncExceptionToException,
+    throwIO,
+    try,
+    uninterruptibleMask,
     pattern ErrorCall,
   )
-import qualified Data.IntMap.Lazy as IntMap
+import Control.Monad (when)
+import Data.Foldable (for_)
+import Data.Functor (void)
+import Data.IntMap (IntMap)
+import qualified Data.IntMap.Lazy as IntMap.Lazy
 import Data.Void (Void, absurd)
 import GHC.Conc
   ( STM,
@@ -45,7 +55,6 @@ import Ki.Internal.IO
     unexceptionalTryEither,
     uninterruptiblyMasked,
   )
-import Ki.Internal.Prelude
 import Ki.Internal.Thread
 
 -- | A scope.
@@ -142,14 +151,14 @@ scoped action = do
       -- If one of our children propagated an exception to us, then we know it's about to terminate, so we don't bother
       -- throwing an exception to it.
       pure case result of
-        Left (fromException -> Just ThreadFailed {childId}) -> IntMap.delete childId livingChildren0
+        Left (fromException -> Just ThreadFailed {childId}) -> IntMap.Lazy.delete childId livingChildren0
         _ -> livingChildren0
 
     -- Deliver a ScopeClosing exception to every living child.
     --
     -- This happens to throw in the order the children were created... but I think we decided this feature isn't very
     -- useful in practice, so maybe we should simplify the internals and just keep a set of children?
-    for_ (IntMap.elems livingChildren) \livingChild -> throwTo livingChild ScopeClosing
+    for_ (IntMap.Lazy.elems livingChildren) \livingChild -> throwTo livingChild ScopeClosing
 
     -- Block until all children have terminated; this relies on children respecting the async exception, which they
     -- must, for correctness. Otherwise, a thread could indeed outlive the scope in which it's created, which is
@@ -179,7 +188,7 @@ scoped action = do
 allocateScope :: IO Scope
 allocateScope = do
   childExceptionVar <- newEmptyMVar
-  childrenVar <- newTVarIO IntMap.empty
+  childrenVar <- newTVarIO IntMap.Lazy.empty
   nextChildIdCounter <- newCounter
   parentThreadId <- myThreadId
   startingVar <- newTVarIO 0
@@ -247,7 +256,7 @@ spawn
 recordChild :: TVar (IntMap ThreadId) -> Tid -> ThreadId -> STM ()
 recordChild childrenVar childId childThreadId = do
   children <- readTVar childrenVar
-  writeTVar childrenVar $! IntMap.alter (maybe (Just childThreadId) (const Nothing)) childId children
+  writeTVar childrenVar $! IntMap.Lazy.alter (maybe (Just childThreadId) (const Nothing)) childId children
 
 -- Unrecord a child (ourselves) by either:
 --
@@ -258,7 +267,7 @@ recordChild childrenVar childId childThreadId = do
 unrecordChild :: TVar (IntMap ThreadId) -> Tid -> STM ()
 unrecordChild childrenVar childId = do
   children <- readTVar childrenVar
-  writeTVar childrenVar $! IntMap.alter (maybe (Just undefined) (const Nothing)) childId children
+  writeTVar childrenVar $! IntMap.Lazy.alter (maybe (Just undefined) (const Nothing)) childId children
 
 -- | Wait until all threads created within a scope terminate.
 awaitAll :: Scope -> STM ()
@@ -270,7 +279,7 @@ awaitAll Scope {childrenVar, startingVar} = do
 blockUntilEmpty :: TVar (IntMap a) -> STM ()
 blockUntilEmpty var = do
   x <- readTVar var
-  if IntMap.null x then pure () else retry
+  if IntMap.Lazy.null x then pure () else retry
 
 -- Block until a TVar becomes 0.
 blockUntil0 :: TVar Int -> STM ()

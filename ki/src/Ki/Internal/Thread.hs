@@ -12,18 +12,18 @@ module Ki.Internal.Thread
   )
 where
 
-import qualified Control.Concurrent
+import Control.Concurrent (ThreadId, forkOS)
 import Control.Exception
   ( BlockedIndefinitelyOnSTM (..),
     Exception (fromException, toException),
     MaskingState (..),
+    SomeException,
     asyncExceptionFromException,
     asyncExceptionToException,
   )
 import GHC.Conc (STM)
 import Ki.Internal.ByteCount
 import Ki.Internal.IO (forkIO, forkOn, tryEitherSTM)
-import Ki.Internal.Prelude
 
 -- | A thread.
 --

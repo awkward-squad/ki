@@ -29,7 +29,6 @@ where
 
 import Data.Bits
 import GHC.Base
-import Ki.Internal.Prelude
 
 -- | A thread-safe counter implemented with atomic fetch-and-add.
 data Counter

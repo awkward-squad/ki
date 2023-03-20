@@ -6,7 +6,9 @@ module Ki.Internal.ByteCount
   )
 where
 
-import Ki.Internal.Prelude
+import Data.Coerce (coerce)
+import Data.Int (Int64)
+import Numeric.Natural (Natural)
 
 -- | A number of bytes.
 newtype ByteCount = ByteCount Int64
