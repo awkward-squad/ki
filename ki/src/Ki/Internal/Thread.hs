@@ -20,8 +20,9 @@ import Control.Exception
     asyncExceptionFromException,
     asyncExceptionToException,
   )
-import GHC.Conc (STM, catchSTM)
+import GHC.Conc (STM)
 import Ki.Internal.ByteCount
+import Ki.Internal.IO (forkIO, forkOn, tryEitherSTM)
 import Ki.Internal.Prelude
 
 -- | A thread.
@@ -61,8 +62,8 @@ makeThread threadId action =
     }
 
 -- A unique identifier for a thread within a scope. (Internal type alias)
-type Tid
-  = Int
+type Tid =
+  Int
 
 -- | What, if anything, a thread is bound to.
 data ThreadAffinity
@@ -148,6 +149,7 @@ instance Exception ThreadFailed where
   toException = asyncExceptionToException
   fromException = asyncExceptionFromException
 
+-- Peel an outer ThreadFailed layer off of some exception, if there is one.
 unwrapThreadFailed :: SomeException -> SomeException
 unwrapThreadFailed e0 =
   case fromException e0 of
@@ -158,8 +160,3 @@ unwrapThreadFailed e0 =
 await :: Thread a -> STM a
 await =
   await_
-
--- Like try, but with continuations
-tryEitherSTM :: Exception e => (e -> STM b) -> (a -> STM b) -> STM a -> STM b
-tryEitherSTM onFailure onSuccess action =
-  join (catchSTM (onSuccess <$> action) (pure . onFailure))

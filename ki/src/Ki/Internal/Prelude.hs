@@ -1,12 +1,5 @@
-{-# LANGUAGE MagicHash #-}
-{-# LANGUAGE UnboxedTuples #-}
-
 module Ki.Internal.Prelude
-  ( forkIO,
-    forkOn,
-    interruptiblyMasked,
-    uninterruptiblyMasked,
-    module X,
+  ( module X,
   )
 where
 
@@ -29,34 +22,6 @@ import Data.Maybe as X (fromMaybe)
 import Data.Sequence as X (Seq)
 import Data.Set as X (Set)
 import Data.Word as X (Word32)
-import GHC.Base (maskAsyncExceptions#, maskUninterruptible#)
-import GHC.Conc (ThreadId (ThreadId))
-import GHC.Exts (Int (I#), fork#, forkOn#)
 import GHC.Generics as X (Generic)
-import GHC.IO (IO (IO))
 import Numeric.Natural as X (Natural)
 import Prelude as X
-
--- | Call an action with asynchronous exceptions interruptibly masked.
-interruptiblyMasked :: IO a -> IO a
-interruptiblyMasked (IO io) =
-  IO (maskAsyncExceptions# io)
-
--- | Call an action with asynchronous exceptions uninterruptibly masked.
-uninterruptiblyMasked :: IO a -> IO a
-uninterruptiblyMasked (IO io) =
-  IO (maskUninterruptible# io)
-
--- Control.Concurrent.forkIO without the dumb exception handler
-forkIO :: IO () -> IO ThreadId
-forkIO (IO action) =
-  IO \s0 ->
-    case fork# action s0 of
-      (# s1, tid #) -> (# s1, ThreadId tid #)
-
--- Control.Concurrent.forkOn without the dumb exception handler
-forkOn :: Int -> IO () -> IO ThreadId
-forkOn (I# cap) (IO action) =
-  IO \s0 ->
-    case forkOn# cap action s0 of
-      (# s1, tid #) -> (# s1, ThreadId tid #)

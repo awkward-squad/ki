@@ -14,10 +14,8 @@ where
 import Control.Exception
   ( Exception (fromException, toException),
     MaskingState (..),
-    SomeAsyncException,
     asyncExceptionFromException,
     asyncExceptionToException,
-    catch,
     pattern ErrorCall,
   )
 import qualified Data.IntMap.Lazy as IntMap
@@ -35,12 +33,20 @@ import GHC.Conc
     throwSTM,
     writeTVar,
   )
+import GHC.Conc.Sync (readTVarIO)
 import GHC.IO (unsafeUnmask)
 import Ki.Internal.ByteCount
 import Ki.Internal.Counter
+import Ki.Internal.IO
+  ( UnexceptionalIO (..),
+    interruptiblyMasked,
+    isAsyncException,
+    unexceptionalTry,
+    unexceptionalTryEither,
+    uninterruptiblyMasked,
+  )
 import Ki.Internal.Prelude
 import Ki.Internal.Thread
-import GHC.Conc.Sync (readTVarIO)
 
 -- | A scope.
 --
@@ -359,12 +365,6 @@ forkTryWith scope opts action = do
               Just expectedException -> pure (Left expectedException)
           Result (Right value) -> pure (Right value)
   pure (makeThread childThreadId doAwait)
-  where
-    isAsyncException :: SomeException -> Bool
-    isAsyncException exception =
-      case fromException @SomeAsyncException exception of
-        Nothing -> False
-        Just _ -> True
 
 -- We have a non-`ScopeClosing` exception to propagate to our parent.
 --
@@ -412,29 +412,3 @@ propagateException Scope {childExceptionVar, parentThreadId, startingVar} childI
     tryPutChildExceptionVar :: UnexceptionalIO ()
     tryPutChildExceptionVar =
       UnexceptionalIO (void (tryPutMVar childExceptionVar exception))
-
--- A little promise that this IO action cannot throw an exception.
---
--- Yeah it's verbose, and maybe not that necessary, but the code that bothers to use it really does require
--- un-exceptiony IO actions for correctness, so here we are.
-newtype UnexceptionalIO a = UnexceptionalIO
-  {runUnexceptionalIO :: IO a}
-  deriving newtype (Applicative, Functor, Monad)
-
-unexceptionalTry :: forall a. IO a -> UnexceptionalIO (Either SomeException a)
-unexceptionalTry =
-  coerce @(IO a -> IO (Either SomeException a)) try
-
--- Like try, but with continuations. Also, catches all exceptions, because that's the only flavor we need.
-unexceptionalTryEither ::
-  forall a b.
-  (SomeException -> UnexceptionalIO b) ->
-  (a -> UnexceptionalIO b) ->
-  IO a ->
-  UnexceptionalIO b
-unexceptionalTryEither onFailure onSuccess action =
-  UnexceptionalIO do
-    join do
-      catch
-        (coerce @_ @(a -> IO b) onSuccess <$> action)
-        (pure . coerce @_ @(SomeException -> IO b) onFailure)

@@ -88,6 +88,7 @@ library
   other-modules:
     Ki.Internal.ByteCount
     Ki.Internal.Counter
+    Ki.Internal.IO
     Ki.Internal.Prelude
     Ki.Internal.Scope
     Ki.Internal.Thread
