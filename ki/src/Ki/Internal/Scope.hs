@@ -181,7 +181,7 @@ allocateScope = do
 
 -- Spawn a thread in a scope, providing it its child id and a function that sets the masking state to the requested
 -- masking state. The given action is called with async exceptions interruptibly masked.
-spawn :: Scope -> ThreadOptions -> (Int -> (forall x. IO x -> IO x) -> UnexceptionalIO ()) -> IO ThreadId
+spawn :: Scope -> ThreadOptions -> (Tid -> (forall x. IO x -> IO x) -> UnexceptionalIO ()) -> IO ThreadId
 spawn
   Scope {childrenVar, nextChildIdCounter, startingVar}
   ThreadOptions {affinity, allocationLimit, label, maskingState = requestedChildMaskingState}
@@ -238,7 +238,7 @@ spawn
 --   * Flipping `Just _` to `Nothing` (uncommon case: we observe that a child already unrecorded itself)
 --
 -- Never retries.
-recordChild :: TVar (IntMap ThreadId) -> Int -> ThreadId -> STM ()
+recordChild :: TVar (IntMap ThreadId) -> Tid -> ThreadId -> STM ()
 recordChild childrenVar childId childThreadId = do
   children <- readTVar childrenVar
   writeTVar childrenVar $! IntMap.alter (maybe (Just childThreadId) (const Nothing)) childId children
@@ -249,7 +249,7 @@ recordChild childrenVar childId childThreadId = do
 --   * Flipping `Nothing` to `Just undefined` (uncommon case: we terminate and unrecord before parent can record us).
 --
 -- Never retries.
-unrecordChild :: TVar (IntMap ThreadId) -> Int -> STM ()
+unrecordChild :: TVar (IntMap ThreadId) -> Tid -> STM ()
 unrecordChild childrenVar childId = do
   children <- readTVar childrenVar
   writeTVar childrenVar $! IntMap.alter (maybe (Just undefined) (const Nothing)) childId children
@@ -392,7 +392,7 @@ forkTryWith scope opts action = do
 --   propagate, we just scoot these freaky exceptions under the rug.
 --
 -- Precondition: interruptibly masked
-propagateException :: Scope -> Int -> SomeException -> UnexceptionalIO ()
+propagateException :: Scope -> Tid -> SomeException -> UnexceptionalIO ()
 propagateException Scope {childExceptionVar, parentThreadId, startingVar} childId exception =
   UnexceptionalIO (readTVarIO startingVar) >>= \case
     -1 -> tryPutChildExceptionVar -- (A) / (B)

@@ -2,6 +2,7 @@ module Ki.Internal.Thread
   ( Thread,
     makeThread,
     await,
+    Tid,
     ThreadAffinity (..),
     forkWithAffinity,
     ThreadOptions (..),
@@ -58,6 +59,10 @@ makeThread threadId action =
       -- cover this use case and prevent any accidental infinite loops.
       await_ = tryEitherSTM (\BlockedIndefinitelyOnSTM -> action) pure action
     }
+
+-- A unique identifier for a thread within a scope. (Internal type alias)
+type Tid
+  = Int
 
 -- | What, if anything, a thread is bound to.
 data ThreadAffinity
@@ -134,7 +139,7 @@ defaultThreadOptions =
 
 -- Internal exception type thrown by a child thread to its parent, if it fails unexpectedly.
 data ThreadFailed = ThreadFailed
-  { childId :: {-# UNPACK #-} !Int,
+  { childId :: {-# UNPACK #-} !Tid,
     exception :: !SomeException
   }
   deriving stock (Show)
