@@ -17,6 +17,7 @@ import Control.Exception
   ( Exception (fromException, toException),
     MaskingState (..),
     SomeException,
+    assert,
     asyncExceptionFromException,
     asyncExceptionToException,
     throwIO,
@@ -90,7 +91,8 @@ data Scope = Scope
     -- can continue to delay; there's no opportunity for an async exception to strike and prevent one of these threads
     -- from starting.
     --
-    -- Sentinel value: -1 means the scope is closed.
+    -- Sentinel value: -1 means the scope is closing.
+    -- Sentinel value: -2 means the scope is closed.
     startingVar :: {-# UNPACK #-} !(TVar Int)
   }
 
@@ -142,8 +144,9 @@ scoped action = do
           -- Block until we haven't committed to starting any threads. Without this, we may create a thread concurrently
           -- with closing its scope, and not grab its thread id to throw an exception to.
           blockUntil0 startingVar
-          -- Write the sentinel value indicating that this scope is closed, and it is an error to try to create a thread
-          -- within it.
+          -- Write the sentinel value indicating that this scope is closing, so attempts to create a new thread within
+          -- it will throw ScopeClosing (as if the calling thread was a parent of this scope, which it should be, and
+          -- we threw it a ScopeClosing ourselves).
           writeTVar startingVar (-1)
           -- Return the list of currently-running children to kill. Some of them may have *just* started (e.g. if we
           -- initially retried in `blockUntil0` above). That's fine - kill them all!
@@ -161,10 +164,13 @@ scoped action = do
     -- useful in practice, so maybe we should simplify the internals and just keep a set of children?
     for_ (IntMap.Lazy.elems livingChildren) \livingChild -> throwTo livingChild ScopeClosing
 
-    -- Block until all children have terminated; this relies on children respecting the async exception, which they
-    -- must, for correctness. Otherwise, a thread could indeed outlive the scope in which it's created, which is
-    -- definitely not structured concurrency!
-    atomically (blockUntilEmpty childrenVar)
+    atomically do
+      -- Block until all children have terminated; this relies on children respecting the async exception, which they
+      -- must, for correctness. Otherwise, a thread could indeed outlive the scope in which it's created, which is
+      -- definitely not structured concurrency!
+      blockUntilEmpty childrenVar
+      -- Record the scope as closed, so subsequent attempts to use it will throw a runtime exception
+      writeTVar startingVar (-2)
 
     -- By now there are three sources of exception:
     --
@@ -210,9 +216,11 @@ spawn
       -- Record the thread as being about to start. Not allowed to retry.
       atomically do
         n <- readTVar startingVar
-        if n < 0
-          then throwSTM (ErrorCall "ki: scope closed")
-          else writeTVar startingVar $! n + 1
+        assert (n >= -2) do
+          if
+              | n >= 0 -> writeTVar startingVar $! n + 1
+              | n == -1 -> throwSTM ScopeClosing
+              | otherwise -> throwSTM (ErrorCall "ki: scope closed")
 
       childId <- incrCounter nextChildIdCounter
 

@@ -1,3 +1,9 @@
+## Unreleased
+
+- Change [#25](https://github.com/awkward-squad/ki/pull/20): Attempting to fork a thread in a closing scope now acts as
+  if it were a child being terminated due to the scope closing. Previously, attempting to fork a thread in a closing
+  scope would throw a runtime exception like `error "ki: scope closed"`.
+
 ## [1.0.0.2] - 2023-01-25
 
 - Bugfix [#20](https://github.com/awkward-squad/ki/pull/20): previously, a child thread could deadlock when attempting
