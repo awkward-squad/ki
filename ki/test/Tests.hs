@@ -19,6 +19,17 @@ main =
           scope <- Ki.scoped pure
           (atomically . Ki.await =<< Ki.fork scope (pure ())) `shouldThrow` ErrorCall "ki: scope closed"
           pure (),
+        testCase "`fork` throws ScopeClosing when the scope is closing" do
+          Ki.scoped \scope -> do
+            _ <-
+              Ki.forkWith scope Ki.defaultThreadOptions {Ki.maskingState = MaskedInterruptible} do
+                -- Naughty: catch and ignore the ScopeClosing delivered to us
+                result1 <- try @SomeException (threadDelay maxBound)
+                show result1 `shouldBe` "Left ScopeClosing"
+                -- Try forking a new thread in the closing scope, and assert that (synchronously) throws ScopeClosing
+                result2 <- try @SomeException (Ki.fork_ scope undefined)
+                show result2 `shouldBe` "Left ScopeClosing"
+            pure (),
         testCase "`awaitAll` succeeds when no threads are alive" do
           Ki.scoped (atomically . Ki.awaitAll),
         testCase "`fork` propagates exceptions" do
@@ -125,10 +136,14 @@ instance Exception B where
   toException = asyncExceptionToException
   fromException = asyncExceptionFromException
 
+shouldBe :: (Eq a, Show a) => a -> a -> IO ()
+shouldBe actual expected = do
+  unless (actual == expected) (fail ("expected " ++ show expected ++ ", got " ++ show actual))
+
 shouldReturn :: (Eq a, Show a) => IO a -> a -> IO ()
 shouldReturn action expected = do
   actual <- action
-  unless (actual == expected) (fail ("expected " ++ show expected ++ ", got " ++ show actual))
+  actual `shouldBe` expected
 
 shouldThrow :: (Show a, Eq e, Exception e) => IO a -> e -> IO ()
 shouldThrow action expected =
