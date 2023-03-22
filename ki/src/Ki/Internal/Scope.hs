@@ -87,14 +87,28 @@ data Scope = Scope
     nextChildIdCounter :: {-# UNPACK #-} !Counter,
     -- The id of the thread that created the scope, which is considered the parent of all threads created within it.
     parentThreadId :: {-# UNPACK #-} !ThreadId,
-    -- The number of child threads that are guaranteed to be about to start, in the sense that only the GHC scheduler
-    -- can continue to delay; there's no opportunity for an async exception to strike and prevent one of these threads
-    -- from starting.
-    --
-    -- Sentinel value: -1 means the scope is closing.
-    -- Sentinel value: -2 means the scope is closed.
-    startingVar :: {-# UNPACK #-} !(TVar Int)
+    statusVar :: {-# UNPACK #-} !(TVar ScopeStatus)
   }
+
+-- The scope status: either open (allowing new threads to be created), closing (disallowing new threads to be
+-- created, and in the process of killing living children), or closed (at the very end of `scoped`)
+type ScopeStatus = Int
+
+-- The number of child threads that are guaranteed to be about to start, in the sense that only the GHC scheduler
+-- can continue to delay; there's no opportunity for an async exception to strike and prevent one of these threads
+-- from starting.
+pattern Open :: Int
+pattern Open <- ((>= 0) -> True)
+
+-- The scope is closing.
+pattern Closing :: Int
+pattern Closing = -1
+
+-- The scope is closed.
+pattern Closed :: Int
+pattern Closed = -2
+
+{-# COMPLETE Open, Closing, Closed #-}
 
 -- Internal async exception thrown by a parent thread to its children when the scope is closing.
 data ScopeClosing
@@ -133,7 +147,7 @@ pattern IsScopeClosingException <- (isScopeClosingException -> True)
 --     * The parent thread blocks until those threads terminate.
 scoped :: (Scope -> IO a) -> IO a
 scoped action = do
-  scope@Scope {childExceptionVar, childrenVar, startingVar} <- allocateScope
+  scope@Scope {childExceptionVar, childrenVar, statusVar} <- allocateScope
 
   uninterruptibleMask \restore -> do
     result <- try (restore (action scope))
@@ -143,11 +157,11 @@ scoped action = do
         atomically do
           -- Block until we haven't committed to starting any threads. Without this, we may create a thread concurrently
           -- with closing its scope, and not grab its thread id to throw an exception to.
-          blockUntil0 startingVar
-          -- Write the sentinel value indicating that this scope is closing, so attempts to create a new thread within
-          -- it will throw ScopeClosing (as if the calling thread was a parent of this scope, which it should be, and
-          -- we threw it a ScopeClosing ourselves).
-          writeTVar startingVar (-1)
+          blockUntil0 statusVar
+          -- Indicate that this scope is closing, so attempts to create a new thread within it will throw ScopeClosing
+          -- (as if the calling thread was a parent of this scope, which it should be, and we threw it a ScopeClosing
+          -- ourselves).
+          writeTVar statusVar Closing
           -- Return the list of currently-running children to kill. Some of them may have *just* started (e.g. if we
           -- initially retried in `blockUntil0` above). That's fine - kill them all!
           readTVar childrenVar
@@ -170,7 +184,7 @@ scoped action = do
       -- definitely not structured concurrency!
       blockUntilEmpty childrenVar
       -- Record the scope as closed, so subsequent attempts to use it will throw a runtime exception
-      writeTVar startingVar (-2)
+      writeTVar statusVar Closed
 
     -- By now there are three sources of exception:
     --
@@ -198,14 +212,14 @@ allocateScope = do
   childrenVar <- newTVarIO IntMap.Lazy.empty
   nextChildIdCounter <- newCounter
   parentThreadId <- myThreadId
-  startingVar <- newTVarIO 0
-  pure Scope {childExceptionVar, childrenVar, nextChildIdCounter, parentThreadId, startingVar}
+  statusVar <- newTVarIO 0
+  pure Scope {childExceptionVar, childrenVar, nextChildIdCounter, parentThreadId, statusVar}
 
 -- Spawn a thread in a scope, providing it its child id and a function that sets the masking state to the requested
 -- masking state. The given action is called with async exceptions interruptibly masked.
 spawn :: Scope -> ThreadOptions -> (Tid -> (forall x. IO x -> IO x) -> UnexceptionalIO ()) -> IO ThreadId
 spawn
-  Scope {childrenVar, nextChildIdCounter, startingVar}
+  Scope {childrenVar, nextChildIdCounter, statusVar}
   ThreadOptions {affinity, allocationLimit, label, maskingState = requestedChildMaskingState}
   action = do
     -- Interruptible mask is enough so long as none of the STM operations below block.
@@ -215,12 +229,12 @@ spawn
     interruptiblyMasked do
       -- Record the thread as being about to start. Not allowed to retry.
       atomically do
-        n <- readTVar startingVar
+        n <- readTVar statusVar
         assert (n >= -2) do
-          if
-              | n >= 0 -> writeTVar startingVar $! n + 1
-              | n == -1 -> throwSTM ScopeClosing
-              | otherwise -> throwSTM (ErrorCall "ki: scope closed")
+          case n of
+            Open -> writeTVar statusVar $! n + 1
+            Closing -> throwSTM ScopeClosing
+            Closed -> throwSTM (ErrorCall "ki: scope closed")
 
       childId <- incrCounter nextChildIdCounter
 
@@ -250,8 +264,8 @@ spawn
 
       -- Record the child as having started. Not allowed to retry.
       atomically do
-        n <- readTVar startingVar
-        writeTVar startingVar $! n - 1 -- it's actually ok to go from e.g. -1 to -2 here (very unlikely)
+        n <- readTVar statusVar
+        writeTVar statusVar $! n - 1
         recordChild childrenVar childId childThreadId
 
       pure childThreadId
@@ -280,9 +294,9 @@ unrecordChild childrenVar childId = do
 
 -- | Wait until all threads created within a scope terminate.
 awaitAll :: Scope -> STM ()
-awaitAll Scope {childrenVar, startingVar} = do
+awaitAll Scope {childrenVar, statusVar} = do
   blockUntilEmpty childrenVar
-  blockUntil0 startingVar
+  blockUntil0 statusVar
 
 -- Block until an IntMap becomes empty.
 blockUntilEmpty :: TVar (IntMap a) -> STM ()
@@ -389,22 +403,22 @@ forkTryWith scope opts action = do
 
 -- We have a non-`ScopeClosing` exception to propagate to our parent.
 --
--- If our scope has already begun closing (`startingVar` is -1), then either...
+-- If our scope has already begun closing (`statusVar` is Closing), then either...
 --
 --   (A) We already received a `ScopeClosing`, but then ended up trying to propagate an exception anyway, because we
 --   threw a synchronous exception (or were hit by a different asynchronous exception) during our teardown procedure.
 --
 --   or
 --
---   (B) We will receive a `ScopeClosing` imminently, because our parent has *just* finished setting `startingVar` to
---   -1, and will proceed to throw ScopeClosing to all of its children.
+--   (B) We will receive a `ScopeClosing` imminently, because our parent has *just* finished setting `statusVar` to
+--   Closing, and will proceed to throw ScopeClosing to all of its children.
 --
 -- If (A), our parent has asynchronous exceptions masked, so we must inform it of our exception via `childExceptionVar`
 -- rather than throwTo. If (B), either mechanism would work. And because we don't if we're in case (A) or (B), we just
 -- `childExceptionVar`.
 --
--- And if our scope has not already begun closing (`startingVar` is not -1), then we ought to throw our exception to it.
--- But that might fail due to either...
+-- And if our scope has not already begun closing (`statusVar` is not Closing), then we ought to throw our exception to
+-- it. But that might fail due to either...
 --
 --   (C) Our parent concurrently closing the scope and sending us a `ScopeClosing`; because it has asynchronous
 --   exceptions uninterruptibly masked and we only have asynchronous exception *synchronously* masked, its `throwTo`
@@ -418,10 +432,10 @@ forkTryWith scope opts action = do
 --
 -- Precondition: interruptibly masked
 propagateException :: Scope -> Tid -> SomeException -> UnexceptionalIO ()
-propagateException Scope {childExceptionVar, parentThreadId, startingVar} childId exception =
-  UnexceptionalIO (readTVarIO startingVar) >>= \case
-    -1 -> tryPutChildExceptionVar -- (A) / (B)
-    _ -> loop
+propagateException Scope {childExceptionVar, parentThreadId, statusVar} childId exception =
+  UnexceptionalIO (readTVarIO statusVar) >>= \case
+    Closing -> tryPutChildExceptionVar -- (A) / (B)
+    _ -> loop -- we know status is Open here
   where
     loop :: UnexceptionalIO ()
     loop =

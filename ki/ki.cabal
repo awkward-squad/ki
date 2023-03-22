@@ -51,7 +51,6 @@ common component
     GeneralizedNewtypeDeriving
     InstanceSigs
     LambdaCase
-    MultiWayIf
     NamedFieldPuns
     NumericUnderscores
     PartialTypeSignatures
