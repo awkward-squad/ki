@@ -25,7 +25,7 @@ import Control.Exception
     uninterruptibleMask,
     pattern ErrorCall,
   )
-import Control.Monad (when)
+import Control.Monad (when, guard)
 import Data.Foldable (for_)
 import Data.Functor (void)
 import Data.IntMap (IntMap)
@@ -157,13 +157,14 @@ scoped action = do
         atomically do
           -- Block until we haven't committed to starting any threads. Without this, we may create a thread concurrently
           -- with closing its scope, and not grab its thread id to throw an exception to.
-          blockUntil0 statusVar
+          n <- readTVar statusVar
+          assert (n >= 0) (guard (n == 0))
           -- Indicate that this scope is closing, so attempts to create a new thread within it will throw ScopeClosing
           -- (as if the calling thread was a parent of this scope, which it should be, and we threw it a ScopeClosing
           -- ourselves).
           writeTVar statusVar Closing
           -- Return the list of currently-running children to kill. Some of them may have *just* started (e.g. if we
-          -- initially retried in `blockUntil0` above). That's fine - kill them all!
+          -- initially retried in `guard (n == 0)` above). That's fine - kill them all!
           readTVar childrenVar
 
       -- If one of our children propagated an exception to us, then we know it's about to terminate, so we don't bother
@@ -296,19 +297,17 @@ unrecordChild childrenVar childId = do
 awaitAll :: Scope -> STM ()
 awaitAll Scope {childrenVar, statusVar} = do
   blockUntilEmpty childrenVar
-  blockUntil0 statusVar
+  n <- readTVar statusVar
+  case n of
+    Open -> guard (n == 0)
+    Closing -> retry -- block until closed
+    Closed -> pure ()
 
 -- Block until an IntMap becomes empty.
 blockUntilEmpty :: TVar (IntMap a) -> STM ()
 blockUntilEmpty var = do
   x <- readTVar var
   if IntMap.Lazy.null x then pure () else retry
-
--- Block until a TVar becomes 0.
-blockUntil0 :: TVar Int -> STM ()
-blockUntil0 var = do
-  x <- readTVar var
-  if x == 0 then pure () else retry
 
 -- | Create a child thread to execute an action within a scope.
 --
