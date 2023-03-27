@@ -58,6 +58,7 @@ import Ki.Internal.IO
     uninterruptiblyMasked,
   )
 import Ki.Internal.Thread
+import Data.Maybe (isJust)
 
 -- | A scope.
 --
@@ -126,9 +127,7 @@ instance Exception ScopeClosing where
 -- throw it to some other thread)... but who would do that?
 isScopeClosingException :: SomeException -> Bool
 isScopeClosingException exception =
-  case fromException exception of
-    Just ScopeClosing -> True
-    _ -> False
+  isJust (fromException @ScopeClosing exception)
 
 pattern IsScopeClosingException :: SomeException
 pattern IsScopeClosingException <- (isScopeClosingException -> True)
@@ -184,7 +183,7 @@ scoped action = do
       -- must, for correctness. Otherwise, a thread could indeed outlive the scope in which it's created, which is
       -- definitely not structured concurrency!
       blockUntilEmpty childrenVar
-      -- Record the scope as closed, so subsequent attempts to use it will throw a runtime exception
+      -- Record the scope as closed (from closing), so subsequent attempts to use it will throw a runtime exception
       writeTVar statusVar Closed
 
     -- By now there are three sources of exception:
@@ -307,7 +306,7 @@ awaitAll Scope {childrenVar, statusVar} = do
 blockUntilEmpty :: TVar (IntMap a) -> STM ()
 blockUntilEmpty var = do
   x <- readTVar var
-  if IntMap.Lazy.null x then pure () else retry
+  guard (IntMap.Lazy.null x)
 
 -- | Create a child thread to execute an action within a scope.
 --

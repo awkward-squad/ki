@@ -1,6 +1,6 @@
 ## Unreleased
 
-- Change [#25](https://github.com/awkward-squad/ki/pull/20): Attempting to fork a thread in a closing scope now acts as
+- Change [#25](https://github.com/awkward-squad/ki/pull/25): Attempting to fork a thread in a closing scope now acts as
   if it were a child being terminated due to the scope closing. Previously, attempting to fork a thread in a closing
   scope would throw a runtime exception like `error "ki: scope closed"`.
 - Change [#27](https://github.com/awkward-squad/ki/pull/27): Calling `awaitAll` on a closed scope now returns `()`
