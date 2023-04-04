@@ -1,4 +1,4 @@
-## Unreleased
+## [1.0.1.0] - 2023-04-03
 
 - Change [#25](https://github.com/awkward-squad/ki/pull/25): Attempting to fork a thread in a closing scope now acts as
   if it were a child being terminated due to the scope closing. Previously, attempting to fork a thread in a closing
