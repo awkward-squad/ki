@@ -13,6 +13,7 @@ stability: experimental
 synopsis: A lightweight structured concurrency library
 tested-with: GHC == 9.0.2, GHC == 9.2.5, GHC == 9.4.4
 version: 1.0.1.0
+x-revision: 1
 
 description:
   A lightweight structured concurrency library.
@@ -79,7 +80,7 @@ common component
 library
   import: component
   build-depends:
-    containers ^>= 0.6,
+    containers ^>= 0.6 || ^>= 0.7,
   exposed-modules:
     Ki
   hs-source-dirs: src
@@ -95,7 +96,7 @@ test-suite tests
   build-depends:
     ki,
     stm ^>= 2.5,
-    tasty ^>= 1.4.2,
+    tasty ^>= 1.4.2 || ^>= 1.5,
     tasty-hunit ^>= 0.10,
   ghc-options: -rtsopts -threaded
   hs-source-dirs: test
