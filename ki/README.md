@@ -1,6 +1,6 @@
 | `ki` | `ki-unlifted` |
 | --- | --- |
-| [![GitHub CI](https://github.com/awkward-squad/ki/workflows/CI/badge.svg)](https://github.com/awkward-squad/ki/actions) | |
+| [![GitHub CI](https://github.com/awkward-squad/ki/workflows/Haskell-CI/badge.svg)](https://github.com/awkward-squad/ki/actions) | |
 | [![Hackage](https://img.shields.io/hackage/v/ki.svg?label=ki&logo=haskell)](https://hackage.haskell.org/package/ki) | [![Hackage](https://img.shields.io/hackage/v/ki-unlifted.svg?label=ki-unlifted&logo=haskell)](https://hackage.haskell.org/package/ki-unlifted) |
 | [![Stackage LTS](https://stackage.org/package/ki/badge/lts)](https://www.stackage.org/lts/package/ki) | [![Stackage LTS](https://stackage.org/package/ki-unlifted/badge/lts)](https://www.stackage.org/lts/package/ki-unlifted) |
 | [![Stackage Nightly](https://stackage.org/package/ki/badge/nightly)](https://www.stackage.org/nightly/package/ki) | [![Stackage Nightly](https://stackage.org/package/ki-unlifted/badge/nightly)](https://www.stackage.org/nightly/package/ki-unlifted) |
