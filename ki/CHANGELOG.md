@@ -1,3 +1,7 @@
+## [1.0.1.1] - 2023-10-10
+
+- Compat: support GHC 9.8.1
+
 ## [1.0.1.0] - 2023-04-03
 
 - Change [#25](https://github.com/awkward-squad/ki/pull/25): Attempting to fork a thread in a closing scope now acts as

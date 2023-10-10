@@ -9,14 +9,13 @@ license: BSD-3-Clause
 license-file: LICENSE
 maintainer: Mitchell Rosen <mitchellwrosen@gmail.com>, Travis Staton <hello@travisstaton.com>
 name: ki-unlifted
-stability: experimental
-synopsis: A lightweight structured-concurrency library
-tested-with: GHC == 9.0.2, GHC == 9.2.5, GHC == 9.4.4
-version: 1.0.0.1
-x-revision: 1
+stability: stable
+synopsis: A lightweight structured concurrency library
+tested-with: GHC == 9.4.7, GHC == 9.6.3, GHC == 9.8.1
+version: 1.0.0.2
 
 description:
-  A lightweight structured-concurrency library.
+  A lightweight structured concurrency library.
   .
   For a specialised variant of this API that does not use
   @<https://hackage.haskell.org/package/unliftio-core unliftio-core>@, see
@@ -32,7 +31,7 @@ source-repository head
 
 common component
   build-depends:
-    base ^>= 4.12 || ^>= 4.13 || ^>= 4.14 || ^>= 4.15 || ^>= 4.16 || ^>= 4.17 || ^>= 4.18,
+    base ^>= 4.12 || ^>= 4.13 || ^>= 4.14 || ^>= 4.15 || ^>= 4.16 || ^>= 4.17 || ^>= 4.18 || ^>= 4.19,
   default-extensions:
     AllowAmbiguousTypes
     BangPatterns
@@ -74,6 +73,9 @@ common component
   if impl(ghc >= 9.2)
     ghc-options:
       -Wno-missing-kind-signatures
+  if impl(ghc >= 9.8)
+    ghc-options:
+      -Wno-missing-role-annotations
 
 library
   import: component
