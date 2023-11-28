@@ -79,7 +79,7 @@ uninterruptiblyMasked (IO io) =
   IO (maskUninterruptible# io)
 
 -- Like try, but with continuations
-tryEitherSTM :: Exception e => (e -> STM b) -> (a -> STM b) -> STM a -> STM b
+tryEitherSTM :: (Exception e) => (e -> STM b) -> (a -> STM b) -> STM a -> STM b
 tryEitherSTM onFailure onSuccess action =
   join (catchSTM (onSuccess <$> action) (pure . onFailure))
 

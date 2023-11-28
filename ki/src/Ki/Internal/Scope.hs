@@ -25,11 +25,12 @@ import Control.Exception
     uninterruptibleMask,
     pattern ErrorCall,
   )
-import Control.Monad (when, guard)
+import Control.Monad (guard, when)
 import Data.Foldable (for_)
 import Data.Functor (void)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap.Lazy as IntMap.Lazy
+import Data.Maybe (isJust)
 import Data.Void (Void, absurd)
 import GHC.Conc
   ( STM,
@@ -58,7 +59,6 @@ import Ki.Internal.IO
     uninterruptiblyMasked,
   )
 import Ki.Internal.Thread
-import Data.Maybe (isJust)
 
 -- | A scope.
 --
@@ -360,7 +360,7 @@ forkWith_ scope opts action = do
 --
 -- * Synchronous (/i.e./ not an instance of 'SomeAsyncException').
 -- * An instance of @e@.
-forkTry :: forall e a. Exception e => Scope -> IO a -> IO (Thread (Either e a))
+forkTry :: forall e a. (Exception e) => Scope -> IO a -> IO (Thread (Either e a))
 forkTry scope =
   forkTryWith scope defaultThreadOptions
 
@@ -370,7 +370,7 @@ data Result a
   | GoodResult a
 
 -- | Variant of 'Ki.forkTry' that takes an additional options argument.
-forkTryWith :: forall e a. Exception e => Scope -> ThreadOptions -> IO a -> IO (Thread (Either e a))
+forkTryWith :: forall e a. (Exception e) => Scope -> ThreadOptions -> IO a -> IO (Thread (Either e a))
 forkTryWith scope opts action = do
   resultVar <- newTVarIO NoResultYet
   let done result = UnexceptionalIO (atomically (writeTVar resultVar result))
