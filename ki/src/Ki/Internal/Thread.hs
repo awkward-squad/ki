@@ -2,15 +2,13 @@ module Ki.Internal.Thread
   ( Thread,
     makeThread,
     await,
-    forkWithAffinity,
   )
 where
 
-import Control.Concurrent (ThreadId, forkOS)
+import Control.Concurrent (ThreadId)
 import Control.Exception (BlockedIndefinitelyOnSTM (..))
 import GHC.Conc (STM)
-import Ki.Internal.IO (forkIO, forkOn, tryEitherSTM)
-import Ki.Internal.ThreadAffinity (ThreadAffinity (..))
+import Ki.Internal.IO (tryEitherSTM)
 
 -- | A thread.
 --
@@ -47,13 +45,6 @@ makeThread threadId action =
       -- cover this use case and prevent any accidental infinite loops.
       await_ = tryEitherSTM (\BlockedIndefinitelyOnSTM -> action) pure action
     }
-
--- forkIO/forkOn/forkOS, switching on affinity
-forkWithAffinity :: ThreadAffinity -> IO () -> IO ThreadId
-forkWithAffinity = \case
-  Unbound -> forkIO
-  Capability n -> forkOn n
-  OsThread -> Control.Concurrent.forkOS
 
 -- | Wait for a thread to terminate.
 await :: Thread a -> STM a

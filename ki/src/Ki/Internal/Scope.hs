@@ -61,7 +61,8 @@ import Ki.Internal.IO
   )
 import Ki.Internal.NonblockingSTM
 import Ki.Internal.Propagating (Tid, peelOffPropagating, propagate, pattern PropagatingFrom)
-import Ki.Internal.Thread (Thread, forkWithAffinity, makeThread)
+import Ki.Internal.Thread (Thread, makeThread)
+import Ki.Internal.ThreadAffinity (forkWithAffinity)
 import Ki.Internal.ThreadOptions (ThreadOptions (..), defaultThreadOptions)
 
 -- | A scope.
