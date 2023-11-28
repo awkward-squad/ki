@@ -48,13 +48,8 @@ import Ki.Internal.Scope
     fork_,
     scoped,
   )
-import Ki.Internal.Thread
-  ( Thread,
-    ThreadAffinity (..),
-    ThreadOptions (..),
-    await,
-    defaultThreadOptions,
-  )
+import Ki.Internal.Thread (Thread, ThreadOptions (..), await, defaultThreadOptions)
+import Ki.Internal.ThreadAffinity (ThreadAffinity (..))
 
 -- $introduction
 --

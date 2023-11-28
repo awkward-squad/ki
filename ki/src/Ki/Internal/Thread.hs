@@ -2,25 +2,14 @@ module Ki.Internal.Thread
   ( Thread,
     makeThread,
     await,
-    Tid,
-    ThreadAffinity (..),
     forkWithAffinity,
     ThreadOptions (..),
     defaultThreadOptions,
-    ThreadFailed (..),
-    unwrapThreadFailed,
   )
 where
 
 import Control.Concurrent (ThreadId, forkOS)
-import Control.Exception
-  ( BlockedIndefinitelyOnSTM (..),
-    Exception (fromException, toException),
-    MaskingState (..),
-    SomeException,
-    asyncExceptionFromException,
-    asyncExceptionToException,
-  )
+import Control.Exception (BlockedIndefinitelyOnSTM (..), MaskingState (..))
 import GHC.Conc (STM)
 import Ki.Internal.ByteCount (ByteCount)
 import Ki.Internal.IO (forkIO, forkOn, tryEitherSTM)
@@ -61,10 +50,6 @@ makeThread threadId action =
       -- cover this use case and prevent any accidental infinite loops.
       await_ = tryEitherSTM (\BlockedIndefinitelyOnSTM -> action) pure action
     }
-
--- A unique identifier for a thread within a scope. (Internal type alias)
-type Tid =
-  Int
 
 -- forkIO/forkOn/forkOS, switching on affinity
 forkWithAffinity :: ThreadAffinity -> IO () -> IO ThreadId
@@ -128,24 +113,6 @@ defaultThreadOptions =
       label = "",
       maskingState = Unmasked
     }
-
--- Internal exception type thrown by a child thread to its parent, if it fails unexpectedly.
-data ThreadFailed = ThreadFailed
-  { childId :: {-# UNPACK #-} !Tid,
-    exception :: !SomeException
-  }
-  deriving stock (Show)
-
-instance Exception ThreadFailed where
-  toException = asyncExceptionToException
-  fromException = asyncExceptionFromException
-
--- Peel an outer ThreadFailed layer off of some exception, if there is one.
-unwrapThreadFailed :: SomeException -> SomeException
-unwrapThreadFailed e0 =
-  case fromException e0 of
-    Just (ThreadFailed _ e1) -> e1
-    Nothing -> e0
 
 -- | Wait for a thread to terminate.
 await :: Thread a -> STM a

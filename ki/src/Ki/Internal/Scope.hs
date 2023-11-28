@@ -49,7 +49,7 @@ import GHC.Conc.Sync (readTVarIO)
 import GHC.IO (unsafeUnmask)
 import IntSupply (IntSupply)
 import qualified IntSupply
-import Ki.Internal.ByteCount
+import Ki.Internal.ByteCount (byteCountToInt64)
 import Ki.Internal.IO
   ( IOResult (..),
     UnexceptionalIO (..),
@@ -60,7 +60,8 @@ import Ki.Internal.IO
     uninterruptiblyMasked,
   )
 import Ki.Internal.NonblockingSTM
-import Ki.Internal.Thread
+import Ki.Internal.Propagating (Tid, peelOffPropagating, propagate, pattern PropagatingFrom)
+import Ki.Internal.Thread (Thread, ThreadOptions (..), defaultThreadOptions, forkWithAffinity, makeThread)
 
 -- | A scope.
 --
@@ -171,7 +172,7 @@ scoped action = do
       -- If one of our children propagated an exception to us, then we know it's about to terminate, so we don't bother
       -- throwing an exception to it.
       pure case result of
-        Left (fromException -> Just ThreadFailed {childId}) -> IntMap.Lazy.delete childId livingChildren0
+        Left (PropagatingFrom childId) -> IntMap.Lazy.delete childId livingChildren0
         _ -> livingChildren0
 
     -- Deliver a ScopeClosing exception to every living child.
@@ -190,8 +191,8 @@ scoped action = do
 
     -- By now there are three sources of exception:
     --
-    --   1) A sync or async exception thrown during the callback, captured in `result`. If applicable, we want to unwrap
-    --      the `ThreadFailed` off of this, which was only used to indicate it came from one of our children.
+    --   1) A sync or async exception thrown during the callback, captured in `result`. If applicable, we want to peel
+    --      the `Propagating` off of this, which was only used to indicate it came from one of our children.
     --
     --   2) A sync or async exception left for us in `childExceptionVar` by a child that tried to propagate it to us
     --      directly, but failed (because we killed it concurrently).
@@ -201,7 +202,7 @@ scoped action = do
     --
     -- We cannot throw more than one, so throw them in that priority order.
     case result of
-      Left exception -> throwIO (unwrapThreadFailed exception)
+      Left exception -> throwIO (peelOffPropagating exception)
       Right value ->
         tryTakeMVar childExceptionVar >>= \case
           Nothing -> pure value
@@ -429,11 +430,11 @@ propagateException :: Scope -> Tid -> SomeException -> UnexceptionalIO ()
 propagateException Scope {childExceptionVar, parentThreadId, statusVar} childId exception =
   UnexceptionalIO (readTVarIO statusVar) >>= \case
     Closing -> tryPutChildExceptionVar -- (A) / (B)
-    _ -> loop -- we know status is Open here
+    status -> assert (status >= 0) loop -- we know status is Open here
   where
     loop :: UnexceptionalIO ()
     loop =
-      unexceptionalTry (throwTo parentThreadId ThreadFailed {childId, exception}) >>= \case
+      unexceptionalTry (propagate exception childId parentThreadId) >>= \case
         Failure IsScopeClosingException -> tryPutChildExceptionVar -- (C)
         Failure _ -> loop -- (D)
         Success _ -> pure ()

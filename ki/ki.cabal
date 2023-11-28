@@ -91,6 +91,7 @@ library
     Ki.Internal.ByteCount
     Ki.Internal.IO
     Ki.Internal.NonblockingSTM
+    Ki.Internal.Propagating
     Ki.Internal.Scope
     Ki.Internal.Thread
     Ki.Internal.ThreadAffinity
