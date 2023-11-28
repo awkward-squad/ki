@@ -1,4 +1,5 @@
 .envrc
 .ghc.environment.*
 .ghcid
+Session.vim
 dist-newstyle/

@@ -22,8 +22,9 @@ import Control.Exception
     asyncExceptionToException,
   )
 import GHC.Conc (STM)
-import Ki.Internal.ByteCount
+import Ki.Internal.ByteCount (ByteCount)
 import Ki.Internal.IO (forkIO, forkOn, tryEitherSTM)
+import Ki.Internal.ThreadAffinity (ThreadAffinity (..))
 
 -- | A thread.
 --
@@ -64,16 +65,6 @@ makeThread threadId action =
 -- A unique identifier for a thread within a scope. (Internal type alias)
 type Tid =
   Int
-
--- | What, if anything, a thread is bound to.
-data ThreadAffinity
-  = -- | Unbound.
-    Unbound
-  | -- | Bound to a capability.
-    Capability Int
-  | -- | Bound to an OS thread.
-    OsThread
-  deriving stock (Eq, Show)
 
 -- forkIO/forkOn/forkOS, switching on affinity
 forkWithAffinity :: ThreadAffinity -> IO () -> IO ThreadId

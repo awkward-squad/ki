@@ -93,6 +93,7 @@ library
     Ki.Internal.NonblockingSTM
     Ki.Internal.Scope
     Ki.Internal.Thread
+    Ki.Internal.ThreadAffinity
 
 test-suite tests
   import: component
