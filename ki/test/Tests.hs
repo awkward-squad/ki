@@ -20,16 +20,16 @@ tests =
       scope <- Ki.scoped pure
       (atomically . Ki.await =<< Ki.fork scope (pure ())) `shouldThrow` ErrorCall "ki: scope closed"
       pure (),
-    testCase "`fork` throws ScopeClosing when the scope is closing" do
+    testCase "`fork` throws ScopeClosing to children when the scope is closing" do
       Ki.scoped \scope -> do
         _ <-
           Ki.forkWith scope Ki.defaultThreadOptions {Ki.maskingState = MaskedInterruptible} do
             -- Naughty: catch and ignore the ScopeClosing delivered to us
             result1 <- try @SomeException (threadDelay maxBound)
-            show result1 `shouldBe` "Left ScopeClosing"
+            show result1 `shouldBe` "Left <<internal ki exception: scope closing>>"
             -- Try forking a new thread in the closing scope, and assert that (synchronously) throws ScopeClosing
             result2 <- try @SomeException (Ki.fork_ scope undefined)
-            show result2 `shouldBe` "Left ScopeClosing"
+            show result2 `shouldBe` "Left <<internal ki exception: scope closing>>"
         pure (),
     testCase "`awaitAll` succeeds when no threads are alive" do
       Ki.scoped (atomically . Ki.awaitAll),

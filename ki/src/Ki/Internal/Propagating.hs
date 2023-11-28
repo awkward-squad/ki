@@ -9,16 +9,18 @@ where
 import Control.Concurrent (ThreadId)
 import Control.Exception (Exception (..), SomeException, asyncExceptionFromException, asyncExceptionToException, throwTo)
 
--- Internal exception type thrown by a child thread to its parent, if it fails unexpectedly.
+-- Internal exception type thrown by a child thread to its parent, if the child fails unexpectedly.
 data Propagating = Propagating
   { childId :: {-# UNPACK #-} !Tid,
     exception :: !SomeException
   }
-  deriving stock (Show)
 
 instance Exception Propagating where
   toException = asyncExceptionToException
   fromException = asyncExceptionFromException
+
+instance Show Propagating where
+  show _ = "<<internal ki exception: propagating>>"
 
 pattern PropagatingFrom :: Tid -> SomeException
 pattern PropagatingFrom childId <- (fromException -> Just Propagating {childId})

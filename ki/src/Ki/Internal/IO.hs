@@ -10,7 +10,9 @@ module Ki.Internal.IO
     unexceptionalTryEither,
 
     -- * Exception utils
-    isAsyncException,
+    assertIO,
+    assertM,
+    exceptionIs,
     interruptiblyMasked,
     uninterruptiblyMasked,
     tryEitherSTM,
@@ -29,6 +31,7 @@ import GHC.Base (maskAsyncExceptions#, maskUninterruptible#)
 import GHC.Conc (STM, ThreadId (ThreadId), catchSTM)
 import GHC.Exts (Int (I#), fork#, forkOn#)
 import GHC.IO (IO (IO))
+import System.IO.Unsafe (unsafePerformIO)
 import Prelude
 
 -- A little promise that this IO action cannot throw an exception (*including* async exceptions, which you normally
@@ -68,9 +71,22 @@ unexceptionalTryEither onFailure onSuccess action =
         (coerce @_ @(a -> IO b) onSuccess <$> action)
         (pure . coerce @_ @(SomeException -> IO b) onFailure)
 
-isAsyncException :: SomeException -> Bool
-isAsyncException =
-  isJust . fromException @SomeAsyncException
+-- | Make an assertion in a IO that requires IO.
+assertIO :: IO Bool -> IO ()
+assertIO b =
+  assert (unsafePerformIO b) (pure ())
+{-# INLINE assertIO #-}
+
+-- | Make an assertion in a monad.
+assertM :: (Applicative m) => Bool -> m ()
+assertM b =
+  assert b (pure ())
+{-# INLINE assertM #-}
+
+-- | @exceptionIs \@e exception@ returns whether @exception@ is an instance of @e@.
+exceptionIs :: forall e. (Exception e) => SomeException -> Bool
+exceptionIs =
+  isJust . fromException @e
 
 -- | Call an action with asynchronous exceptions interruptibly masked.
 interruptiblyMasked :: forall a. IO a -> IO a
