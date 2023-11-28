@@ -23,16 +23,18 @@ instance Exception Propagating where
 pattern PropagatingFrom :: Tid -> SomeException
 pattern PropagatingFrom childId <- (fromException -> Just Propagating {childId})
 
+pattern PropagatingThe :: SomeException -> SomeException
+pattern PropagatingThe exception <- (fromException -> Just Propagating {exception})
+
 -- A unique identifier for a thread within a scope. (Internal type alias)
 type Tid =
   Int
 
 -- Peel an outer Propagating layer off of some exception, if there is one.
 peelOffPropagating :: SomeException -> SomeException
-peelOffPropagating e0 =
-  case fromException e0 of
-    Just (Propagating _ e1) -> e1
-    Nothing -> e0
+peelOffPropagating = \case
+  PropagatingThe exception -> exception
+  exception -> exception
 
 -- @propagate exception child parent@ propagates @exception@ from @child@ to @parent@.
 propagate :: SomeException -> Tid -> ThreadId -> IO ()
