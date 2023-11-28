@@ -23,7 +23,7 @@ description:
   .
   Remember to link your program with @-threaded@ to use the threaded runtime!
 
-extra-source-files:
+extra-doc-files:
   CHANGELOG.md
   README.md
 
