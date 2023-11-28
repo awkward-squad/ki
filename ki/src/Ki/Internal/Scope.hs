@@ -61,7 +61,8 @@ import Ki.Internal.IO
   )
 import Ki.Internal.NonblockingSTM
 import Ki.Internal.Propagating (Tid, peelOffPropagating, propagate, pattern PropagatingFrom)
-import Ki.Internal.Thread (Thread, ThreadOptions (..), defaultThreadOptions, forkWithAffinity, makeThread)
+import Ki.Internal.Thread (Thread, forkWithAffinity, makeThread)
+import Ki.Internal.ThreadOptions (ThreadOptions (..), defaultThreadOptions)
 
 -- | A scope.
 --
@@ -159,8 +160,8 @@ scoped action = do
         atomically do
           -- Block until we haven't committed to starting any threads. Without this, we may create a thread concurrently
           -- with closing its scope, and not grab its thread id to throw an exception to.
-          n <- readTVar statusVar
-          assert (n >= 0) (guard (n == 0))
+          starting <- readTVar statusVar
+          assert (starting >= 0) (guard (starting == 0))
           -- Indicate that this scope is closing, so attempts to create a new thread within it will throw ScopeClosing
           -- (as if the calling thread was a parent of this scope, which it should be, and we threw it a ScopeClosing
           -- ourselves).
@@ -185,7 +186,8 @@ scoped action = do
       -- Block until all children have terminated; this relies on children respecting the async exception, which they
       -- must, for correctness. Otherwise, a thread could indeed outlive the scope in which it's created, which is
       -- definitely not structured concurrency!
-      blockUntilEmpty childrenVar
+      children <- readTVar childrenVar
+      guard (IntMap.Lazy.null children)
       -- Record the scope as closed (from closing), so subsequent attempts to use it will throw a runtime exception
       writeTVar statusVar Closed
 
@@ -292,18 +294,13 @@ unrecordChild childrenVar childId = do
 -- | Wait until all threads created within a scope terminate.
 awaitAll :: Scope -> STM ()
 awaitAll Scope {childrenVar, statusVar} = do
-  blockUntilEmpty childrenVar
-  n <- readTVar statusVar
-  case n of
-    Open -> guard (n == 0)
+  children <- readTVar childrenVar
+  guard (IntMap.Lazy.null children)
+  status <- readTVar statusVar
+  case status of
+    Open -> guard (status == 0)
     Closing -> retry -- block until closed
     Closed -> pure ()
-
--- Block until an IntMap becomes empty.
-blockUntilEmpty :: TVar (IntMap a) -> STM ()
-blockUntilEmpty var = do
-  x <- readTVar var
-  guard (IntMap.Lazy.null x)
 
 -- | Create a child thread to execute an action within a scope.
 --

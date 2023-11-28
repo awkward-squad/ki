@@ -95,6 +95,7 @@ library
     Ki.Internal.Scope
     Ki.Internal.Thread
     Ki.Internal.ThreadAffinity
+    Ki.Internal.ThreadOptions
 
 test-suite tests
   import: component
