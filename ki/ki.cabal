@@ -90,6 +90,7 @@ library
   other-modules:
     Ki.Internal.ByteCount
     Ki.Internal.IO
+    Ki.Internal.NonblockingSTM
     Ki.Internal.Scope
     Ki.Internal.Thread
 
