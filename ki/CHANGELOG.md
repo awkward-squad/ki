@@ -1,8 +1,12 @@
-## [1.0.1.1] - 2023-10-10
+## [1.0.1.2] - Unreleased
+
+- Refactor: depend on (rather than inline) `int-supply` package
+
+## [1.0.1.1] - October 10, 2023
 
 - Compat: support GHC 9.8.1
 
-## [1.0.1.0] - 2023-04-03
+## [1.0.1.0] - April 3, 2023
 
 - Change [#25](https://github.com/awkward-squad/ki/pull/25): Attempting to fork a thread in a closing scope now acts as
   if it were a child being terminated due to the scope closing. Previously, attempting to fork a thread in a closing
@@ -10,16 +14,16 @@
 - Change [#27](https://github.com/awkward-squad/ki/pull/27): Calling `awaitAll` on a closed scope now returns `()`
   instead of blocking forever.
 
-## [1.0.0.2] - 2023-01-25
+## [1.0.0.2] - January 25, 2023
 
 - Bugfix [#20](https://github.com/awkward-squad/ki/pull/20): previously, a child thread could deadlock when attempting
   to propagate an exception to its parent
 
-## [1.0.0.1] - 2022-08-14
+## [1.0.0.1] - August 14, 2022
 
 - Compat: support GHC 9.4.1
 
-## [1.0.0] - 2022-06-30
+## [1.0.0] - June 30, 2022
 
 - Breaking: Remove `Context` type, `Ki.Implicit` module, and the ability to soft-cancel a `Scope`.
 - Breaking: Remove `Duration` type and its associated API, including `waitFor` and `awaitFor`.
@@ -40,17 +44,17 @@
 
 - Performance: Use atomic fetch-and-add rather than a `TVar` to track internal child thread ids.
 
-## [0.2.0] - 2020-12-17
+## [0.2.0] - December 17, 2020
 
 - Breaking: Remove `ThreadFailed` exception wrapper.
 - Breaking: Rename `cancelScope` to `cancel`.
 
-## [0.1.0.1] - 2020-11-30
+## [0.1.0.1] - November 30, 2020
 
 - Misc: Replace `AtomicCounter` with `Int` to drop the `atomic-primops` dependency.
 
 - Bounds: Lower `cabal-version` from 3.0 to 2.2 because `stack` cannot parse 3.0.
 
-## [0.1.0] - 2020-11-11
+## [0.1.0] - November 11, 2020
 
 - Initial release.

@@ -83,12 +83,12 @@ library
   import: component
   build-depends:
     containers ^>= 0.6 || ^>= 0.7,
+    int-supply ^>= 1.0.0,
   exposed-modules:
     Ki
   hs-source-dirs: src
   other-modules:
     Ki.Internal.ByteCount
-    Ki.Internal.Counter
     Ki.Internal.IO
     Ki.Internal.Scope
     Ki.Internal.Thread

@@ -48,7 +48,8 @@ import GHC.Conc
 import GHC.Conc.Sync (readTVarIO)
 import GHC.IO (unsafeUnmask)
 import Ki.Internal.ByteCount
-import Ki.Internal.Counter
+import IntSupply (IntSupply)
+import qualified IntSupply
 import Ki.Internal.IO
   ( IOResult (..),
     UnexceptionalIO (..),
@@ -84,8 +85,8 @@ data Scope = Scope
     childExceptionVar :: {-# UNPACK #-} !(MVar SomeException),
     -- The set of child threads that are currently running, each keyed by a monotonically increasing int.
     childrenVar :: {-# UNPACK #-} !(TVar (IntMap ThreadId)),
-    -- The counter that holds the (int) key to use for the next child thread.
-    nextChildIdCounter :: {-# UNPACK #-} !Counter,
+    -- The supply that holds the (int) key to use for the next child thread.
+    nextChildIdSupply :: {-# UNPACK #-} !IntSupply,
     -- The id of the thread that created the scope, which is considered the parent of all threads created within it.
     parentThreadId :: {-# UNPACK #-} !ThreadId,
     statusVar :: {-# UNPACK #-} !(TVar ScopeStatus)
@@ -210,16 +211,16 @@ allocateScope :: IO Scope
 allocateScope = do
   childExceptionVar <- newEmptyMVar
   childrenVar <- newTVarIO IntMap.Lazy.empty
-  nextChildIdCounter <- newCounter
+  nextChildIdSupply <- IntSupply.new
   parentThreadId <- myThreadId
   statusVar <- newTVarIO 0
-  pure Scope {childExceptionVar, childrenVar, nextChildIdCounter, parentThreadId, statusVar}
+  pure Scope {childExceptionVar, childrenVar, nextChildIdSupply, parentThreadId, statusVar}
 
 -- Spawn a thread in a scope, providing it its child id and a function that sets the masking state to the requested
 -- masking state. The given action is called with async exceptions interruptibly masked.
 spawn :: Scope -> ThreadOptions -> (Tid -> (forall x. IO x -> IO x) -> UnexceptionalIO ()) -> IO ThreadId
 spawn
-  Scope {childrenVar, nextChildIdCounter, statusVar}
+  Scope {childrenVar, nextChildIdSupply, statusVar}
   ThreadOptions {affinity, allocationLimit, label, maskingState = requestedChildMaskingState}
   action = do
     -- Interruptible mask is enough so long as none of the STM operations below block.
@@ -236,7 +237,7 @@ spawn
             Closing -> throwSTM ScopeClosing
             Closed -> throwSTM (ErrorCall "ki: scope closed")
 
-      childId <- incrCounter nextChildIdCounter
+      childId <- IntSupply.next nextChildIdSupply
 
       childThreadId <-
         forkWithAffinity affinity do
