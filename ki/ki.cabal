@@ -13,6 +13,7 @@ stability: stable
 synopsis: A lightweight structured concurrency library
 tested-with: GHC == 9.6.5, GHC == 9.8.2, GHC == 9.10.1
 version: 1.0.1.1
+x-revision: 1
 
 description:
   A lightweight structured concurrency library.
