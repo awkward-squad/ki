@@ -1,6 +1,8 @@
-## [1.0.1.2] - Unreleased
+## [1.0.1.2] - July 15, 2024
 
-- Refactor: depend on (rather than inline) `int-supply` package
+- Bugfix [#33](https://github.com/awkward-squad/ki/issues/33): A scope could erroneously fail to propagate an exception
+  to one of its children.
+- Refactor: depend on (rather than inline) `int-supply` package.
 
 ## [1.0.1.1] - October 10, 2023
 
@@ -17,7 +19,7 @@
 ## [1.0.0.2] - January 25, 2023
 
 - Bugfix [#20](https://github.com/awkward-squad/ki/pull/20): previously, a child thread could deadlock when attempting
-  to propagate an exception to its parent
+  to propagate an exception to its parent.
 
 ## [1.0.0.1] - August 14, 2022
 
