@@ -1,9 +1,10 @@
 module Main (main) where
 
-import Control.Concurrent (newEmptyMVar, putMVar, takeMVar, threadDelay)
+import Control.Concurrent (newEmptyMVar, putMVar, readMVar, takeMVar, threadDelay)
 import Control.Concurrent.STM (atomically)
 import Control.Exception
 import Control.Monad
+import Data.IORef
 import GHC.IO (unsafeUnmask)
 import qualified Ki
 import Test.Tasty (TestTree, defaultMain, testGroup)
@@ -119,7 +120,25 @@ tests =
           Ki.forkWith_ scope Ki.defaultThreadOptions {Ki.maskingState = MaskedInterruptible} do
             putMVar ready ()
             unsafeUnmask (forever (threadDelay maxBound)) `finally` throwIO A
-          takeMVar ready
+          takeMVar ready,
+    testCase "regression test https://github.com/awkward-squad/ki/issues/33" do
+      ref <- newIORef False
+      ready <- newEmptyMVar
+
+      handle (\A -> pure ()) do
+        Ki.scoped \scope1 -> do
+          _ <-
+            Ki.fork scope1 do
+              readMVar ready
+              throwIO A
+          Ki.scoped \scope2 -> do
+            _ <-
+              Ki.fork scope2 do
+                (putMVar ready () >> threadDelay 1_000_000) `catch` \(_ :: SomeException) ->
+                  writeIORef ref True
+            atomically (Ki.awaitAll scope2)
+
+      readIORef ref `shouldReturn` True
   ]
 
 data A = A
