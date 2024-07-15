@@ -60,7 +60,7 @@ import Ki.Internal.IO
     uninterruptiblyMasked,
   )
 import Ki.Internal.NonblockingSTM
-import Ki.Internal.Propagating (Tid, peelOffPropagating, propagate, pattern PropagatingFrom)
+import Ki.Internal.Propagating (Tid, peelOffPropagating, propagate)
 import Ki.Internal.Thread (Thread, makeThread)
 import Ki.Internal.ThreadAffinity (forkWithAffinity)
 import Ki.Internal.ThreadOptions (ThreadOptions (..), defaultThreadOptions)
@@ -151,26 +151,19 @@ scoped action = do
     result <- try (restore (action scope))
 
     !runningChildren <- do
-      runningChildren <-
-        atomically do
-          -- Block until we haven't committed to starting any threads. Without this, we may create a thread concurrently
-          -- with closing its scope, and not grab its thread id to throw an exception to.
-          starting <- readTVar statusVar
-          assertM (starting >= 0)
-          guard (starting == 0)
-          -- Indicate that this scope is closing, so attempts to create a new thread within it will throw ScopeClosing
-          -- (as if the calling thread was a parent of this scope, which it should be, and we threw it a ScopeClosing
-          -- ourselves).
-          writeTVar statusVar Closing
-          -- Return the list of currently-running children to kill. Some of them may have *just* started (e.g. if we
-          -- initially retried in `guard (n == 0)` above). That's fine - kill them all!
-          readTVar childrenVar
-
-      -- If one of our children propagated an exception to us, then we know it's about to terminate, so we don't bother
-      -- throwing an exception to it.
-      pure case result of
-        Left (PropagatingFrom childId) -> IntMap.Lazy.delete childId runningChildren
-        _ -> runningChildren
+      atomically do
+        -- Block until we haven't committed to starting any threads. Without this, we may create a thread concurrently
+        -- with closing its scope, and not grab its thread id to throw an exception to.
+        starting <- readTVar statusVar
+        assertM (starting >= 0)
+        guard (starting == 0)
+        -- Indicate that this scope is closing, so attempts to create a new thread within it will throw ScopeClosing
+        -- (as if the calling thread was a parent of this scope, which it should be, and we threw it a ScopeClosing
+        -- ourselves).
+        writeTVar statusVar Closing
+        -- Return the list of currently-running children to kill. Some of them may have *just* started (e.g. if we
+        -- initially retried in `guard (n == 0)` above). That's fine - kill them all!
+        readTVar childrenVar
 
     -- Deliver a ScopeClosing exception to every running child.
     --

@@ -1,6 +1,5 @@
 module Ki.Internal.Propagating
-  ( pattern PropagatingFrom,
-    Tid,
+  ( Tid,
     peelOffPropagating,
     propagate,
   )
@@ -21,9 +20,6 @@ instance Exception Propagating where
 
 instance Show Propagating where
   show _ = "<<internal ki exception: propagating>>"
-
-pattern PropagatingFrom :: Tid -> SomeException
-pattern PropagatingFrom childId <- (fromException -> Just Propagating {childId})
 
 pattern PropagatingThe :: SomeException -> SomeException
 pattern PropagatingThe exception <- (fromException -> Just Propagating {exception})
