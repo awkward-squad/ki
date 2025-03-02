@@ -3,7 +3,7 @@ cabal-version: 2.2
 author: Mitchell Rosen
 bug-reports: https://github.com/awkward-squad/ki/issues
 category: Concurrency
-copyright: Copyright (C) 2020-2022 Mitchell Rosen, Travis Staton
+copyright: Copyright (C) 2020-2025 Mitchell Rosen, Travis Staton
 homepage: https://github.com/awkward-squad/ki
 license: BSD-3-Clause
 license-file: LICENSE
@@ -11,9 +11,9 @@ maintainer: Mitchell Rosen <mitchellwrosen@gmail.com>, Travis Staton <hello@trav
 name: ki-unlifted
 stability: stable
 synopsis: A lightweight structured concurrency library
-tested-with: GHC == 9.6.5, GHC == 9.8.2, GHC == 9.10.1
+tested-with: GHC == 9.8.4, GHC == 9.10.1, GHC == 9.12.1
 version: 1.0.0.2
-x-revision: 2
+x-revision: 3
 
 description:
   A lightweight structured concurrency library.

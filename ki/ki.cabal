@@ -11,9 +11,9 @@ maintainer: Mitchell Dalvi Rosen <mitchellwrosen@gmail.com>, Travis Staton <hell
 name: ki
 stability: stable
 synopsis: A lightweight structured concurrency library
-tested-with: GHC == 9.6.5, GHC == 9.8.2, GHC == 9.10.1
+tested-with: GHC == 9.8.4, GHC == 9.10.1, GHC == 9.12.1
 version: 1.0.1.2
-x-revision: 1
+x-revision: 2
 
 description:
   A lightweight structured concurrency library.
@@ -83,7 +83,7 @@ common component
 library
   import: component
   build-depends:
-    containers ^>= 0.6 || ^>= 0.7,
+    containers ^>= 0.6 || ^>= 0.7 || ^>= 0.8,
     int-supply ^>= 1.0.0,
   exposed-modules:
     Ki
