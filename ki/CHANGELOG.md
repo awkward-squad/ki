@@ -1,3 +1,12 @@
+## Unreleased
+
+- Bugfix: A child thread that ended with a `ScopeClosing` exception was always treated as having been killed by its
+  own scope closing, and so was never reported to its parent. But a `ScopeClosing` can reach a thread by other
+  routes: `await`ing a thread that was killed by *its* scope closing rethrows that `ScopeClosing`, and forking into a
+  closing scope throws one synchronously to the caller. `fork`, `fork_`, and `forkTry` now check whether the child's
+  scope is actually closing, and otherwise propagate the exception like any other failure. Additionally, a `forkTry`
+  child that was killed by its own scope closing no longer propagates that `ScopeClosing` to its parent.
+
 ## [1.0.1.2] - July 15, 2024
 
 - Bugfix [#33](https://github.com/awkward-squad/ki/issues/33): A scope could erroneously fail to propagate an exception

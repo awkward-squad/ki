@@ -118,9 +118,11 @@ pattern Closed = -2
 
 -- Internal async exception thrown by a parent thread to its children when the scope is closing.
 --
--- In various places we trust without verifying that any 'ScopeClosing' exception, which is not exported by this module,
--- was indeed thrown to a thread by its parent. It is possible to write a program that violates this (just catch the
--- async exception and throw it to some other thread)... but who would do that?
+-- A 'ScopeClosing' can reach a thread by routes other than its parent closing the scope: 'await'ing a thread that was
+-- killed by *its* scope closing rethrows the 'ScopeClosing' it died with, forking into a closing scope throws one
+-- synchronously to the caller, and user code may catch and rethrow it. So when a child ends with a 'ScopeClosing' we
+-- check whether our scope is actually closing before treating it as "we were told to stop"; see
+-- 'shouldPropagateFailure'.
 data ScopeClosing
   = ScopeClosing
 
@@ -327,7 +329,8 @@ forkWith scope opts action = do
     spawn scope opts \childId masking -> do
       unexceptionalTry (masking action) >>= \case
         Failure exception -> do
-          when (not (exceptionIs @ScopeClosing exception)) do
+          shouldPropagate <- shouldPropagateFailure scope exception
+          when shouldPropagate do
             propagateException scope childId exception
           -- even put async exceptions that we propagated. this isn't totally ideal because a caller awaiting this
           -- thread would not be able to distinguish between async exceptions delivered to this thread, or itself
@@ -346,8 +349,9 @@ forkWith_ scope opts action = do
   _childThreadId <-
     spawn scope opts \childId masking ->
       unexceptionalTryEither
-        ( \exception ->
-            when (not (exceptionIs @ScopeClosing exception)) do
+        ( \exception -> do
+            shouldPropagate <- shouldPropagateFailure scope exception
+            when shouldPropagate do
               propagateException scope childId exception
         )
         absurd
@@ -377,12 +381,14 @@ forkTryWith scope opts action = do
       result <- unexceptionalTry (masking action)
       case result of
         Failure exception -> do
-          -- then-branch explanation: if the user calls `forkTry @MyAsyncException` for some reason, we want to ignore
-          -- this request and propagate the async exception. `forkTry` can only be used to catch synchronous exceptions.
-          let shouldPropagate =
-                if exceptionIs @e exception
-                  then exceptionIs @SomeAsyncException exception
-                  else not (exceptionIs @ScopeClosing exception)
+          shouldPropagate <-
+            if exceptionIs @ScopeClosing exception
+              then shouldPropagateFailure scope exception
+              else
+                -- then-branch explanation: if the user calls `forkTry @MyAsyncException` for some reason, we want to
+                -- ignore this request and propagate the async exception. `forkTry` can only be used to catch
+                -- synchronous exceptions.
+                pure (if exceptionIs @e exception then exceptionIs @SomeAsyncException exception else True)
           when shouldPropagate (propagateException scope childId exception)
           done (BadResult exception)
         Success value -> done (GoodResult value)
@@ -396,7 +402,23 @@ forkTryWith scope opts action = do
           GoodResult value -> pure (Right value)
   pure (makeThread childThreadId doAwait)
 
--- We have a non-`ScopeClosing` exception to propagate to our parent.
+-- Should a child that ended with this exception propagate it to its parent?
+--
+-- Any exception other than `ScopeClosing`: yes. A `ScopeClosing`: only if our scope is still open. If the scope is
+-- closing (or closed), our parent is the one who sent it, and it already knows. If the scope is open, nobody could
+-- have sent it to us as part of closing this scope, so it arrived some other way (see the note on `ScopeClosing`)
+-- and is a genuine failure of this thread.
+--
+-- Precondition: interruptibly masked
+shouldPropagateFailure :: Scope -> SomeException -> UnexceptionalIO Bool
+shouldPropagateFailure Scope {statusVar} exception
+  | exceptionIs @ScopeClosing exception =
+      UnexceptionalIO (readTVarIO statusVar) >>= \case
+        Open -> pure True
+        _ -> pure False
+  | otherwise = pure True
+
+-- We have an exception to propagate to our parent.
 --
 -- If our scope has already begun closing (`statusVar` is Closing), then either...
 --
