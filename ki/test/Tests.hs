@@ -138,7 +138,54 @@ tests =
                   writeIORef ref True
             atomically (Ki.awaitAll scope2)
 
-      readIORef ref `shouldReturn` True
+      readIORef ref `shouldReturn` True,
+    -- A child that ends with a `ScopeClosing` normally received it from its own parent, and that must stay quiet.
+    testCase "a child killed by its own scope closing is not reported" do
+      Ki.scoped \scope -> do
+        _ <- Ki.fork scope (forever (threadDelay maxBound))
+        pure (),
+    testCase "a `forkTry` child killed by its own scope closing is not reported" do
+      Ki.scoped \scope -> do
+        _ <- Ki.forkTry @SomeException scope (forever (threadDelay maxBound))
+        pure (),
+    -- But a `ScopeClosing` can also reach a thread by other routes, in which case its scope is still open and the
+    -- failure must be propagated like any other.
+    testCase "a child that ends with a `ScopeClosing` while its scope is still open is reported (via `await`)" do
+      shouldThrowScopeClosing do
+        Ki.scoped \scope -> do
+          _ <-
+            Ki.fork scope do
+              -- `await`ing a thread whose scope has already closed rethrows the `ScopeClosing` it was killed with
+              thread <- Ki.scoped \inner -> Ki.fork inner (forever (threadDelay maxBound))
+              atomically (Ki.await thread)
+          atomically (Ki.awaitAll scope),
+    testCase "a child that ends with a `ScopeClosing` while its scope is still open is reported (via `fork`)" do
+      scopeVar <- newEmptyMVar
+      shouldThrowScopeClosing do
+        Ki.scoped \scope -> do
+          -- The owner of `inner` publishes it, then leaves it closing for a while by returning with a child that
+          -- takes time to die.
+          _ <-
+            Ki.fork scope do
+              Ki.scoped \inner -> do
+                _ <- Ki.fork inner (uninterruptibleMask_ (threadDelay 1_000_000))
+                putMVar scopeVar inner
+                threadDelay 100_000
+          -- An unrelated thread forks into `inner` while it is closing, which synchronously throws `ScopeClosing`.
+          _ <-
+            Ki.fork scope do
+              inner <- readMVar scopeVar
+              threadDelay 300_000
+              Ki.fork_ inner undefined
+          atomically (Ki.awaitAll scope),
+    testCase "a `forkTry` child that ends with a `ScopeClosing` while its scope is still open is reported" do
+      shouldThrowScopeClosing do
+        Ki.scoped \scope -> do
+          _ <-
+            Ki.forkTry @SomeException scope do
+              thread <- Ki.scoped \inner -> Ki.fork inner (forever (threadDelay maxBound))
+              atomically (Ki.await thread)
+          atomically (Ki.awaitAll scope)
   ]
 
 data A = A
@@ -164,6 +211,14 @@ shouldReturn :: (Eq a, Show a) => IO a -> a -> IO ()
 shouldReturn action expected = do
   actual <- action
   actual `shouldBe` expected
+
+-- `ScopeClosing` is not exported, so match on its rendering.
+shouldThrowScopeClosing :: (Show a) => IO a -> IO ()
+shouldThrowScopeClosing action =
+  try @SomeException action >>= \case
+    Left exception | show exception == "<<internal ki exception: scope closing>>" -> pure ()
+    Left exception -> fail ("expected ScopeClosing, got exception " ++ displayException exception)
+    Right value -> fail ("expected ScopeClosing, got " ++ show value)
 
 shouldThrow :: (Show a, Eq e, Exception e) => IO a -> e -> IO ()
 shouldThrow action expected =
